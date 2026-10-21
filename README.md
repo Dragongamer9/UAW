@@ -10,7 +10,7 @@ redistributed.
 | Stage | Piece | State |
 |---|---|---|
 | 1 | MEG v1 archives (+ virtual file system, loose-file overrides) | done, verified on retail Config/Maps/Shaders/Cinematics/Retailers.meg (1,668 files, all CRCs match) |
-| 1 | XML game data (`Data/XML`), `MegaFiles.xml` load order | next |
+| 1 | XML game data (`Data/XML`), `MegaFiles.xml` load order | done: all 168 object files, 3,128 objects (1,099 variants), 0 warnings on retail data |
 | 1 | String tables (`MasterTextFile_*.dat`) | planned |
 | 2 | ALO models / ALA animations, DDS textures → viewer | planned |
 | 2 | TED maps → terrain renderer | planned |
@@ -37,6 +37,22 @@ megtool extract Config.meg ./extracted
 
 Lookups ignore case and slash direction. Extraction refuses paths that would
 escape the output folder.
+
+## objdump
+
+Point it at the folder that contains `Data/MegaFiles.xml`:
+
+```sh
+objdump "<game>" summary              # archives, object counts, factions
+objdump "<game>" units Novus          # buildable units: health, cost, build time, speed, armor
+objdump "<game>" show Alien_Grunt     # every field of one object, variants resolved
+objdump "<game>" warnings
+```
+
+Object fields are flattened to paths, e.g.
+`BehaviorType[ProductionBehaviorType].Build_Cost_Credits`. Variants copy
+their base type and override the paths they define. `<!--INCLUDE "path" -->`
+comments are include directives and are expanded in place.
 
 ## Format notes
 
