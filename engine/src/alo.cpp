@@ -1,5 +1,6 @@
 #include "alamo/alo.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 namespace alamo {

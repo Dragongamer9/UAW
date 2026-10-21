@@ -15,7 +15,8 @@ redistributed.
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
 | 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
-| 2 | Particle systems (`0x1500` .ALO), real-time 3D viewer | next |
+| 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: first version; untextured until Textures.meg is available |
+| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | next |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
@@ -27,6 +28,32 @@ cmake -S . -B build
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+SDL3 (and zlib, where the system has none) are downloaded and built
+automatically. Every push builds Windows and Linux binaries on GitHub Actions;
+download them from the run's **Artifacts**.
+
+## uaw-viewer
+
+```sh
+uaw-viewer "<game>" M16_Sahara               # open a map at player 1's start
+uaw-viewer "<game>" M25_Grand_Canyon --player 5
+uaw-viewer "<game>" M16_Sahara --screenshot shot.png --size 1920x1080 --camera 2700,1700,2400,15,38
+```
+
+On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
+`Data\MegaFiles.xml`) and double-click it to open the Sahara map.
+
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Pan | WASD / arrows, left-drag | left stick |
+| Rotate / tilt | Q/E, R/F, right- or middle-drag | right stick |
+| Zoom | mouse wheel, +/- | triggers |
+| Toggle stand-in boxes | P | Y |
+| Quit | Esc | Back |
+
+Objects whose model isn't available are drawn as boxes: grey props, structures
+and units in their owner's colour, cyan scrap piles, and a tall pole at each start position.
 
 ## megtool
 

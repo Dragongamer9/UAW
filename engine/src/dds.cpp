@@ -1,5 +1,6 @@
 #include "alamo/dds.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <zlib.h>
 

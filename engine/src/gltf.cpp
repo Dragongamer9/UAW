@@ -1,6 +1,7 @@
 #include "alamo/gltf.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -89,7 +90,7 @@ std::vector<uint8_t> exportGlb(const Model& model, const TextureLoader& textures
 
     auto textureFor = [&](const std::string& name) -> int {
         std::string key = name;
-        std::transform(key.begin(), key.end(), key.begin(), ::toupper);
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return char(std::toupper(c)); });
         auto it = textureIndex.find(key);
         if (it != textureIndex.end()) return it->second;
         int idx = -1;

@@ -1,6 +1,7 @@
 #include "alamo/xml.hpp"
 
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 
 namespace alamo {

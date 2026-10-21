@@ -5,6 +5,7 @@
 //   maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME]
 //                                                  top-down picture: shaded terrain, objects, starts
 // <MAP> is a name like M16_Sahara or a full path inside the archives.
+#include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/ted.hpp"
@@ -116,45 +117,6 @@ struct Canvas {
     }
 };
 
-// Average colour of a terrain texture, if the texture is available.
-static std::optional<Vec3> textureColor(MegVfs& vfs, const std::string& name) {
-    for (const char* ext : {".dds", ".tga"}) {
-        std::string p = "Data\\Art\\Textures\\" + name + ext;
-        if (!vfs.exists(p)) continue;
-        try {
-            auto bytes = vfs.read(p);
-            Image img = std::string(ext) == ".dds" ? decodeDds(bytes) : decodeTga(bytes);
-            double s[3] = {0, 0, 0};
-            const size_t n = size_t(img.width) * img.height;
-            for (size_t i = 0; i < n; ++i)
-                for (int k = 0; k < 3; ++k) s[k] += img.rgba[i * 4 + k];
-            return Vec3{float(s[0] / n / 255), float(s[1] / n / 255), float(s[2] / n / 255)};
-        } catch (...) {
-        }
-    }
-    return std::nullopt;
-}
-
-// Plausible stand-in colour from the texture's name when the texture itself isn't available.
-static Vec3 guessColor(const std::string& name, size_t index) {
-    std::string n = name;
-    std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-    struct Rule { const char* key; Vec3 c; };
-    static const Rule rules[] = {
-        {"snow", {0.88f, 0.9f, 0.93f}}, {"ice", {0.8f, 0.86f, 0.9f}},   {"grass", {0.36f, 0.48f, 0.24f}},
-        {"forest", {0.3f, 0.4f, 0.22f}}, {"moss", {0.34f, 0.42f, 0.25f}}, {"sand", {0.78f, 0.68f, 0.48f}},
-        {"snd", {0.76f, 0.66f, 0.47f}},  {"desert", {0.8f, 0.7f, 0.5f}},  {"dirt", {0.5f, 0.4f, 0.3f}},
-        {"mud", {0.42f, 0.35f, 0.27f}},  {"rock", {0.5f, 0.48f, 0.45f}},  {"cliff", {0.45f, 0.43f, 0.4f}},
-        {"stone", {0.55f, 0.53f, 0.5f}}, {"asphalt", {0.32f, 0.32f, 0.33f}}, {"road", {0.35f, 0.35f, 0.36f}},
-        {"concrete", {0.6f, 0.6f, 0.6f}}, {"floor", {0.62f, 0.58f, 0.5f}}, {"water", {0.2f, 0.32f, 0.42f}},
-        {"jungle", {0.25f, 0.38f, 0.2f}}, {"leaf", {0.35f, 0.38f, 0.22f}}, {"gravel", {0.52f, 0.5f, 0.46f}},
-    };
-    for (const auto& r : rules)
-        if (n.find(r.key) != std::string::npos) return r.c;
-    const float h = float((index * 37) % 100) / 100.f;
-    return {0.45f + 0.15f * h, 0.45f + 0.1f * (1 - h), 0.38f};
-}
-
 static int overview(MegVfs& vfs, const GameDatabase& db, const Map& m, const std::string& out, uint32_t pixels,
                     const std::string& onlyGroup) {
     const float worldX = m.sizeX(), worldY = m.sizeY();
@@ -162,14 +124,8 @@ static int overview(MegVfs& vfs, const GameDatabase& db, const Map& m, const std
     const uint32_t W = std::max(1u, uint32_t(worldX * scale)), H = std::max(1u, uint32_t(worldY * scale));
     Canvas cv(W, H);
 
-    std::vector<Vec3> layerColor(m.layers.size());
     size_t fromTextures = 0;
-    for (size_t i = 0; i < m.layers.size(); ++i) {
-        auto c = textureColor(vfs, m.layers[i].diffuse);
-        fromTextures += c.has_value();
-        Vec3 base = c ? *c : guessColor(m.layers[i].diffuse, i);
-        for (int k = 0; k < 3; ++k) layerColor[i][k] = base[k] * m.layers[i].tint[k];
-    }
+    const std::vector<Vec3> layerColor = terrainLayerColors(vfs, m, &fromTextures);
 
     // Terrain: layer colour * hillshade. Image row 0 is the map's north (max Y).
     const float lx = -0.5f, ly = 0.6f, lz = 0.62f;

@@ -7,6 +7,7 @@
 //   alotool <game-root> texture <NAME.tga|.dds> <out.png>
 #include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
+#include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/gltf.hpp"
@@ -27,28 +28,6 @@ static int usage() {
                  "  alotool <game-root> unit    <ObjectName> <out.glb> [--all]\n"
                  "  alotool <game-root> texture <NAME.tga> <out.png>\n";
     return 2;
-}
-
-static std::string modelPath(std::string name) {
-    if (name.find('\\') == std::string::npos && name.find('/') == std::string::npos) name = "Data\\Art\\Models\\" + name;
-    return name;
-}
-
-// Materials name textures as .tga; the shipped files are usually .dds with the same stem.
-static std::optional<Image> loadTexture(MegVfs& vfs, const std::string& name) {
-    std::string stem = name;
-    if (size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
-    for (const char* ext : {".dds", ".tga"}) {
-        std::string p = "Data\\Art\\Textures\\" + stem + ext;
-        if (!vfs.exists(p)) continue;
-        try {
-            auto bytes = vfs.read(p);
-            return std::string(ext) == ".dds" ? decodeDds(bytes) : decodeTga(bytes);
-        } catch (const std::exception& e) {
-            std::cerr << "warning: " << p << ": " << e.what() << "\n";
-        }
-    }
-    return std::nullopt;
 }
 
 static void printParam(const ShaderParam& p) {
@@ -100,7 +79,7 @@ static int exportModel(MegVfs& vfs, const std::string& path, const std::string& 
                     anim.frameCount, matched, m.bones.size());
     }
     GltfStats st;
-    auto glb = exportGlb(m, [&](const std::string& n) { return loadTexture(vfs, n); }, opt, &st);
+    auto glb = exportGlb(m, [&](const std::string& n) { return loadGameTexture(vfs, n); }, opt, &st);
     std::ofstream(out, std::ios::binary).write(reinterpret_cast<const char*>(glb.data()), std::streamsize(glb.size()));
     std::printf("%s -> %s: %zu meshes, %zu primitives, %zu triangles, %zu textures\n", path.c_str(), out.c_str(),
                 st.meshes, st.primitives, st.triangles, st.textures);
@@ -215,7 +194,7 @@ int main(int argc, char** argv) {
             return exportModel(vfs, path, argv[4], parseFlags(argc, argv, 5));
         }
         if (cmd == "texture" && argc > 4) {
-            auto img = loadTexture(vfs, argv[3]);
+            auto img = loadGameTexture(vfs, argv[3]);
             if (!img) { std::cerr << "texture not found: " << argv[3] << "\n"; return 1; }
             auto png = encodePng(*img);
             std::ofstream(argv[4], std::ios::binary).write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
