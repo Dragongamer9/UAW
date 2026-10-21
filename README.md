@@ -12,7 +12,8 @@ redistributed.
 | 1 | MEG v1 archives (+ virtual file system, loose-file overrides) | done, verified on retail Config/Maps/Shaders/Cinematics/Retailers.meg (1,668 files, all CRCs match) |
 | 1 | XML game data (`Data/XML`), `MegaFiles.xml` load order | done: all 168 object files, 3,128 objects (1,099 variants), 0 warnings on retail data |
 | 1 | String tables (`MasterTextFile_*.dat`) | planned |
-| 2 | ALO models / ALA animations, DDS textures → viewer | planned |
+| 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
+| 2 | ALA animations, particle systems (`0x1500` .ALO), real-time viewer | next |
 | 2 | TED maps → terrain renderer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -54,7 +55,49 @@ Object fields are flattened to paths, e.g.
 their base type and override the paths they define. `<!--INCLUDE "path" -->`
 comments are include directives and are expanded in place.
 
+## alotool
+
+```sh
+alotool "<game>" check                          # load every .ALO in the mounted archives
+alotool "<game>" info    NB_AIRCRAFT_ASSEMBLY.ALO  # bones, meshes, materials, textures
+alotool "<game>" export  AH_ORLOK.ALO orlok.glb    # glTF for Blender / any viewer (--all adds hidden meshes)
+alotool "<game>" unit    Alien_Grunt grunt.glb     # export a game object's Land_Model_Name
+alotool "<game>" texture NV_Corruptor.tga out.png
+```
+
+Exports bake bone transforms and convert Alamo's Z-up to glTF's Y-up.
+Hidden meshes (LODs, damage states, shadow and collision meshes) are skipped
+unless `--all` is given. Materials name textures as `.tga`; the shipped files
+are usually `.dds` with the same name in `Data/Art/Textures`.
+
 ## Format notes
+
+### ALO models
+
+Chunks are `{ uint32 id; uint32 size; }`, with the high bit of `size` marking a
+container. Material parameters and connections use mini-chunks
+`{ uint8 id; uint8 size; }`.
+
+| Chunk | Contents |
+|---|---|
+| `0x200` | skeleton: `0x201` count, `0x202` bone { `0x203` name, `0x206` parent, visible, billboard, 3×4 row-major matrix relative to parent } |
+| `0x400` | mesh: `0x401` name, `0x402` info (material count, bounds, hidden, collision), then per material `0x10100` material + `0x10000` geometry |
+| `0x10100` | `0x10101` shader name; params `0x10102` int, `0x10103` float, `0x10104` float3, `0x10105` texture, `0x10106` float4 |
+| `0x10000` | `0x10001` vertex/face counts, `0x10002` vertex format, `0x10007` vertices, `0x10004` uint16 triangle list, `0x10006` skin bone map, `0x1200` collision tree |
+| `0x600` | connections: `0x602` object→bone, `0x603` proxy (particle effect on a bone), `0x604` dazzle (UaW addition) |
+| `0x1300` | light |
+| `0x1500` | particle system; UaW stores particle effects as `.ALO` too |
+
+- Every vertex is 144 bytes: position, normal, 4 UV sets, tangent,
+  binormal, RGBA colour, 16 unused bytes, 4 bone indices, 4 bone weights.
+- Connection object indices count `0x400` meshes and `0x1300` lights
+  together, in file order (lights often come first).
+- Rigid meshes are stored relative to the bone they're connected to.
+  Skinned meshes (`…Skin…` vertex formats) are stored in model space in bind
+  pose. Placing them per bone scatters the parts, which was checked on Orlok and
+  the Novus Reflex.
+
+### MEG archives
 
 MEG v1 (shared with Empire at War / Forces of Corruption), little-endian:
 

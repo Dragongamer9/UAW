@@ -18,8 +18,19 @@ add_library(alamo
   engine/src/meg.cpp
   engine/src/xml.cpp
   engine/src/gamedata.cpp
+  engine/src/alo.cpp
+  engine/src/dds.cpp
+  engine/src/gltf.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
+find_package(ZLIB REQUIRED)
+target_link_libraries(alamo PUBLIC ZLIB::ZLIB)
+
+add_executable(alotool tools/alotool.cpp)
+target_link_libraries(alotool PRIVATE alamo)
+
+add_executable(test_formats tests/test_formats.cpp)
+target_link_libraries(test_formats PRIVATE alamo)
 
 add_executable(megtool tools/megtool.cpp)
 target_link_libraries(megtool PRIVATE alamo)
@@ -32,6 +43,7 @@ target_link_libraries(test_xml PRIVATE alamo)
 
 enable_testing()
 add_test(NAME xml_and_gamedata COMMAND test_xml)
+add_test(NAME alo_dds_gltf COMMAND test_formats)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME meg_roundtrip

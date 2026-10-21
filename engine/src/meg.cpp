@@ -1,5 +1,6 @@
 #include "alamo/meg.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstring>
@@ -134,6 +135,14 @@ std::filesystem::path findLoose(const std::filesystem::path& root, std::string_v
     return cur;
 }
 } // namespace
+
+std::vector<std::string> MegVfs::list() const {
+    std::vector<std::string> out;
+    out.reserve(index_.size());
+    for (const auto& [k, v] : index_) out.push_back(k);
+    std::sort(out.begin(), out.end());
+    return out;
+}
 
 bool MegVfs::exists(std::string_view name) const {
     if (!looseRoot_.empty() && !findLoose(looseRoot_, name).empty()) return true;

@@ -72,6 +72,9 @@ public:
     bool exists(std::string_view name) const;
     std::vector<uint8_t> read(std::string_view name);
 
+    // Every archived path (normalized), sorted. Loose-only files are not included.
+    std::vector<std::string> list() const;
+
     size_t archiveCount() const { return archives_.size(); }
     size_t fileCount() const { return index_.size(); }
 

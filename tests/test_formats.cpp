@@ -1,0 +1,202 @@
+// Tests for ALO, DDS and glTF using small hand-built files.
+#include "alamo/alo.hpp"
+#include "alamo/dds.hpp"
+#include "alamo/gltf.hpp"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+using namespace alamo;
+
+static int failures = 0;
+#define CHECK(cond)                                                                       \
+    do {                                                                                  \
+        if (!(cond)) {                                                                    \
+            std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); \
+            ++failures;                                                                   \
+        }                                                                                 \
+    } while (0)
+
+using Bytes = std::vector<uint8_t>;
+
+static void put32(Bytes& b, uint32_t v) { for (int s = 0; s < 32; s += 8) b.push_back(uint8_t(v >> s)); }
+static void putf(Bytes& b, float f) { uint32_t v; std::memcpy(&v, &f, 4); put32(b, v); }
+static void putStr(Bytes& b, const std::string& s) { b.insert(b.end(), s.begin(), s.end()); b.push_back(0); }
+
+static Bytes chunk(uint32_t id, const Bytes& body, bool container = false) {
+    Bytes b;
+    put32(b, id);
+    put32(b, uint32_t(body.size()) | (container ? 0x80000000u : 0));
+    b.insert(b.end(), body.begin(), body.end());
+    return b;
+}
+static Bytes cat(std::initializer_list<Bytes> parts) {
+    Bytes o;
+    for (const auto& p : parts) o.insert(o.end(), p.begin(), p.end());
+    return o;
+}
+static Bytes mini(uint8_t id, const Bytes& body) {
+    Bytes b{id, uint8_t(body.size())};
+    b.insert(b.end(), body.begin(), body.end());
+    return b;
+}
+
+static Bytes boneChunk(const std::string& name, int32_t parent, float tx) {
+    Bytes data;
+    put32(data, uint32_t(parent));
+    put32(data, 1);
+    put32(data, 0);
+    float m[12] = {1, 0, 0, tx, 0, 1, 0, 0, 0, 0, 1, 0};
+    for (float f : m) putf(data, f);
+    Bytes nm;
+    putStr(nm, name);
+    return chunk(0x202, cat({chunk(0x203, nm), chunk(0x206, data)}), true);
+}
+
+static Bytes makeAlo() {
+    Bytes count(128, 0);
+    count[0] = 2;
+    Bytes skel = chunk(0x200, cat({chunk(0x201, count), boneChunk("Root", -1, 0), boneChunk("Turret", 0, 5)}), true);
+
+    Bytes name; putStr(name, "Box");
+    Bytes info(128, 0); info[0] = 1;
+    Bytes shader; putStr(shader, "MeshAlpha.fx");
+    Bytes texName; putStr(texName, "BaseTexture");
+    Bytes texVal; putStr(texVal, "Test.tga");
+    Bytes mat = chunk(0x10100, cat({chunk(0x10101, shader), chunk(0x10105, cat({mini(1, texName), mini(2, texVal)}))}), true);
+
+    Bytes counts(128, 0); counts[0] = 3; counts[4] = 1;
+    Bytes fmt; putStr(fmt, "alD3dVertNU2");
+    Bytes verts;
+    for (int i = 0; i < 3; ++i) {
+        Bytes v(144, 0);
+        float px = float(i), py = float(i == 2), pz = 0;
+        std::memcpy(&v[0], &px, 4);
+        std::memcpy(&v[4], &py, 4);
+        std::memcpy(&v[8], &pz, 4);
+        float nz = 1;
+        std::memcpy(&v[20], &nz, 4);
+        verts.insert(verts.end(), v.begin(), v.end());
+    }
+    Bytes idx{0, 0, 1, 0, 2, 0};
+    Bytes geo = chunk(0x10000, cat({chunk(0x10001, counts), chunk(0x10002, fmt), chunk(0x10007, verts), chunk(0x10004, idx)}), true);
+    Bytes mesh = chunk(0x400, cat({chunk(0x401, name), chunk(0x402, info), mat, geo}), true);
+
+    Bytes conBody;
+    Bytes m0; put32(m0, 0);
+    Bytes b1; put32(b1, 1);
+    Bytes conn = chunk(0x600, chunk(0x602, cat({mini(2, m0), mini(3, b1)})), true);
+    return cat({skel, mesh, conn});
+}
+
+static void testAlo() {
+    Bytes f = makeAlo();
+    Model m = loadAlo(f);
+    CHECK(m.kind == Model::Kind::Mesh);
+    CHECK(m.bones.size() == 2 && m.bones[1].name == "Turret" && m.bones[1].parent == 0);
+    CHECK(m.meshes.size() == 1 && m.meshes[0].subMeshes.size() == 1);
+    if (!m.meshes.empty() && !m.meshes[0].subMeshes.empty()) {
+        const SubMesh& sm = m.meshes[0].subMeshes[0];
+        CHECK(sm.vertices.size() == 3 && sm.indices.size() == 3);
+        CHECK(sm.vertexFormat == "alD3dVertNU2");
+        CHECK(sm.material.shader == "MeshAlpha.fx");
+        CHECK(sm.material.texture("BaseTexture") && *sm.material.texture("BaseTexture") == "Test.tga");
+        CHECK(sm.vertices[2].position[1] == 1.0f);
+    }
+    CHECK(m.meshBone(0) == 1);
+    Mat34 w = m.boneWorld(1);
+    CHECK(w[3] == 5.0f);
+    CHECK(m.warnings.empty());
+
+    // Corrupt inputs must throw, not crash.
+    Bytes cut(f.begin(), f.begin() + 40);
+    bool threw = false;
+    try { loadAlo(cut); } catch (const AloError&) { threw = true; }
+    CHECK(threw);
+    Bytes badIdx = f;
+    // find the index buffer (last 6 bytes of the geometry chunk) and point past the vertices
+    for (size_t i = 0; i + 8 <= badIdx.size(); ++i) {
+        uint32_t id; std::memcpy(&id, &badIdx[i], 4);
+        uint32_t sz; std::memcpy(&sz, &badIdx[i + 4], 4);
+        if (id == 0x10004 && sz == 6) { badIdx[i + 8] = 9; break; }
+    }
+    threw = false;
+    try { loadAlo(badIdx); } catch (const AloError&) { threw = true; }
+    CHECK(threw);
+}
+
+static Bytes ddsHeader(uint32_t w, uint32_t h, uint32_t pfFlags, const char* fourcc, uint32_t bits, uint32_t r,
+                       uint32_t g, uint32_t b, uint32_t a) {
+    Bytes d{'D', 'D', 'S', ' '};
+    d.resize(128, 0);
+    auto set = [&](size_t off, uint32_t v) { for (int s = 0; s < 4; ++s) d[off + s] = uint8_t(v >> (8 * s)); };
+    set(4, 124); set(12, h); set(16, w); set(80, pfFlags);
+    if (fourcc) std::memcpy(&d[84], fourcc, 4);
+    set(88, bits); set(92, r); set(96, g); set(100, b); set(104, a);
+    return d;
+}
+
+static void testDds() {
+    // DXT1 block: c0 = pure red, c1 = pure blue, all pixels index 0 except pixel 1 = index 1.
+    Bytes d = ddsHeader(4, 4, 0x4, "DXT1", 0, 0, 0, 0, 0);
+    Bytes blk{0x00, 0xF8, 0x1F, 0x00, 0x04, 0, 0, 0};
+    d.insert(d.end(), blk.begin(), blk.end());
+    Image img = decodeDds(d);
+    CHECK(img.width == 4 && img.height == 4 && img.sourceFormat == "DXT1");
+    CHECK(img.rgba[0] == 255 && img.rgba[1] == 0 && img.rgba[2] == 0 && img.rgba[3] == 255);
+    CHECK(img.rgba[4] == 0 && img.rgba[6] == 255);
+
+    // DXT5: alpha endpoints 255/0, all indices 1 -> alpha 0.
+    Bytes d5 = ddsHeader(4, 4, 0x4, "DXT5", 0, 0, 0, 0, 0);
+    Bytes a{255, 0, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24};
+    d5.insert(d5.end(), a.begin(), a.end());
+    d5.insert(d5.end(), blk.begin(), blk.end());
+    Image i5 = decodeDds(d5);
+    CHECK(i5.rgba[3] == 0 && i5.rgba[0] == 255);
+
+    // Uncompressed ARGB32, 1x1, B G R A byte order.
+    Bytes dr = ddsHeader(1, 1, 0x41, nullptr, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+    Bytes px{10, 20, 30, 40};
+    dr.insert(dr.end(), px.begin(), px.end());
+    Image ir = decodeDds(dr);
+    CHECK(ir.rgba[0] == 30 && ir.rgba[1] == 20 && ir.rgba[2] == 10 && ir.rgba[3] == 40);
+
+    // Truncated data throws.
+    bool threw = false;
+    try { decodeDds(Bytes(d.begin(), d.begin() + 130)); } catch (const DdsError&) { threw = true; }
+    CHECK(threw);
+
+    auto png = encodePng(img);
+    CHECK(png.size() > 40 && png[1] == 'P' && png[2] == 'N' && png[3] == 'G');
+}
+
+static void testGltf() {
+    Bytes f = makeAlo();
+    Model m = loadAlo(f);
+    GltfStats st;
+    auto glb = exportGlb(m, [](const std::string&) -> std::optional<Image> {
+        Image i; i.width = i.height = 1; i.rgba = {255, 0, 0, 255}; return i;
+    }, {}, &st);
+    CHECK(glb.size() > 20 && std::memcmp(glb.data(), "glTF", 4) == 0);
+    uint32_t total; std::memcpy(&total, &glb[8], 4);
+    CHECK(total == glb.size());
+    CHECK(st.meshes == 1 && st.triangles == 1 && st.textures == 1);
+    // The turret bone moves the mesh +5 on X: max X should be 7.
+    uint32_t jlen; std::memcpy(&jlen, &glb[12], 4);
+    std::string json(reinterpret_cast<const char*>(&glb[20]), jlen);
+    CHECK(json.find("\"max\":[7,") != std::string::npos);
+}
+
+int main() {
+    testAlo();
+    testDds();
+    testGltf();
+    if (failures) {
+        std::fprintf(stderr, "%d check(s) failed\n", failures);
+        return 1;
+    }
+    std::printf("all ALO/DDS/glTF tests passed\n");
+    return 0;
+}
