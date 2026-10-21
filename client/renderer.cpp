@@ -3,6 +3,7 @@
 #include "alamo/assets.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 
@@ -43,10 +44,12 @@ uniform vec3 uLightDir;
 uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange; // x = start, y = end
+uniform int uUnlit;
 out vec4 fragColor;
 void main() {
     vec4 base = vColor * uTint;
     if (uHasTex != 0) base *= texture(uTex, vUv);
+    if (uUnlit != 0) { fragColor = base; return; }
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
@@ -144,6 +147,7 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uCamPos_ = glGetUniformLocation(program_, "uCamPos");
     uFogColor_ = glGetUniformLocation(program_, "uFogColor");
     uFogRange_ = glGetUniformLocation(program_, "uFogRange");
+    uUnlit_ = glGetUniformLocation(program_, "uUnlit");
 
     // Unit box (-0.5..0.5 in X/Y, 0..1 in Z) for objects whose model isn't available.
     std::vector<GpuVertex> v;
@@ -286,6 +290,8 @@ void Renderer::setTerrain(const alamo::Map& map) {
 void Renderer::beginFrame(int width, int height, const Camera& cam, float farPlane) {
     farPlane_ = farPlane;
     camPos_ = cam.eye;
+    width_ = std::max(width, 1);
+    height_ = std::max(height, 1);
     viewProj_ = Mat4::perspective(cam.fovY, float(width) / float(std::max(height, 1)), 5.f, farPlane) *
                 Mat4::lookAt(cam.eye, cam.target, {0, 0, 1});
     glViewport(0, 0, width, height);
@@ -306,6 +312,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     const GLfloat fogRange[4] = {farPlane * 0.45f, farPlane, 0, 0}; // x = fog start, y = fog end
     glUniform4fv(uFogRange_, 1, fogRange);
     glUniform1i(uTex_, 0);
+    glUniform1i(uUnlit_, 0);
     transparent_.clear();
 }
 
@@ -353,6 +360,29 @@ void Renderer::endFrame() {
     }
     glDepthMask(GL_TRUE_);
     glDisable(GL_BLEND);
+}
+
+void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color) {
+    // Pixel-space orthographic projection, y down; the box mesh is flattened onto z = 0.
+    Mat4 ortho;
+    ortho.at(0, 0) = 2.f / float(width_);
+    ortho.at(1, 1) = -2.f / float(height_);
+    ortho.at(2, 2) = 0;
+    ortho.at(0, 3) = -1;
+    ortho.at(1, 3) = 1;
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, ortho.data());
+    glUniform1i(uUnlit_, 1);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    const Mat4 t = Mat4::translate((x0 + x1) / 2, (y0 + y1) / 2, 0) * Mat4::scale3(std::fabs(x1 - x0), std::fabs(y1 - y0), 0);
+    // Lighting needs a normal facing the light; the top face's +Z normal is flattened away, so tint covers it.
+    setUniforms(t, color, 0);
+    box_.draw();
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    glUniform1i(uUnlit_, 0);
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
 }
 
 std::vector<uint8_t> Renderer::readPixels(int width, int height) {

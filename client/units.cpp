@@ -1,0 +1,181 @@
+#include "units.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace uaw {
+
+using alamo::Vec3;
+using alamo::Vec4;
+
+// ------------------------------------------------------------------ View
+
+bool View::toScreen(const Vec3& p, float& sx, float& sy) const {
+    const Mat4& m = viewProj;
+    const float x = m.at(0, 0) * p[0] + m.at(0, 1) * p[1] + m.at(0, 2) * p[2] + m.at(0, 3);
+    const float y = m.at(1, 0) * p[0] + m.at(1, 1) * p[1] + m.at(1, 2) * p[2] + m.at(1, 3);
+    const float w = m.at(3, 0) * p[0] + m.at(3, 1) * p[1] + m.at(3, 2) * p[2] + m.at(3, 3);
+    if (w <= 1e-4f) return false;
+    sx = (x / w * 0.5f + 0.5f) * float(width);
+    sy = (1 - (y / w * 0.5f + 0.5f)) * float(height);
+    return true;
+}
+
+bool View::groundAt(const alamo::Map& m, float px, float py, Vec3& out) const {
+    const Vec3 f = Mat4::normalize(Mat4::sub(target, eye));
+    const Vec3 r = Mat4::normalize(Mat4::cross(f, {0, 0, 1}));
+    const Vec3 u = Mat4::cross(r, f);
+    const float t = std::tan(fovY / 2);
+    const float nx = (2 * px / float(width) - 1) * t * float(width) / float(height);
+    const float ny = (1 - 2 * py / float(height)) * t;
+    const Vec3 d = Mat4::normalize({f[0] + r[0] * nx + u[0] * ny, f[1] + r[1] * nx + u[1] * ny, f[2] + r[2] * nx + u[2] * ny});
+    // March until below the terrain, then bisect.
+    float prev = 0, step = 8;
+    const float maxDist = 40000;
+    for (float s = step; s < maxDist; s += step) {
+        const Vec3 p{eye[0] + d[0] * s, eye[1] + d[1] * s, eye[2] + d[2] * s};
+        if (p[2] <= m.heightAt(p[0], p[1])) {
+            float lo = prev, hi = s;
+            for (int i = 0; i < 20; ++i) {
+                const float mid = (lo + hi) / 2;
+                const Vec3 q{eye[0] + d[0] * mid, eye[1] + d[1] * mid, eye[2] + d[2] * mid};
+                (q[2] <= m.heightAt(q[0], q[1]) ? hi : lo) = mid;
+            }
+            out = {eye[0] + d[0] * hi, eye[1] + d[1] * hi, 0};
+            out[2] = m.heightAt(out[0], out[1]);
+            return out[0] >= 0 && out[1] >= 0 && out[0] <= m.sizeX() && out[1] <= m.sizeY();
+        }
+        prev = s;
+        step = std::min(step * 1.05f, 60.f);
+    }
+    return false;
+}
+
+// ------------------------------------------------------------------ squads
+
+void spawnTestSquads(alamo::World& world, const std::vector<Vec3>& starts, const alamo::Map& map) {
+    static const std::vector<SquadSpec> squads[3] = {
+        {{"Novus_Robotic_Infantry", 6}, {"Novus_Variant", 2}, {"Novus_Antimatter_Tank", 1}, {"Novus_Hero_Mech", 1}},
+        {{"Alien_Grunt", 6}, {"Alien_Recon_Tank", 2}, {"Alien_Defiler", 1}, {"Alien_Hero_Orlok", 1}},
+        {{"Masari_Disciple", 6}, {"Masari_Seeker", 2}, {"Masari_Peacebringer", 1}, {"Masari_Hero_Charos", 1}},
+    };
+    for (size_t p = 0; p < starts.size(); ++p) {
+        const Vec3& s = starts[p];
+        const float toCentre = std::atan2(map.sizeY() / 2 - s[1], map.sizeX() / 2 - s[0]);
+        // Place the squad a little in front of the start marker, in rows.
+        const float fx = std::cos(toCentre), fy = std::sin(toCentre);
+        int i = 0;
+        for (const SquadSpec& spec : squads[p % 3]) {
+            for (int k = 0; k < spec.count; ++k, ++i) {
+                const float row = float(i / 5), col = float(i % 5) - 2;
+                const Vec3 at{s[0] + fx * (120 + row * 40) - fy * col * 40, s[1] + fy * (120 + row * 40) + fx * col * 40, 0};
+                world.spawn(spec.type, int(p), at, toCentre);
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ selection and orders
+
+void UnitControl::clickSelect(alamo::World& w, const Vec3& ground, bool add) {
+    if (!add) selected_.clear();
+    for (uint32_t id : w.unitsNear(ground, 12)) {
+        const alamo::Unit* u = w.unit(id);
+        if (u && u->owner == player_) {
+            if (add && selected_.count(id)) selected_.erase(id);
+            else selected_.insert(id);
+            return;
+        }
+    }
+}
+
+void UnitControl::boxSelect(alamo::World& w, const View& v, float x0, float y0, float x1, float y1, bool add) {
+    if (!add) selected_.clear();
+    const float lx = std::min(x0, x1), hx = std::max(x0, x1), ly = std::min(y0, y1), hy = std::max(y0, y1);
+    for (const alamo::Unit& u : w.units()) {
+        if (u.owner != player_) continue;
+        float sx, sy;
+        if (v.toScreen(u.position, sx, sy) && sx >= lx && sx <= hx && sy >= ly && sy <= hy) selected_.insert(u.id);
+    }
+}
+
+void UnitControl::selectAllVisible(alamo::World& w, const View& v) {
+    boxSelect(w, v, 0, 0, float(v.width), float(v.height), false);
+}
+
+void UnitControl::selectAll(alamo::World& w) {
+    selected_.clear();
+    for (const alamo::Unit& u : w.units())
+        if (u.owner == player_) selected_.insert(u.id);
+}
+
+void UnitControl::moveTo(alamo::World& w, const Vec3& ground) {
+    if (selected_.empty()) return;
+    w.commandMove(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground);
+    lastOrder_ = ground;
+    lastOrderTime_ = w.seconds();
+}
+
+void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(selected_.begin(), selected_.end())); }
+
+// ------------------------------------------------------------------ drawing
+
+void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
+    for (const alamo::Unit& u : w.units()) {
+        const bool sel = selected_.count(u.id) != 0;
+        const Vec4 col = [&] {
+            static const Vec4 c[] = {{0.25f, 0.55f, 1.f, 1}, {0.95f, 0.25f, 0.2f, 1}, {0.35f, 0.85f, 0.35f, 1}, {0.95f, 0.8f, 0.2f, 1}};
+            return c[std::clamp(u.owner, 0, 3)];
+        }();
+        const float rad = u.radius;
+        const Mat4 base = Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::rotateZ(u.facing);
+
+        // Body: the real model when we have it, otherwise a box stretched along the facing with a nose.
+        const GpuModel* model = nullptr;
+        if (const std::string* name = u.type->find("Land_Model_Name"); name && !alamo::trim(*name).empty())
+            model = r.model(alamo::trim(*name));
+        if (model) {
+            const float scale = float(u.type->number("Scale_Factor").value_or(1.0));
+            // Alamo models face -Y in model space; the simulation's facing 0 is +X.
+            r.drawModel(*model, base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale));
+        } else {
+            const bool infantry = u.moveClass == alamo::MoveClass::Infantry;
+            const float h = infantry ? std::max(rad * 2.2f, 9.f) : std::max(rad * 0.9f, 6.f);
+            r.drawBox(base * Mat4::scale3(rad * 1.8f, rad * 1.3f, h), col);
+            r.drawBox(base * Mat4::translate(rad * 0.9f, 0, h * 0.35f) * Mat4::scale3(rad * 0.6f, rad * 0.4f, h * 0.3f),
+                      {col[0] * 0.5f, col[1] * 0.5f, col[2] * 0.5f, 1});
+        }
+
+        if (sel) {
+            // Selection plate under the unit and a health bar above it.
+            const float s = rad * 2.6f + 4;
+            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + 0.5f) * Mat4::scale3(s, s, 0.8f),
+                      {0.3f, 1.f, 0.4f, 1});
+            const float frac = std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f);
+            const float barW = std::max(rad * 2.5f, 14.f), top = std::max(rad * 2.4f, 16.f) + 8;
+            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + top) * Mat4::scale3(barW, 2.5f, 2.5f),
+                      {0.1f, 0.1f, 0.1f, 1});
+            r.drawBox(Mat4::translate(u.position[0] - barW * (1 - frac) / 2, u.position[1], u.position[2] + top + 0.3f) *
+                          Mat4::scale3(barW * frac, 2.8f, 2.6f),
+                      {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
+        }
+    }
+    // Move order marker: shrinking plate for one second.
+    const float age = time - lastOrderTime_;
+    if (age >= 0 && age < 1) {
+        const float s = 30 * (1 - age) + 6;
+        r.drawBox(Mat4::translate(lastOrder_[0], lastOrder_[1], lastOrder_[2] + 0.6f) * Mat4::scale3(s, s, 0.8f), {0.3f, 1.f, 0.4f, 1});
+    }
+}
+
+void UnitControl::drawBox(Renderer& r, const View&, float x0, float y0, float x1, float y1) const {
+    const float lx = std::min(x0, x1), hx = std::max(x0, x1), ly = std::min(y0, y1), hy = std::max(y0, y1);
+    r.drawOverlayRect(lx, ly, hx, hy, {0.3f, 1.f, 0.4f, 0.15f});
+    const Vec4 edge{0.3f, 1.f, 0.4f, 0.9f};
+    r.drawOverlayRect(lx, ly, hx, ly + 1.5f, edge);
+    r.drawOverlayRect(lx, hy - 1.5f, hx, hy, edge);
+    r.drawOverlayRect(lx, ly, lx + 1.5f, hy, edge);
+    r.drawOverlayRect(hx - 1.5f, ly, hx, hy, edge);
+}
+
+} // namespace uaw

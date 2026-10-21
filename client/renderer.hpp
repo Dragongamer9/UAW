@@ -64,6 +64,10 @@ public:
     void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1});
     void drawBox(const Mat4& transform, const alamo::Vec4& color);
     void endFrame(); // draws queued transparent meshes
+    // 2D overlay rectangle in pixels (top-left origin), alpha-blended over everything.
+    void drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color);
+
+    const Mat4& viewProj() const { return viewProj_; }
 
     // Reads the current back buffer as RGBA rows, top row first.
     std::vector<uint8_t> readPixels(int width, int height);
@@ -79,9 +83,10 @@ private:
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1;
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
+    int width_ = 1, height_ = 1;
     float farPlane_ = 10000;
 
     GpuMesh terrain_;

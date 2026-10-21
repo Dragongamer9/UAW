@@ -1,24 +1,31 @@
-// uaw-viewer: fly around a Universe at War map with its objects placed.
+// uaw-viewer: a Universe at War map with its objects placed and test squads to command.
 //
 //   uaw-viewer <game-root> <MAP> [options]
-//     --player N          start the camera over player N's start position (default 1)
+//     --player N          you control player N's squad; camera starts there (default 1)
 //     --all-groups        also show campaign-mission objects
+//     --no-units          don't spawn test squads
 //     --size WxH          window size (default 1600x900)
 //     --camera x,y,dist,yaw,pitch
 //     --screenshot FILE   render one frame to a PNG and exit (works headless)
+//     --order X,Y         (with --screenshot) select your squad and order it to X,Y
+//     --run SECONDS       (with --screenshot) simulate this long before the picture
 //
 // Controls
-//   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom, P placeholders, Esc quit
-//   mouse     wheel zoom, middle or right drag rotate/tilt, left drag pan
-//   gamepad   left stick pan, right stick rotate/tilt, triggers zoom, Y placeholders, Back quit
+//   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
+//             Tab select all yours, Space jump to selection, X stop, P stand-in boxes, Esc quit
+//   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
+//   gamepad   left stick pan, right stick rotate/tilt, triggers zoom; reticle at screen centre:
+//             A select (hold LB to add), X select all on screen, B clear, RB move, Y stand-in boxes, Back quit
 #include "camera.hpp"
 #include "gl.hpp"
 #include "renderer.hpp"
 #include "scene.hpp"
+#include "units.hpp"
 
 #include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
+#include "alamo/sim.hpp"
 #include "alamo/ted.hpp"
 
 #include <SDL3/SDL.h>
@@ -40,8 +47,10 @@ namespace {
 struct Options {
     std::string gameRoot, map, screenshot;
     int width = 1600, height = 900, player = 1;
-    bool allGroups = false, haveCamera = false;
+    bool allGroups = false, haveCamera = false, units = true, haveOrder = false;
     float cam[5] = {0, 0, 0, 0, 0};
+    float order[2] = {0, 0};
+    float runSeconds = 0;
 };
 
 // With no arguments (e.g. double-clicked), look for the game next to the executable
@@ -74,7 +83,10 @@ bool parse(int argc, char** argv, Options& o) {
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
         if (a == "--screenshot") o.screenshot = next();
         else if (a == "--all-groups") o.allGroups = true;
-        else if (a == "--player") o.player = std::atoi(next());
+        else if (a == "--player") o.player = std::max(1, std::atoi(next()));
+        else if (a == "--no-units") o.units = false;
+        else if (a == "--order") o.haveOrder = std::sscanf(next(), "%f,%f", &o.order[0], &o.order[1]) == 2;
+        else if (a == "--run") o.runSeconds = float(std::atof(next()));
         else if (a == "--size") std::sscanf(next(), "%dx%d", &o.width, &o.height);
         else if (a == "--camera")
             o.haveCamera = std::sscanf(next(), "%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3], &o.cam[4]) == 5;
@@ -105,8 +117,8 @@ int main(int argc, char** argv) {
     Options opt;
     if (!parse(argc, argv, opt)) {
         const char* usage =
-            "usage: uaw-viewer <game-root> <MAP> [--player N] [--all-groups] [--size WxH]\n"
-            "                  [--camera x,y,dist,yaw,pitch] [--screenshot out.png]\n\n"
+            "usage: uaw-viewer <game-root> <MAP> [--player N] [--all-groups] [--no-units] [--size WxH]\n"
+            "                  [--camera x,y,dist,yaw,pitch] [--screenshot out.png [--order X,Y] [--run SECONDS]]\n\n"
             "<game-root> is the folder containing Data\\MegaFiles.xml.\n"
             "Run with no arguments from inside that folder to open M16_Sahara.";
         std::fprintf(stderr, "%s\n", usage);
@@ -170,8 +182,15 @@ int main(int argc, char** argv) {
         const SceneStats& st = scene.stats();
         std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
                     opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
-        std::printf("models loaded %zu, missing %zu; textures missing %zu\n", renderer.modelsLoaded(),
-                    renderer.modelsMissing(), renderer.texturesMissing());
+
+        // Simulation with a test squad at each start position.
+        World world(map, db);
+        std::vector<Vec3> starts;
+        for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
+        if (opt.units) spawnTestSquads(world, starts, map);
+        UnitControl control(opt.player - 1);
+        std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
+                    renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
 
         RtsCamera cam;
         const Vec3 start = scene.startPosition(opt.player - 1);
@@ -187,17 +206,33 @@ int main(int argc, char** argv) {
             cam.pitch = opt.cam[4];
         }
 
-        auto render = [&](int w, int h) {
+        bool placeholders = true;
+        View view;
+        auto drawFrame = [&](int w, int h) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
             renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
-            scene.draw(renderer, true);
+            view = View{rc.eye, rc.target, rc.fovY, w, h, renderer.viewProj()};
+            scene.draw(renderer, placeholders);
+            control.draw(renderer, world, world.seconds());
             renderer.endFrame();
         };
 
         if (headless) {
+            if (opt.haveOrder) {
+                control.selectAll(world);
+                const Vec3 target{opt.order[0], opt.order[1], map.heightAt(opt.order[0], opt.order[1])};
+                control.moveTo(world, target);
+            }
+            const int ticks = int(opt.runSeconds * kTicksPerSecond);
+            for (int t = 0; t < ticks; ++t) world.tick();
+            if (opt.haveOrder) {
+                size_t moving = 0;
+                for (const Unit& u : world.units()) moving += u.owner == control.player() && u.moving();
+                std::printf("after %.1f s: %zu of your units still moving\n", world.seconds(), moving);
+            }
             int w, h;
             SDL_GetWindowSizeInPixels(window, &w, &h);
-            render(w, h);
+            drawFrame(w, h);
             Image img;
             img.width = uint32_t(w);
             img.height = uint32_t(h);
@@ -209,24 +244,61 @@ int main(int argc, char** argv) {
                         cam.y, cam.distance, cam.yaw, cam.pitch);
         } else {
             SDL_Gamepad* pad = nullptr;
-            bool placeholders = true, running = true;
+            bool running = true;
             uint64_t last = SDL_GetTicksNS(), fpsTimer = last;
+            double simAccumulator = 0;
             int frames = 0;
+            // Mouse drag state for box selection / right-click orders.
+            bool leftDown = false, rightDown = false, rightDragged = false;
+            float downX = 0, downY = 0, mouseX = 0, mouseY = 0;
             while (running) {
+                const bool* k = SDL_GetKeyboardState(nullptr);
+                const bool shift = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
                 SDL_Event e;
                 while (SDL_PollEvent(&e)) {
                     switch (e.type) {
                     case SDL_EVENT_QUIT: running = false; break;
                     case SDL_EVENT_KEY_DOWN:
                         if (e.key.key == SDLK_ESCAPE) running = false;
-                        if (e.key.key == SDLK_P) placeholders = !placeholders;
+                        else if (e.key.key == SDLK_P) placeholders = !placeholders;
+                        else if (e.key.key == SDLK_TAB) control.selectAll(world);
+                        else if (e.key.key == SDLK_X) control.stop(world);
+                        else if (e.key.key == SDLK_SPACE && !control.selection().empty()) {
+                            float sx = 0, sy = 0;
+                            for (uint32_t id : control.selection())
+                                if (const Unit* u = world.unit(id)) { sx += u->position[0]; sy += u->position[1]; }
+                            cam.x = sx / float(control.selection().size());
+                            cam.y = sy / float(control.selection().size());
+                        }
                         break;
                     case SDL_EVENT_MOUSE_WHEEL: cam.zoom(std::pow(0.88f, e.wheel.y)); break;
+                    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                        if (e.button.button == SDL_BUTTON_LEFT) { leftDown = true; downX = e.button.x; downY = e.button.y; }
+                        if (e.button.button == SDL_BUTTON_RIGHT) { rightDown = true; rightDragged = false; }
+                        break;
+                    case SDL_EVENT_MOUSE_BUTTON_UP:
+                        if (e.button.button == SDL_BUTTON_LEFT && leftDown) {
+                            leftDown = false;
+                            if (std::hypot(e.button.x - downX, e.button.y - downY) < 6) {
+                                Vec3 g;
+                                if (view.groundAt(map, e.button.x, e.button.y, g)) control.clickSelect(world, g, shift);
+                                else if (!shift) control.clear();
+                            } else {
+                                control.boxSelect(world, view, downX, downY, e.button.x, e.button.y, shift);
+                            }
+                        }
+                        if (e.button.button == SDL_BUTTON_RIGHT && rightDown) {
+                            rightDown = false;
+                            Vec3 g;
+                            if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) control.moveTo(world, g);
+                        }
+                        break;
                     case SDL_EVENT_MOUSE_MOTION:
-                        if (e.motion.state & (SDL_BUTTON_MMASK | SDL_BUTTON_RMASK)) cam.rotate(e.motion.xrel * 0.3f, -e.motion.yrel * 0.2f);
-                        else if (e.motion.state & SDL_BUTTON_LMASK) {
-                            // Drag the ground: about 0.15% of the zoom distance per pixel.
-                            cam.pan(e.motion.yrel * 0.0011f, -e.motion.xrel * 0.0011f, 1.f);
+                        mouseX = e.motion.x;
+                        mouseY = e.motion.y;
+                        if (e.motion.state & (SDL_BUTTON_MMASK | SDL_BUTTON_RMASK)) {
+                            if (std::fabs(e.motion.xrel) + std::fabs(e.motion.yrel) > 0.5f) rightDragged = true;
+                            cam.rotate(e.motion.xrel * 0.3f, -e.motion.yrel * 0.2f);
                         }
                         break;
                     case SDL_EVENT_GAMEPAD_ADDED:
@@ -235,10 +307,24 @@ int main(int argc, char** argv) {
                     case SDL_EVENT_GAMEPAD_REMOVED:
                         if (pad && SDL_GetGamepadID(pad) == e.gdevice.which) { SDL_CloseGamepad(pad); pad = nullptr; }
                         break;
-                    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) running = false;
-                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) placeholders = !placeholders;
+                    case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
+                        Vec3 g;
+                        const bool reticle = view.groundAt(map, view.width / 2.f, view.height / 2.f, g);
+                        switch (e.gbutton.button) {
+                        case SDL_GAMEPAD_BUTTON_BACK: running = false; break;
+                        case SDL_GAMEPAD_BUTTON_NORTH: placeholders = !placeholders; break;
+                        case SDL_GAMEPAD_BUTTON_SOUTH:
+                            if (reticle) control.clickSelect(world, g, pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
+                            break;
+                        case SDL_GAMEPAD_BUTTON_WEST: control.selectAllVisible(world, view); break;
+                        case SDL_GAMEPAD_BUTTON_EAST: control.clear(); break;
+                        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:
+                            if (reticle) control.moveTo(world, g);
+                            break;
+                        default: break;
+                        }
                         break;
+                    }
                     default: break;
                     }
                 }
@@ -246,7 +332,6 @@ int main(int argc, char** argv) {
                 const float dt = std::min(float(now - last) * 1e-9f, 0.1f);
                 last = now;
 
-                const bool* k = SDL_GetKeyboardState(nullptr);
                 float fwd = float(k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - float(k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]);
                 float right = float(k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - float(k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]);
                 float turn = float(k[SDL_SCANCODE_E]) - float(k[SDL_SCANCODE_Q]);
@@ -264,19 +349,31 @@ int main(int argc, char** argv) {
                 if (zoomIn != 0) cam.zoom(std::pow(0.3f, zoomIn * dt));
                 cam.clampTo(map);
 
+                // Fixed-rate simulation, decoupled from the frame rate.
+                simAccumulator += dt;
+                int steps = 0;
+                while (simAccumulator >= 1.0 / kTicksPerSecond && steps < 8) {
+                    world.tick();
+                    simAccumulator -= 1.0 / kTicksPerSecond;
+                    ++steps;
+                }
+
                 int w, h;
                 SDL_GetWindowSizeInPixels(window, &w, &h);
-                Renderer::Camera rc{cam.eye(map), cam.target(map)};
-                renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
-                scene.draw(renderer, placeholders);
-                renderer.endFrame();
+                drawFrame(w, h);
+                if (leftDown && std::hypot(mouseX - downX, mouseY - downY) >= 6) control.drawBox(renderer, view, downX, downY, mouseX, mouseY);
+                if (pad) {
+                    const float cx = w / 2.f, cy = h / 2.f;
+                    renderer.drawOverlayRect(cx - 10, cy - 1, cx + 10, cy + 1, {1, 1, 1, 0.8f});
+                    renderer.drawOverlayRect(cx - 1, cy - 10, cx + 1, cy + 10, {1, 1, 1, 0.8f});
+                }
                 SDL_GL_SwapWindow(window);
 
                 ++frames;
                 if (now - fpsTimer > 1'000'000'000ull) {
-                    char title[160];
-                    std::snprintf(title, sizeof title, "Universe at War - %s - %d fps%s", opt.map.c_str(), frames,
-                                  pad ? " - gamepad" : "");
+                    char title[200];
+                    std::snprintf(title, sizeof title, "Universe at War - %s - %d fps - %zu selected%s", opt.map.c_str(),
+                                  frames, control.selection().size(), pad ? " - gamepad" : "");
                     SDL_SetWindowTitle(window, title);
                     frames = 0;
                     fpsTimer = now;

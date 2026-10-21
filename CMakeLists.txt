@@ -27,6 +27,8 @@ add_library(alamo
   engine/src/ala.cpp
   engine/src/ted.cpp
   engine/src/assets.cpp
+  engine/src/nav.cpp
+  engine/src/sim.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB QUIET)
@@ -50,6 +52,9 @@ target_link_libraries(maptool PRIVATE alamo)
 add_executable(alotool tools/alotool.cpp)
 target_link_libraries(alotool PRIVATE alamo)
 
+add_executable(test_sim tests/test_sim.cpp)
+target_link_libraries(test_sim PRIVATE alamo)
+
 add_executable(test_formats tests/test_formats.cpp)
 target_link_libraries(test_formats PRIVATE alamo)
 
@@ -65,6 +70,7 @@ target_link_libraries(test_xml PRIVATE alamo)
 enable_testing()
 add_test(NAME xml_and_gamedata COMMAND test_xml)
 add_test(NAME alo_dds_gltf COMMAND test_formats)
+add_test(NAME nav_sim COMMAND test_sim)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME meg_roundtrip
@@ -93,6 +99,7 @@ if(UAW_BUILD_CLIENT)
     client/viewer.cpp
     client/renderer.cpp
     client/scene.cpp
+    client/units.cpp
     client/gl.cpp)
   target_link_libraries(uaw-viewer PRIVATE alamo SDL3::SDL3)
 endif()

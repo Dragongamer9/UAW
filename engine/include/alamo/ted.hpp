@@ -61,6 +61,7 @@ struct Map {
     float spacing = 20;               // world units between vertices
     std::vector<float> heights;       // width*height, row-major, row = Y
     std::vector<uint8_t> layerIndex;  // width*height
+    std::vector<uint32_t> vertexFlags; // width*height from chunk 0x010A (see nav.hpp), empty if absent
     std::vector<TerrainLayer> layers;
     Vec3 playableMin{}, playableMax{};
     std::vector<std::string> assetBanks;

@@ -16,7 +16,11 @@ redistributed.
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
 | 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
 | 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: first version; untextured until Textures.meg is available |
-| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | next |
+| 3 | Navigation: walkable areas from terrain flags, A* with wall clearance and path smoothing | done: start-to-start paths found on every skirmish map checked |
+| 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
+| 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
+| 3 | Combat: weapons, projectiles, damage vs armor (`DamageToArmor.xml`), death | next |
+| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
@@ -44,13 +48,22 @@ uaw-viewer "<game>" M16_Sahara --screenshot shot.png --size 1920x1080 --camera 2
 On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
 `Data\MegaFiles.xml`) and double-click it to open the Sahara map.
 
-| | Keyboard / mouse | Gamepad |
+Each start position gets a test squad (player 1 Novus, player 2 Hierarchy,
+player 3 Masari: infantry, vehicles and a hero). You command player 1's
+squad, or another with `--player N`.
+
+| | Keyboard / mouse | Gamepad (reticle at screen centre) |
 |---|---|---|
-| Pan | WASD / arrows, left-drag | left stick |
+| Pan | WASD / arrows | left stick |
 | Rotate / tilt | Q/E, R/F, right- or middle-drag | right stick |
 | Zoom | mouse wheel, +/- | triggers |
+| Select | left click, left-drag box, Shift adds, Tab = all yours | A (hold LB to add), X = all on screen, B = clear |
+| Move | right click | RB |
+| Stop / jump to selection | X / Space | |
 | Toggle stand-in boxes | P | Y |
 | Quit | Esc | Back |
+
+Headless check of a move order: `uaw-viewer "<game>" M16_Sahara --order 1900,3000 --run 12 --screenshot out.png`.
 
 Objects whose model isn't available are drawn as boxes: grey props, structures
 and units in their owner's colour, cyan scrap piles, and a tall pole at each start position.
@@ -175,6 +188,30 @@ optional `0x1007` visibility bitfield. `0x1009` holds int16 quaternions
 
 A posed bone's local transform is T × R relative to its parent, replacing the
 rest transform. Skinned vertices are posed with posed(bone) × inverse(rest(bone)).
+
+### Terrain flags (chunk `0x010A`)
+
+One uint32 per vertex. Meanings below come from drawing the flags on several maps
+and comparing them with terrain and objects:
+
+| Flag | Seen on | Ground units |
+|---|---|---|
+| `0x01` | open ground | walk |
+| `0x02` | building footprints, river channels, canyon walls | blocked |
+| `0x08` | ocean | blocked |
+| `0x10` | coastal water | blocked |
+| `0x20` | pyramid faces, map border walls, lakes | blocked |
+| `0x40` | raised walkways (rare) | walk |
+| `0x80` | fords and bridges over rivers | walk |
+
+### Unit movement fields (to be confirmed against the original)
+
+`Max_Speed` is read as world units per logic frame, and `Max_Rate_Of_Turn` /
+`Stopped_Rate_Of_Turn` as degrees per frame. `OverrideAcceleration` is the
+fraction of max speed gained per frame, and `Custom_Hard_XExtent` is the
+collision radius. GameConstants.xml says the game is tuned for 30 frames per
+second. At that rate a Hierarchy Grunt (1.0) crosses a 5,000-unit map in
+about 2¾ minutes, and a Habitat Walker (0.6°/frame) turns 18°/s.
 
 ### MEG archives
 

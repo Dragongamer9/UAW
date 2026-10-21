@@ -2,12 +2,13 @@
 //   maptool <game-root> list                       every map with size, objects, start positions
 //   maptool <game-root> check                      load every map, report problems
 //   maptool <game-root> info <MAP>                 layers, editor groups, object types, start positions
-//   maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME]
+//   maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME] [--nav] [--paths]
 //                                                  top-down picture: shaded terrain, objects, starts
 // <MAP> is a name like M16_Sahara or a full path inside the archives.
 #include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
+#include "alamo/nav.hpp"
 #include "alamo/ted.hpp"
 
 #include <algorithm>
@@ -25,7 +26,7 @@ static int usage() {
                  "  maptool <game-root> list\n"
                  "  maptool <game-root> check\n"
                  "  maptool <game-root> info <MAP>\n"
-                 "  maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME]\n";
+                 "  maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME] [--nav] [--paths]\n";
     return 2;
 }
 
@@ -117,8 +118,15 @@ struct Canvas {
     }
 };
 
+struct OverviewOptions {
+    std::string group;
+    bool nav = false;    // tint ground units can't cross
+    bool paths = false;  // draw ground paths from player 1's start to every other start
+};
+
 static int overview(MegVfs& vfs, const GameDatabase& db, const Map& m, const std::string& out, uint32_t pixels,
-                    const std::string& onlyGroup) {
+                    const OverviewOptions& ov) {
+    const std::string& onlyGroup = ov.group;
     const float worldX = m.sizeX(), worldY = m.sizeY();
     const float scale = float(pixels) / std::max(worldX, worldY);
     const uint32_t W = std::max(1u, uint32_t(worldX * scale)), H = std::max(1u, uint32_t(worldY * scale));
@@ -180,6 +188,37 @@ static int overview(MegVfs& vfs, const GameDatabase& db, const Map& m, const std
         else if (resource) { const uint8_t c[3] = {120, 230, 255}; cv.disc(x, y, unit * 1.1f, c); }
         else { const uint8_t c[3] = {40, 35, 30}; cv.disc(x, y, unit * 0.7f, c, 0.55f); }
         ++drawn;
+    }
+
+    const NavGrid nav(m);
+    if (ov.nav) {
+        const uint8_t red[3] = {220, 30, 30};
+        for (uint32_t py = 0; py < H; ++py)
+            for (uint32_t px = 0; px < W; ++px)
+                if (!nav.passableAt((px + 0.5f) / scale, worldY - (py + 0.5f) / scale)) cv.put(int(px), int(py), red, 0.45f);
+    }
+    if (ov.paths) {
+        const auto starts = startPositions(m, db);
+        const uint8_t yellow[3] = {255, 230, 40};
+        for (size_t i = 1; i < starts.size(); ++i) {
+            auto path = nav.findPath(starts[0].second, starts[i].second);
+            Vec3 prev = nav.nearestPassable(starts[0].second);
+            float length = 0;
+            for (const Vec3& p : path) {
+                const float seg = std::hypot(p[0] - prev[0], p[1] - prev[1]);
+                length += seg;
+                const int steps = std::max(1, int(seg * scale));
+                for (int k = 0; k <= steps; ++k) {
+                    const float t = float(k) / float(steps);
+                    auto [x, y] = toPx({prev[0] + (p[0] - prev[0]) * t, prev[1] + (p[1] - prev[1]) * t, 0});
+                    cv.disc(x, y, unit * 0.9f, yellow);
+                }
+                prev = p;
+            }
+            const bool reached = !path.empty() && std::hypot(prev[0] - starts[i].second[0], prev[1] - starts[i].second[1]) < 3 * m.spacing;
+            std::printf("path P1 -> P%d: %zu waypoints, %.0f units%s\n", starts[i].first + 1, path.size(), length,
+                        reached ? "" : " (did not reach the target)");
+        }
     }
 
     for (const auto& [slot, pos] : startPositions(m, db)) {
@@ -279,13 +318,15 @@ int main(int argc, char** argv) {
         }
         if (cmd == "overview" && argc > 4) {
             uint32_t px = 1024;
-            std::string group;
+            OverviewOptions ov;
             for (int i = 5; i < argc; ++i) {
                 std::string a = argv[i];
-                if (a == "--group" && i + 1 < argc) group = argv[++i];
+                if (a == "--group" && i + 1 < argc) ov.group = argv[++i];
+                else if (a == "--nav") ov.nav = true;
+                else if (a == "--paths") ov.paths = true;
                 else px = uint32_t(std::stoul(a));
             }
-            return overview(vfs, db, m, argv[4], std::clamp(px, 64u, 8192u), group);
+            return overview(vfs, db, m, argv[4], std::clamp(px, 64u, 8192u), ov);
         }
         return usage();
     } catch (const std::exception& e) {

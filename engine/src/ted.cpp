@@ -204,6 +204,14 @@ Map loadTed(std::span<const uint8_t> data) {
                 if (mc.id == 0x05) m.playableMin = rdVec3(mc.body);
                 else if (mc.id == 0x06) m.playableMax = rdVec3(mc.body);
             }
+        } else if (c.id == 0x10A) {
+            const size_t n = size_t(m.width) * m.height;
+            if (c.body.size() == n * 4) {
+                m.vertexFlags.resize(n);
+                std::memcpy(m.vertexFlags.data(), c.body.data(), n * 4);
+            } else {
+                m.warnings.push_back("vertex flag chunk size doesn't match terrain");
+            }
         } else if (c.id == 0x10D) {
             for (const auto& mc : minis(c.body))
                 if (mc.id == 0x08) m.assetBanks.push_back(str(mc.body));
