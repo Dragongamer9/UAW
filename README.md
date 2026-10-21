@@ -13,8 +13,8 @@ redistributed.
 | 1 | XML game data (`Data/XML`), `MegaFiles.xml` load order | done: all 168 object files, 3,128 objects (1,099 variants), 0 warnings on retail data |
 | 1 | String tables (`MasterTextFile_*.dat`) | planned |
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
-| 2 | ALA animations, particle systems (`0x1500` .ALO), real-time viewer | next |
-| 2 | TED maps → terrain renderer | planned |
+| 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
+| 2 | Particle systems (`0x1500` .ALO), TED maps, real-time viewer | next |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
@@ -61,6 +61,8 @@ comments are include directives and are expanded in place.
 alotool "<game>" check                          # load every .ALO in the mounted archives
 alotool "<game>" info    NB_AIRCRAFT_ASSEMBLY.ALO  # bones, meshes, materials, textures
 alotool "<game>" export  AH_ORLOK.ALO orlok.glb    # glTF for Blender / any viewer (--all adds hidden meshes)
+alotool "<game>" export  MB_VTOL_FACTORY.ALO open.glb --anim MB_VTOL_FACTORY_OPEN_00.ALA --frame last
+alotool "<game>" anim    MB_VTOL_FACTORY_OPEN_00.ALA   # frames, fps, which bones move
 alotool "<game>" unit    Alien_Grunt grunt.glb     # export a game object's Land_Model_Name
 alotool "<game>" texture NV_Corruptor.tga out.png
 ```
@@ -96,6 +98,20 @@ container. Material parameters and connections use mini-chunks
   Skinned meshes (`…Skin…` vertex formats) are stored in model space in bind
   pose. Placing them per bone scatters the parts, which was checked on Orlok and
   the Novus Reflex.
+
+### ALA animations
+
+`0x1000` wraps everything. `0x1001` header mini-chunks: `1` frame count, `2`
+fps, `3` bone count, `0x0B` rotation components per frame, `0x0C`
+translation components per frame. Each `0x1002` bone has `0x1003` info
+(`4` name, `5` bone index, `6`/`7` translation offset/scale, `0x0E`
+translation index, `0x10` rotation index, `0x11` default rotation) and an
+optional `0x1007` visibility bitfield. `0x1009` holds int16 quaternions
+(x, y, z, w / 32767) and `0x100A` holds uint16 translations
+(offset + value × scale). An index of -1 means the channel is constant.
+
+A posed bone's local transform is T × R relative to its parent, replacing the
+rest transform. Skinned vertices are posed with posed(bone) × inverse(rest(bone)).
 
 ### MEG archives
 

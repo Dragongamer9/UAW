@@ -1,9 +1,11 @@
 // alotool: inspect and export Universe at War models.
 //   alotool <game-root> check                     load every .ALO in the mounted archives
 //   alotool <game-root> info   <MODEL.ALO>        bones, meshes, materials, textures
-//   alotool <game-root> export <MODEL.ALO> <out.glb> [--all]
+//   alotool <game-root> export <MODEL.ALO> <out.glb> [--all] [--anim X.ALA [--frame N|last]]
+//   alotool <game-root> anim   <X.ALA>                frame count, fps, animated bones
 //   alotool <game-root> unit   <ObjectName> <out.glb> [--all]   export a game object's land model
 //   alotool <game-root> texture <NAME.tga|.dds> <out.png>
+#include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
@@ -20,7 +22,8 @@ static int usage() {
     std::cerr << "usage:\n"
                  "  alotool <game-root> check\n"
                  "  alotool <game-root> info    <MODEL.ALO>\n"
-                 "  alotool <game-root> export  <MODEL.ALO> <out.glb> [--all]\n"
+                 "  alotool <game-root> export  <MODEL.ALO> <out.glb> [--all] [--anim X.ALA [--frame N|last]]\n"
+                 "  alotool <game-root> anim    <X.ALA>\n"
                  "  alotool <game-root> unit    <ObjectName> <out.glb> [--all]\n"
                  "  alotool <game-root> texture <NAME.tga> <out.png>\n";
     return 2;
@@ -56,14 +59,46 @@ static void printParam(const ShaderParam& p) {
     else if (auto* s = std::get_if<std::string>(&p)) std::printf("\"%s\"", s->c_str());
 }
 
-static int exportModel(MegVfs& vfs, const std::string& path, const std::string& out, bool all) {
+struct ExportFlags {
+    bool all = false;
+    std::string anim;
+    uint32_t frame = 0;
+    bool lastFrame = false;
+};
+
+static ExportFlags parseFlags(int argc, char** argv, int from) {
+    ExportFlags f;
+    for (int i = from; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--all") f.all = true;
+        else if (a == "--anim" && i + 1 < argc) f.anim = argv[++i];
+        else if (a == "--frame" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "last") f.lastFrame = true;
+            else f.frame = uint32_t(std::stoul(v));
+        }
+    }
+    return f;
+}
+
+static int exportModel(MegVfs& vfs, const std::string& path, const std::string& out, const ExportFlags& flags) {
     Model m = loadAlo(vfs.read(path));
     if (m.kind == Model::Kind::ParticleSystem) {
         std::cerr << path << " is a particle system, not a mesh\n";
         return 1;
     }
     GltfOptions opt;
-    opt.includeHidden = all;
+    opt.includeHidden = flags.all;
+    Animation anim;
+    if (!flags.anim.empty()) {
+        anim = loadAla(vfs.read(modelPath(flags.anim)));
+        opt.animation = &anim;
+        opt.frame = flags.lastFrame && anim.frameCount ? anim.frameCount - 1 : flags.frame;
+        size_t matched = 0;
+        for (const auto& b : m.bones) matched += anim.find(b.name) != nullptr;
+        std::printf("animation %s: frame %u of %u, %zu/%zu bones matched\n", flags.anim.c_str(), opt.frame,
+                    anim.frameCount, matched, m.bones.size());
+    }
     GltfStats st;
     auto glb = exportGlb(m, [&](const std::string& n) { return loadTexture(vfs, n); }, opt, &st);
     std::ofstream(out, std::ios::binary).write(reinterpret_cast<const char*>(glb.data()), std::streamsize(glb.size()));
@@ -76,15 +111,27 @@ static int exportModel(MegVfs& vfs, const std::string& path, const std::string& 
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     const std::string cmd = argv[2];
-    const bool all = argc > 0 && std::string(argv[argc - 1]) == "--all";
     try {
         MegVfs vfs;
         mountGame(vfs, argv[1]);
 
         if (cmd == "check") {
-            size_t meshes = 0, particles = 0, failed = 0, warned = 0, tris = 0;
+            size_t meshes = 0, particles = 0, failed = 0, warned = 0, tris = 0, anims = 0, frames = 0;
             std::map<std::string, size_t> formats;
             for (const auto& p : vfs.list()) {
+                if (p.size() > 4 && p.compare(p.size() - 4, 4, ".ALA") == 0) {
+                    try {
+                        Animation a = loadAla(vfs.read(p));
+                        ++anims;
+                        frames += a.frameCount;
+                        for (const auto& w : a.warnings) std::printf("warning: %s: %s\n", p.c_str(), w.c_str());
+                        warned += !a.warnings.empty();
+                    } catch (const std::exception& e) {
+                        ++failed;
+                        std::printf("FAILED: %s: %s\n", p.c_str(), e.what());
+                    }
+                    continue;
+                }
                 if (p.size() < 4 || p.compare(p.size() - 4, 4, ".ALO") != 0) continue;
                 try {
                     Model m = loadAlo(vfs.read(p));
@@ -101,8 +148,9 @@ int main(int argc, char** argv) {
                     std::printf("FAILED: %s: %s\n", p.c_str(), e.what());
                 }
             }
-            std::printf("mesh models: %zu (%zu with warnings), particle systems: %zu, failed: %zu, triangles: %zu\n",
-                        meshes, warned, particles, failed, tris);
+            std::printf("mesh models: %zu, animations: %zu (%zu frames), particle systems: %zu, with warnings: %zu, "
+                        "failed: %zu, triangles: %zu\n",
+                        meshes, anims, frames, particles, warned, failed, tris);
             for (const auto& [f, n] : formats) std::printf("  %6zu  %s\n", n, f.c_str());
             return failed ? 1 : 0;
         }
@@ -140,7 +188,18 @@ int main(int argc, char** argv) {
             for (const auto& w : m.warnings) std::printf("warning: %s\n", w.c_str());
             return 0;
         }
-        if (cmd == "export" && argc > 4) return exportModel(vfs, modelPath(argv[3]), argv[4], all);
+        if (cmd == "export" && argc > 4) return exportModel(vfs, modelPath(argv[3]), argv[4], parseFlags(argc, argv, 5));
+        if (cmd == "anim" && argc > 3) {
+            Animation a = loadAla(vfs.read(modelPath(argv[3])));
+            std::printf("%s: %u frames at %g fps (%.2fs), %zu bones, rotation block %u, translation block %u\n", argv[3],
+                        a.frameCount, a.fps, a.duration(), a.bones.size(), a.rotationBlock, a.translationBlock);
+            for (const auto& b : a.bones)
+                std::printf("  [%2u] %-28s rot %s  pos %s%s\n", b.index, b.name.c_str(),
+                            b.rotationIndex >= 0 ? "animated" : "fixed   ", b.translationIndex >= 0 ? "animated" : "fixed   ",
+                            b.visibility.empty() ? "" : "  visibility track");
+            for (const auto& w : a.warnings) std::printf("warning: %s\n", w.c_str());
+            return 0;
+        }
         if (cmd == "unit" && argc > 4) {
             GameDatabase db;
             db.load(vfs);
@@ -153,7 +212,7 @@ int main(int argc, char** argv) {
                 std::cerr << o->name << " uses " << trim(*model) << ", which isn't in the mounted archives\n";
                 return 1;
             }
-            return exportModel(vfs, path, argv[4], all);
+            return exportModel(vfs, path, argv[4], parseFlags(argc, argv, 5));
         }
         if (cmd == "texture" && argc > 4) {
             auto img = loadTexture(vfs, argv[3]);

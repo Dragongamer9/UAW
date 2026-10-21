@@ -1,4 +1,5 @@
-// Tests for ALO, DDS and glTF using small hand-built files.
+// Tests for ALO, ALA, DDS and glTF using small hand-built files.
+#include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gltf.hpp"
@@ -189,10 +190,78 @@ static void testGltf() {
     CHECK(json.find("\"max\":[7,") != std::string::npos);
 }
 
+static Bytes makeAla() {
+    auto u32mini = [](uint8_t id, uint32_t v) { Bytes b; put32(b, v); return mini(id, b); };
+    Bytes hdrF; putf(hdrF, 30.0f);
+    Bytes header = chunk(0x1001, cat({u32mini(1, 2), mini(2, hdrF), u32mini(3, 1), u32mini(0x0B, 4), u32mini(0x0C, 3)}));
+
+    Bytes name; putStr(name, "Turret");
+    Bytes off; putf(off, 5); putf(off, 0); putf(off, 0);
+    Bytes scl; putf(scl, 1); putf(scl, 1); putf(scl, 1);
+    Bytes idx0{0, 0};
+    Bytes defRot{0, 0, 0, 0, 0, 0, 0xFF, 0x7F};
+    Bytes info = chunk(0x1003, cat({mini(4, name), u32mini(5, 1), mini(6, off), mini(7, scl), mini(0x0E, idx0),
+                                    mini(0x10, idx0), mini(0x11, defRot)}));
+    Bytes vis{0x01}; // visible on frame 0 only
+    Bytes bone = chunk(0x1002, cat({info, chunk(0x1007, vis)}), true);
+
+    // Rotations x,y,z,w: frame 0 identity, frame 1 = 90 degrees about Z.
+    auto s16 = [](Bytes& b, int16_t v) { b.push_back(uint8_t(v)); b.push_back(uint8_t(uint16_t(v) >> 8)); };
+    Bytes rot;
+    for (int16_t v : {0, 0, 0, 32767}) s16(rot, v);
+    for (int16_t v : {0, 0, 23170, 23170}) s16(rot, v);
+    Bytes trans;
+    for (int16_t v : {0, 0, 0, 0, 2, 0}) s16(trans, v);
+    return chunk(0x1000, cat({header, bone, chunk(0x1009, rot), chunk(0x100A, trans)}), true);
+}
+
+static void testAla() {
+    Animation a = loadAla(makeAla());
+    CHECK(a.frameCount == 2 && a.fps == 30.0f && a.bones.size() == 1);
+    CHECK(a.warnings.empty());
+    const AnimBone* b = a.find("turret");
+    CHECK(b);
+    if (!b) return;
+    Vec3 p = transformPoint(a.local(*b, 1), {1, 0, 0});
+    CHECK(std::fabs(p[0] - 5) < 1e-3f && std::fabs(p[1] - 3) < 1e-3f && std::fabs(p[2]) < 1e-3f);
+    CHECK(a.visible(*b, 0) && !a.visible(*b, 1));
+
+    // Inverse of a rotation+translation undoes it.
+    Mat34 m = a.local(*b, 1);
+    Vec3 back = transformPoint(inverseRigid(m), transformPoint(m, {0.3f, -2.f, 7.f}));
+    CHECK(std::fabs(back[0] - 0.3f) < 1e-3f && std::fabs(back[1] + 2.f) < 1e-3f && std::fabs(back[2] - 7.f) < 1e-3f);
+
+    // Posed export: the mesh rides the Turret bone, rotated 90 degrees and moved to (5, 2, 0).
+    Model model = loadAlo(makeAlo());
+    GltfOptions opt;
+    opt.animation = &a;
+    opt.frame = 1;
+    opt.includeHidden = true; // frame 1 hides the bone via the visibility track
+    auto glb = exportGlb(model, [](const std::string&) { return std::optional<Image>{}; }, opt);
+    uint32_t jlen; std::memcpy(&jlen, &glb[12], 4);
+    std::string json(reinterpret_cast<const char*>(&glb[20]), jlen);
+    CHECK(json.find("\"min\":[4,") != std::string::npos);
+    CHECK(json.find("\"max\":[5,") != std::string::npos);
+    opt.includeHidden = false;
+    GltfStats st;
+    exportGlb(model, [](const std::string&) { return std::optional<Image>{}; }, opt, &st);
+    CHECK(st.meshes == 0);
+
+    // Data shorter than the header promises must throw.
+    Bytes bad = makeAla();
+    bad.resize(bad.size() - 4);
+    bad[4] = uint8_t(bad.size() - 8); // keep the outer chunk consistent
+    bad[5] = uint8_t((bad.size() - 8) >> 8);
+    bool threw = false;
+    try { loadAla(bad); } catch (const AloError&) { threw = true; }
+    CHECK(threw);
+}
+
 int main() {
     testAlo();
     testDds();
     testGltf();
+    testAla();
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

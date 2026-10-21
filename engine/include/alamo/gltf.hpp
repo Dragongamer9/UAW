@@ -3,6 +3,7 @@
 // the Alamo Z-up frame is converted to glTF's Y-up.
 #pragma once
 
+#include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 
@@ -15,6 +16,8 @@ namespace alamo {
 
 struct GltfOptions {
     bool includeHidden = false; // also export hidden meshes (LODs, shadow volumes, damage states)
+    const Animation* animation = nullptr; // bake this animation's pose...
+    uint32_t frame = 0;                   // ...at this frame
 };
 
 struct GltfStats {

@@ -29,15 +29,21 @@ Vec3 normalize(Vec3 v) {
     return {v[0] / l, v[1] / l, v[2] / l};
 }
 
-// Bind pose placement. Rigid meshes are stored relative to the bone their mesh is
-// attached to. Skinned meshes (vertex formats containing "Skin") are stored in
-// model space in their bind pose: transforming them per-bone (tested on Orlok and
-// the Novus Reflex) scatters the parts, so they are used as-is until animation
-// playback applies (animated bone * inverse bind bone).
-const Mat34& vertexTransform(const SubMesh& sm, const Mat34& rigid) {
-    static const Mat34 identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
-    return sm.skinned() ? identity : rigid;
-}
+// Placement. Rigid meshes are stored relative to the bone their mesh is attached
+// to. Skinned meshes (vertex formats containing "Skin") are stored in model space
+// in bind pose (placing them per bone without the inverse bind scatters the parts,
+// checked on Orlok and the Novus Reflex), so a posed vertex uses
+// posed(bone) * inverse(rest(bone)), picking the bone from the sub-mesh's bone map.
+struct Placement {
+    std::vector<Mat34> skin; // per bone-map slot
+    Mat34 rigid;
+    const Mat34& forVertex(const SubMesh& sm, const Vertex& v) const {
+        static const Mat34 identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+        if (!sm.skinned()) return rigid;
+        uint32_t slot = v.boneIndex[0];
+        return slot < skin.size() ? skin[slot] : identity;
+    }
+};
 
 struct Builder {
     std::vector<uint8_t> bin;
@@ -102,10 +108,20 @@ std::vector<uint8_t> exportGlb(const Model& model, const TextureLoader& textures
         return idx;
     };
 
+    const std::vector<Mat34> posed = poseModel(model, opt.animation, opt.frame);
+    std::vector<Mat34> rest(model.bones.size());
+    for (uint32_t i = 0; i < rest.size(); ++i) rest[i] = model.boneWorld(i);
+
     for (uint32_t mi = 0; mi < model.meshes.size(); ++mi) {
         const Mesh& mesh = model.meshes[mi];
         if (mesh.hidden && !opt.includeHidden) continue;
-        const Mat34 xf = model.boneWorld(model.meshBone(mi));
+        const uint32_t bone = model.meshBone(mi);
+        if (opt.animation && bone < model.bones.size()) {
+            const AnimBone* ab = opt.animation->find(model.bones[bone].name);
+            if (ab && !opt.animation->visible(*ab, opt.frame) && !opt.includeHidden) continue;
+        }
+        Placement place;
+        place.rigid = bone < posed.size() ? posed[bone] : Mat34{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
         std::ostringstream prims;
         int primCount = 0;
 
@@ -114,10 +130,14 @@ std::vector<uint8_t> exportGlb(const Model& model, const TextureLoader& textures
             std::vector<float> pos, nrm, uv;
             pos.reserve(sm.vertices.size() * 3);
             float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
-            const Mat34& place = vertexTransform(sm, xf);
+            place.skin.clear();
+            for (uint32_t b : sm.boneMap)
+                place.skin.push_back(b < posed.size() ? multiply(posed[b], inverseRigid(rest[b]))
+                                                      : Mat34{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0});
             for (const Vertex& v : sm.vertices) {
-                Vec3 p = toYUp(transformPoint(place, v.position));
-                Vec3 n = toYUp(normalize(transformDir(place, v.normal)));
+                const Mat34& m = place.forVertex(sm, v);
+                Vec3 p = toYUp(transformPoint(m, v.position));
+                Vec3 n = toYUp(normalize(transformDir(m, v.normal)));
                 for (int k = 0; k < 3; ++k) {
                     pos.push_back(p[k]);
                     nrm.push_back(n[k]);

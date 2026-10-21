@@ -21,6 +21,7 @@ add_library(alamo
   engine/src/alo.cpp
   engine/src/dds.cpp
   engine/src/gltf.cpp
+  engine/src/ala.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB REQUIRED)
