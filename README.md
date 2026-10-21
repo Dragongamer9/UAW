@@ -14,7 +14,8 @@ redistributed.
 | 1 | String tables (`MasterTextFile_*.dat`) | planned |
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
-| 2 | Particle systems (`0x1500` .ALO), TED maps, real-time viewer | next |
+| 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
+| 2 | Particle systems (`0x1500` .ALO), real-time 3D viewer | next |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
@@ -72,7 +73,42 @@ Hidden meshes (LODs, damage states, shadow and collision meshes) are skipped
 unless `--all` is given. Materials name textures as `.tga`; the shipped files
 are usually `.dds` with the same name in `Data/Art/Textures`.
 
+## maptool
+
+```sh
+maptool "<game>" list                               # every map: size, objects, start positions
+maptool "<game>" info M16_Sahara                    # layers, groups, start positions, object types
+maptool "<game>" overview M16_Sahara sahara.png 1024 --group Multiplayer
+```
+
+Overviews shade the terrain, colour it by texture layer (from the real textures
+when `Textures.meg` is available, otherwise a guess from the texture name), and
+mark structures, units, resources, the playable area and numbered start positions.
+
 ## Format notes
+
+### TED maps
+
+Nothing about this format is publicly documented; the layout below was worked
+out from the retail maps and checked against all of them.
+
+- `0x0000` header: `0x08` UTF-16 name text ID, `0x0D`/`0x0E` world extent.
+- `0x0001/0x0101` terrain: `0x00` header (`0x00` width, `0x01` height in
+  vertices), `0x0D` vertices as `{ int16 height; uint8 layer; uint8 layer }`,
+  `0x02` texture layers (`0x03` each: `0x0C` diffuse, `0x13` bump, `0x07`
+  tiling, `0x08` rotation, `0x0A` tint).
+- **Height = int16 × 25/512 world units** on a 20-unit grid, rows along +Y.
+  On all 41 maps checked, every placed object sits exactly on this surface
+  (median error 0).
+- `0x0001/0x0102` objects: `0x17` editor groups (`0x100`: `0x00` name, `0x01`
+  object ids) and `0x01` placed objects, each `0x44C { 0x454, 0x459 { 0x4B0 } }`
+  with `0x4B0` mini-chunks `0x00` id, `0x01` type, `0x02` owner slot, `0x03`
+  scale, `0x04` position, `0x05` rotation in degrees.
+- **Object type = CRC-32 of the uppercase type name**, e.g.
+  `crc32("NOVUS_ROBOTIC_INFANTRY")`.
+- Skirmish start positions are `Marker_Player_<n>_Start` objects. Campaign
+  objects live in mission groups (`ZM01` …) and skirmish ones in `Multiplayer`.
+- `0x0001/0x0103` playable area (`0x05` min, `0x06` max). `0x010D` asset banks.
 
 ### ALO models
 

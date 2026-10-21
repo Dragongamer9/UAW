@@ -1,8 +1,9 @@
-// Tests for ALO, ALA, DDS and glTF using small hand-built files.
+// Tests for ALO, ALA, TED, DDS and glTF using small hand-built files.
 #include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gltf.hpp"
+#include "alamo/ted.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -257,7 +258,73 @@ static void testAla() {
     CHECK(threw);
 }
 
+static Bytes makeTed() {
+    auto u32mini = [](uint8_t id, uint32_t v) { Bytes b; put32(b, v); return mini(id, b); };
+    auto f32mini = [](uint8_t id, float v) { Bytes b; putf(b, v); return mini(id, b); };
+    auto v3mini = [](uint8_t id, float x, float y, float z) { Bytes b; putf(b, x); putf(b, y); putf(b, z); return mini(id, b); };
+    Bytes name{'T', 0, 'X', 0, 0, 0};
+    Bytes header = chunk(0x00, cat({mini(0x08, name), f32mini(0x0D, 60), f32mini(0x0E, 60)}));
+
+    // 3x3 vertices; height values 0, 512 (=25 units), -1024 (=-50 units); layer 1 in the middle.
+    Bytes verts;
+    for (int i = 0; i < 9; ++i) {
+        int16_t h = i == 4 ? 512 : i == 8 ? -1024 : 0;
+        verts.push_back(uint8_t(h));
+        verts.push_back(uint8_t(uint16_t(h) >> 8));
+        uint8_t layer = i == 4 ? 1 : 0;
+        verts.push_back(layer);
+        verts.push_back(layer);
+    }
+    Bytes tex0; putStr(tex0, "wm_sand");
+    Bytes tex1; putStr(tex1, "wm_rock");
+    Bytes layers = chunk(0x02, cat({chunk(0x03, cat({f32mini(0x07, 64), mini(0x0C, tex0)})),
+                                    chunk(0x03, cat({f32mini(0x07, 32), mini(0x0C, tex1), v3mini(0x0A, 0.5f, 0.5f, 0.5f)}))}),
+                         true);
+    Bytes terrain = chunk(0x101, cat({chunk(0x00, cat({u32mini(0, 3), u32mini(1, 3)})), chunk(0x0D, verts), layers}), true);
+
+    Bytes grpName; putStr(grpName, "Multiplayer");
+    Bytes group = chunk(0x17, chunk(0x100, cat({mini(0x00, grpName), u32mini(0x01, 77)}), true), true);
+    Bytes props = cat({u32mini(0x00, 77), u32mini(0x01, 0xDEADBEEF), u32mini(0x02, 1), f32mini(0x03, 1.5f),
+                       v3mini(0x04, 20, 20, 25), v3mini(0x05, 0, 0, 90)});
+    Bytes obj = chunk(0x44C, cat({chunk(0x454, Bytes{}), chunk(0x459, chunk(0x4B0, props), true)}), true);
+    Bytes objects = chunk(0x102, cat({group, chunk(0x01, obj, true)}), true);
+    Bytes play = chunk(0x103, cat({v3mini(0x05, 10, 10, 0), v3mini(0x06, 50, 50, 0)}));
+    return cat({header, chunk(0x01, cat({terrain, objects, play}), true)});
+}
+
+static void testTed() {
+    Map m = loadTed(makeTed());
+    CHECK(m.nameTextId == "TX");
+    CHECK(m.width == 3 && m.height == 3 && m.spacing == 20.0f);
+    CHECK(m.vertexHeight(1, 1) == 25.0f && m.vertexHeight(2, 2) == -50.0f);
+    CHECK(std::fabs(m.heightAt(10, 10) - 6.25f) < 1e-4f); // midway between a 0 corner and the 25 centre
+    CHECK(m.layers.size() == 2 && m.layers[1].diffuse == "wm_rock" && m.layers[1].tint[0] == 0.5f);
+    CHECK(m.layerIndex[4] == 1 && m.layerIndex[0] == 0);
+    CHECK(m.objects.size() == 1);
+    if (!m.objects.empty()) {
+        const MapObject& o = m.objects[0];
+        CHECK(o.typeCrc == 0xDEADBEEF && o.owner == 1 && o.scale == 1.5f && o.position[2] == 25.0f);
+        CHECK(o.rotation[2] == 90.0f);
+        CHECK(o.groups.size() == 1 && m.groups[o.groups[0]].name == "Multiplayer");
+    }
+    CHECK(m.playableMax[0] == 50.0f);
+    CHECK(m.warnings.empty());
+
+    // Vertex data that doesn't match the declared size must be rejected.
+    Bytes bad = makeTed();
+    for (size_t i = 0; i + 8 <= bad.size(); ++i) {
+        uint32_t id, sz;
+        std::memcpy(&id, &bad[i], 4);
+        std::memcpy(&sz, &bad[i + 4], 4);
+        if (id == 0x00 && sz == 12 && bad[i + 8] == 0 && bad[i + 9] == 4) { bad[i + 10] = 9; break; } // width -> 9
+    }
+    bool threw = false;
+    try { loadTed(bad); } catch (const AloError&) { threw = true; }
+    CHECK(threw);
+}
+
 int main() {
+    testTed();
     testAlo();
     testDds();
     testGltf();

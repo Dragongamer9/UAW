@@ -145,6 +145,7 @@ void GameDatabase::load(MegVfs& vfs) {
         }
     }
     resolveVariants();
+    for (size_t i = 0; i < objects_.size(); ++i) byCrc_[crc32(upper(objects_[i].name))] = i;
 
     if (vfs.exists("Data\\XML\\Factions.xml")) {
         XmlDocument fd = parseXml(readText(vfs, "Data\\XML\\Factions.xml"));
@@ -228,6 +229,11 @@ void GameDatabase::resolveVariants() {
         state[i] = 2;
     };
     for (size_t i = 0; i < objects_.size(); ++i) resolve(i);
+}
+
+const GameObjectType* GameDatabase::findByCrc(uint32_t crc) const {
+    auto it = byCrc_.find(crc);
+    return it == byCrc_.end() ? nullptr : &objects_[it->second];
 }
 
 const GameObjectType* GameDatabase::find(std::string_view name) const {

@@ -22,10 +22,14 @@ add_library(alamo
   engine/src/dds.cpp
   engine/src/gltf.cpp
   engine/src/ala.cpp
+  engine/src/ted.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB REQUIRED)
 target_link_libraries(alamo PUBLIC ZLIB::ZLIB)
+
+add_executable(maptool tools/maptool.cpp)
+target_link_libraries(maptool PRIVATE alamo)
 
 add_executable(alotool tools/alotool.cpp)
 target_link_libraries(alotool PRIVATE alamo)

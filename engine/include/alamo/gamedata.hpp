@@ -61,6 +61,8 @@ public:
     void load(MegVfs& vfs);
 
     const GameObjectType* find(std::string_view name) const;
+    // Maps refer to object types by crc32 of the uppercase name.
+    const GameObjectType* findByCrc(uint32_t crc) const;
     const std::vector<GameObjectType>& objects() const { return objects_; }
     const std::vector<Faction>& factions() const { return factions_; }
     const std::vector<std::string>& warnings() const { return warnings_; }
@@ -72,6 +74,7 @@ private:
 
     std::vector<GameObjectType> objects_;
     std::unordered_map<std::string, size_t> byName_; // uppercase name
+    std::unordered_map<uint32_t, size_t> byCrc_;
     std::vector<Faction> factions_;
     std::vector<std::string> warnings_;
     size_t fileCount_ = 0;
