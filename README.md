@@ -202,19 +202,19 @@ The original numbers are not balanced for this engine's AI: in an untouched 8-ma
 multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but
 a pile lasts ten times longer, so it doesn't strip the map and starve):
 
-| Faction   | Income | Resource value | Wins/96 before | after |
-|-----------|-------:|---------------:|---------------:|------:|
-| Novus     | 0.7    | 1              | 86             | 47    |
-| Masari    | 2.4    | 1              | 0              | 59    |
-| Military  | 0.55   | 1              | 62             | 49    |
-| Hierarchy | 2.2    | 10             | 39             | 31    |
+| Faction   | Income | Resource value | Wins before tuning (of 96) | now (of 48, with abilities and research) |
+|-----------|-------:|---------------:|------:|------:|
+| Novus     | 0.7    | 1              | 86    | 19    |
+| Masari    | 1.9    | 1              | 0     | 26    |
+| Military  | 1.0    | 1              | 62    | 27    |
+| Hierarchy | 2.6    | 10             | 39    | 17    |
 
-The Masari still beat the Hierarchy almost every time, whatever the incomes; that matchup needs work on
-abilities rather than economy. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+Abilities and research changed the picture: the Masari no longer hard-counter the Hierarchy, and the
+Military had leaned on its heroes, which Human Resurgence's research tree locks. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
 
 ```xml
 <UAW_Balance>
-  <Faction Name="Alien"><Income_Multiplier>2.2</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
+  <Faction Name="Alien"><Income_Multiplier>2.6</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
 </UAW_Balance>
 ```
 
