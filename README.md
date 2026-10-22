@@ -34,7 +34,7 @@ redistributed.
 | 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
 | 2 | Animated units in the viewer: GPU skinning (rigid, skinned and 4-bone weighted meshes), idle/move/attack `.ALA` per unit | done (first version) |
 | 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
-| 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
+| 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails, effects attached to model bones (engine glows, flames) | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
 | 2 | Foliage: alpha-tested grass, leaves and bushes | done |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed | done (first version) |

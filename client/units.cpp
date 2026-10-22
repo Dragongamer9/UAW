@@ -391,7 +391,23 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                 }
             }
             // Alamo models face -Y in model space; the simulation's facing 0 is +X.
-            r.drawModel(*model, base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale), {1, 1, 1, 1}, pose);
+            const Mat4 xf = base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale);
+            r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
+            // Attached effects (engine glows, flames, lightning cores) near the camera.
+            if (effects && !model->proxies.empty() && !u.underConstruction) {
+                const alamo::Vec3& cp = r.cameraPosition();
+                const float dx = cp[0] - u.position[0], dy = cp[1] - u.position[1];
+                if (dx * dx + dy * dy < 2200.f * 2200.f)
+                    for (size_t k = 0; k < model->proxies.size() && k < 32; ++k) {
+                        const GpuModel::Proxy& px = model->proxies[k];
+                        if (px.hidden) continue;
+                        const alamo::Vec3& p = px.position;
+                        const alamo::Vec3 wp{xf.at(0, 0) * p[0] + xf.at(0, 1) * p[1] + xf.at(0, 2) * p[2] + xf.at(0, 3),
+                                             xf.at(1, 0) * p[0] + xf.at(1, 1) * p[1] + xf.at(1, 2) * p[2] + xf.at(1, 3),
+                                             xf.at(2, 0) * p[0] + xf.at(2, 1) * p[1] + xf.at(2, 2) * p[2] + xf.at(2, 3)};
+                        effects->follow((uint64_t(u.id) << 8 | k) | (1ull << 63), px.name, wp, scale);
+                    }
+            }
         } else {
             const bool infantry = u.moveClass == alamo::MoveClass::Infantry;
             const float h = infantry ? std::max(rad * 2.2f, 9.f) : std::max(rad * 0.9f, 6.f);

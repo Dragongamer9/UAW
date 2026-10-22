@@ -45,6 +45,9 @@ struct GpuMesh {
 
 struct GpuModel {
     std::vector<GpuMesh> meshes;
+    // Particle effects attached to bones (Alamo proxies), at their rest position in model space.
+    struct Proxy { std::string name; alamo::Vec3 position; bool hidden; };
+    std::vector<Proxy> proxies;
     alamo::Vec3 boundsMin{}, boundsMax{};
     bool loaded = false;
     alamo::Model skeleton;               // bones only, for posing

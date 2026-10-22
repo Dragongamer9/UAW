@@ -592,6 +592,11 @@ int main(int argc, char** argv) {
                 for (float tt = 0; tt < age; tt += 1.f / 30) effects.update(1.f / 30);
             }
             lastFrameTime = world.seconds();
+            // Let attached effects (engine glows, flames) build up for half a second first.
+            for (int k = 0; k < 15; ++k) {
+                drawFrame(w, h);
+                effects.update(1.f / 30);
+            }
             drawFrame(w, h);
             std::printf("particles: %zu in %zu systems\n", effects.particleCount(), effects.systemCount());
             Image img;
