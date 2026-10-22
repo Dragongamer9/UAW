@@ -95,6 +95,7 @@ private:
     uint32_t attackTarget_ = 0;
     int waveStartSize_ = 0;
     float waveStartValue_ = 0;
+    float caution_ = 1, cautionAt_ = 0; // raised by each wave lost, easing back over minutes
     float scale_ = 10000;
     int siteSpin_ = 0;
     std::unordered_map<const GameObjectType*, Role> roles_;

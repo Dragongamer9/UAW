@@ -765,7 +765,11 @@ void SkirmishAI::manageArmy() {
         // Under fog, an enemy army never seen isn't no army: assume a fair match until scouted.
         float enemy = enemyStrength();
         if (w_.fogOfWar() && knownUnits_.empty()) enemy = std::max(enemy, 0.75f * value);
-        const bool ready = (minutes >= 4 && army.size() >= 6 && value >= 1.3f * enemy) || (minutes >= 3 && army.size() >= 4 && value >= 3 * enemy + 1) ||
+        // A wave lost makes it more careful (x1.4 each, up to x2.5), easing back over five minutes.
+        caution_ = std::max(1.f, caution_ - (w_.seconds() - cautionAt_) / 300.f);
+        cautionAt_ = w_.seconds();
+        const bool ready = (minutes >= 4 && army.size() >= 6 && value >= 1.3f * caution_ * enemy) ||
+                           (minutes >= 3 && army.size() >= 4 && value >= 3 * enemy + 1) ||
                            capped || (minutes >= 12 && army.size() >= 10);
         if (!ready) {
             // Gather idle units at the rally point.
@@ -832,6 +836,8 @@ void SkirmishAI::manageArmy() {
     // Wave spent: fall back and rebuild.
     if (armyValue(army) * 3 < waveStartValue_) {
         attacking_ = false;
+        caution_ = std::min(2.5f, caution_ * 1.4f);
+        cautionAt_ = w_.seconds();
         w_.commandMove(army, rallyPoint());
         lastAction_ = "retreat";
         return;

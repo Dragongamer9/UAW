@@ -304,8 +304,9 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 
 Checked with a 72-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
 2 seeds, fog of war on, the AI playing by it, building passive income in numbers and countering the armor it
-has seen): Masari 19 wins of 36, Novus 17, Hierarchy 15, Military 15, 6 draws. The matchups themselves are
-lopsided (Novus beats the Military 12-0, the Masari beat Novus 10-2, the Military beat the Hierarchy 9-2),
+has seen, more careful after a lost wave): Masari 18 wins of 36, Novus 16, Hierarchy 16, Military 15,
+7 draws. The matchups themselves are lopsided (Novus beats the Military 12-0, the Masari beat Novus 9-2,
+the Military beat the Hierarchy 9-2),
 so the totals hide a rock-paper-scissors. The mods set most units' population cost to 0, so armies are
 limited by money and factory speed. The Military's multiplier is the most sensitive knob: its Supply depots
 pay for themselves in under a minute, so it decides how many the AI builds (1.3 gave the Military 26 wins).
@@ -344,7 +345,8 @@ and tech. It aims to use **the whole roster**:
   node's field, one node at a time.
 
 The army gathers at a rally point, defends structures under attack, and attacks the nearest enemy structure
-when its strength (sqrt of health x damage per second, summed) is 1.3x the enemy's after minute 4 with six
+when its strength (sqrt of health x damage per second, summed) is 1.3x the enemy's (more after a wave is lost:
+x1.4 each time, up to x2.5, easing back over five minutes) after minute 4 with six
 units, 3x after minute 3, at the population cap, or after minute 12 with ten units; it regroups when a wave
 drops below a third. A wave abroad comes home when a real force (not a straggler) is wrecking the base; units
 standing at the wave's target attack it outright; a target it hasn't hurt in a minute is given up on for three.
