@@ -463,7 +463,69 @@ int boneIndex(const GpuModel& m, const std::string& name) {
     return -1;
 }
 
+alamo::Mat34 mul34(const alamo::Mat34& a, const alamo::Mat34& b) {
+    alamo::Mat34 c{};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 4; ++j) c[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j] + a[i * 4 + 1] * b[1 * 4 + j] + a[i * 4 + 2] * b[2 * 4 + j];
+        c[i * 4 + 3] += a[i * 4 + 3];
+    }
+    return c;
+}
+
 } // namespace
+
+bool UnitControl::aimTurret(const GpuModel& m, const Mat4& xf, const alamo::GameObjectType& t, const alamo::Vec3* target, uint64_t key,
+                            float time, Pose& pose) const {
+    const std::string* boneName = t.find("Turret_Bone_Name");
+    if (!boneName || m.skeleton.bones.empty()) return false;
+    if (t.number("Apply_Z_Turret_Rotate_To_Axis").value_or(2) != 2) return false; // turned about another axis
+    const int tb = boneIndex(m, alamo::trim(*boneName));
+    if (tb < 0) return false;
+    const size_t nb = m.skeleton.bones.size();
+    if (pose.size() < nb) pose.resize(nb, alamo::Mat34{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0});
+    // The turret's pivot (posed) in model space.
+    const alamo::Mat34 rest = m.skeleton.boneWorld(uint32_t(tb));
+    const alamo::Mat34& P = pose[size_t(tb)];
+    alamo::Vec3 pivot;
+    for (int i = 0; i < 3; ++i) pivot[i] = P[i * 4] * rest[3] + P[i * 4 + 1] * rest[7] + P[i * 4 + 2] * rest[11] + P[i * 4 + 3];
+    // Wanted angle: the target's direction in model space, from the model's forward (-Y).
+    float want = 0;
+    if (target) {
+        alamo::Vec3 pw;
+        for (int i = 0; i < 3; ++i) pw[i] = xf.at(i, 0) * pivot[0] + xf.at(i, 1) * pivot[1] + xf.at(i, 2) * pivot[2] + xf.at(i, 3);
+        const float dw[3] = {(*target)[0] - pw[0], (*target)[1] - pw[1], (*target)[2] - pw[2]};
+        float dm[3]; // inverse of the (rotation x uniform scale) part: transpose, the scale cancels in atan2
+        for (int j = 0; j < 3; ++j) dm[j] = xf.at(0, j) * dw[0] + xf.at(1, j) * dw[1] + xf.at(2, j) * dw[2];
+        if (dm[0] * dm[0] + dm[1] * dm[1] > 1e-6f) want = std::remainder(std::atan2(dm[1], dm[0]) + 1.5707963f, 6.2831853f);
+    }
+    const float extent = float(t.number("Turret_Rotate_Extent_Degrees").value_or(360.0)) * 3.14159265f / 180.f;
+    if (extent < 6.2f) want = std::clamp(want, -extent, extent);
+    // Turned at Turret_Rotate_Speed (degrees per 1/30 s), from where it was last frame.
+    auto [it, fresh] = turrets_.try_emplace(key, want, time);
+    float& angle = it->second.first;
+    if (!fresh) {
+        const float dt = std::clamp(time - it->second.second, 0.f, 0.25f);
+        const float step = float(t.number("Turret_Rotate_Speed").value_or(5.0)) * 3.14159265f / 180.f * 30.f * dt;
+        const float diff = std::remainder(want - angle, 6.2831853f);
+        angle = std::fabs(diff) <= step ? want : angle + (diff > 0 ? step : -step);
+        angle = std::remainder(angle, 6.2831853f);
+    }
+    it->second.second = time;
+    if (std::fabs(angle) < 1e-4f) return true;
+    // The turret bone and everything below it, turned about model Z through the pivot.
+    const float c = std::cos(angle), sn = std::sin(angle);
+    const alamo::Mat34 R{c, -sn, 0, pivot[0] - (c * pivot[0] - sn * pivot[1]), sn, c, 0, pivot[1] - (sn * pivot[0] + c * pivot[1]), 0, 0, 1, 0};
+    std::vector<char> below(nb, 0);
+    below[size_t(tb)] = 1;
+    for (int pass = 0; pass < 4; ++pass) // parents normally come first; a few passes cover the rest
+        for (size_t b = 0; b < nb; ++b) {
+            const int32_t par = m.skeleton.bones[b].parent;
+            if (!below[b] && par >= 0 && size_t(par) < nb && below[size_t(par)]) below[b] = 1;
+        }
+    for (size_t b = 0; b < nb; ++b)
+        if (below[b]) pose[b] = mul34(R, pose[b]);
+    return true;
+}
 
 void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo::GameObjectType& type, const GpuModel& model,
                                  const Mat4& xf, const Pose* pose, int depth) const {
@@ -487,8 +549,13 @@ void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo:
         if (const std::string* ab = a.type->find("Tactical_Build_Hard_Point_Attachment_Bone"))
             if (const int hb = boneIndex(*hm, alamo::trim(*ab)); hb >= 0 && size_t(hb) < hm->restInverse.size())
                 at = at * Mat4::fromAlamo(hm->restInverse[size_t(hb)]);
-        r.drawModel(*hm, at);
-        drawHardpoints(r, u, *a.type, *hm, at, nullptr, depth + 1);
+        Pose hpPose;
+        const alamo::Unit* tgt = (db_ && world_) ? world_->unit(u.target) : nullptr;
+        const alamo::Vec3* aimAt = tgt && tgt->alive() ? &tgt->position : nullptr;
+        const uint64_t key = (uint64_t(u.id) << 16) | (uint64_t(depth) << 12) | uint64_t(&a - attachmentsOf(type, *db_).data());
+        const bool turret = aimTurret(*hm, at, *a.type, aimAt, key, turretTime_, hpPose);
+        r.drawModel(*hm, at, {1, 1, 1, 1}, turret ? &hpPose : nullptr);
+        drawHardpoints(r, u, *a.type, *hm, at, turret ? &hpPose : nullptr, depth + 1);
     }
 }
 
@@ -612,10 +679,17 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             }
             // Alamo models face -Y in model space; the simulation's facing 0 is +X.
             const Mat4 xf = base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale);
+            {
+                const alamo::Unit* tgt = w.unit(u.target);
+                const alamo::Vec3* aimAt = tgt && tgt->alive() && !u.underConstruction ? &tgt->position : nullptr;
+                if (aimTurret(*model, xf, *u.type, aimAt, uint64_t(u.id) << 16 | 0xFFFF, time, posed)) pose = &posed;
+            }
             if (u.underConstruction) // rising out of the ground as it is built
                 r.setClipHeight(u.position[2] + std::max(2.f, model->boundsMax[2] * scale * std::clamp(u.buildProgress, 0.f, 1.f)));
             r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
             if (u.underConstruction) r.setClipHeight(1e9f);
+            world_ = &w;
+            turretTime_ = time;
             if (!u.hardpoints.empty()) drawHardpoints(r, u, *u.type, *model, xf, pose, 0);
             drawFooFighters(r, w, u, time);
             // Attached effects (engine glows, flames, lightning cores) near the camera.

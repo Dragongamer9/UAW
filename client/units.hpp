@@ -8,6 +8,7 @@
 #include "alamo/strings.hpp"
 
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 namespace uaw {
@@ -135,6 +136,14 @@ public:
     void drawBox(Renderer& r, const View& v, float x0, float y0, float x1, float y1) const; // drag rectangle
     const alamo::GameDatabase* db_ = nullptr; // set by the viewer: hardpoint models (walker legs, crowns)
     void drawFooFighters(Renderer& r, alamo::World& w, const alamo::Unit& u, float time) const;
+    // Turns the type's turret bone (Turret_Bone_Name, and everything on it) towards `target` (or
+    // back to rest), at Turret_Rotate_Speed within Turret_Rotate_Extent_Degrees; `pose` is filled
+    // with the rest pose first when empty. False when the type has no turret on this model.
+    bool aimTurret(const GpuModel& m, const Mat4& xf, const alamo::GameObjectType& t, const alamo::Vec3* target, uint64_t key,
+                   float time, Pose& pose) const;
+    mutable std::unordered_map<uint64_t, std::pair<float, float>> turrets_; // key -> (angle, last time)
+    mutable alamo::World* world_ = nullptr;
+    mutable float turretTime_ = 0;
     void drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo::GameObjectType& type, const GpuModel& model,
                         const Mat4& xf, const Pose* pose, int depth) const;
 

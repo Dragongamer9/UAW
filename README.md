@@ -182,6 +182,9 @@ untextured grey, and translucent layers without their texture are skipped.
 weapons (including hardpoints), damage per second and armor modifiers against the
 named victims.
 
+Turrets (`Turret_Bone_Name`, on units and their hardpoints) turn towards the unit's target at
+`Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`, and back when it has none.
+
 Lighting follows the map's own sun, ambient light, haze and sky. Units, structures, props, trees and
 hills cast sun shadows (a 2048² depth map around the camera, filtered at the edges); `UAW_NO_SHADOWS=1`
 switches them off on a slow graphics card.
