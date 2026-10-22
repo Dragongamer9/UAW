@@ -919,7 +919,24 @@ void SkirmishAI::manageAbilities() {
         for (size_t i = 0; i < u.abilities.size(); ++i) {
             const AbilitySpec& s = ta.abilities[u.abilities[i].index];
             if (s.autonomous || u.abilities[i].cooldown > 0 || s.kind == AbilitySpec::Kind::Unsupported || u.leaping) continue;
-            if (s.kind == AbilitySpec::Kind::FooMode || s.kind == AbilitySpec::Kind::Place || s.substitute) continue; // saucers keep attacking; default fire modes
+            if (s.kind == AbilitySpec::Kind::FooMode) {
+                // Saucers: fight when there is an enemy in reach, else mend hurt machines nearby.
+                bool mend = false;
+                if (!u.target)
+                    for (const Unit::WeaponState& ws : u.weapons) {
+                        if (ws.spec.fooFighters == 0) continue;
+                        for (uint32_t id : w_.unitsNear(u.position, u.weaponRange(ws))) {
+                            const Unit* o = w_.unit(id);
+                            if (o && o->id != u.id && o->owner == u.owner && !o->structure && o->health < 0.8f * o->maxHealth && w_.canHit(ws, *o)) {
+                                mend = true;
+                                break;
+                            }
+                        }
+                    }
+                if (mend != u.fooHeal) todo.push_back({u.id, i});
+                continue;
+            }
+            if (s.kind == AbilitySpec::Kind::Place || s.substitute) continue; // default fire modes
             if (s.aiHealthBelow > 0 && u.health >= s.aiHealthBelow * u.maxHealth) continue;
             if (s.kind == AbilitySpec::Kind::Switch) {
                 // Masari: dark (ice) mode's armor when hurt, light (fire) mode's damage otherwise.
