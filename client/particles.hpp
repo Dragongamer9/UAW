@@ -43,8 +43,8 @@ private:
         float scale = 1, life = -1; // Scale_Factor, Particle_Lifetime_Frames in seconds (-1 = none)
     };
     struct Instance {
-        const alamo::ParticleSystemDef* def;
-        alamo::Vec3 position;
+        const alamo::ParticleSystemDef* def = nullptr;
+        alamo::Vec3 position{};
         float scale = 1, age = 0, maxAge = -1;
         uint64_t key = 0;      // followed thing, 0 = one-shot
         bool refreshed = true; // followed: seen this frame

@@ -95,7 +95,8 @@ bool ParticleEffects::spawn(const std::string& name, Vec3 at, float scale) {
     static const bool log = std::getenv("UAW_PARTICLE_LOG") != nullptr;
     if (log) std::fprintf(stderr, "particles: %s -> %s\n", name.c_str(), def ? def->name.c_str() : "(none)");
     if (!def || def->emitters.empty()) return false;
-    Instance in{def, at, s * scale};
+    Instance in;
+    in.def = def, in.position = at, in.scale = s * scale;
     const float len = def->length();
     in.maxAge = life > 0 ? life : (len < 0 ? 2.f : len);
     in.emitted.assign(def->emitters.size(), 0.f);
@@ -115,7 +116,8 @@ void ParticleEffects::follow(uint64_t key, const std::string& name, Vec3 at, flo
     static const bool log = std::getenv("UAW_PARTICLE_LOG") != nullptr;
     if (log && def) std::fprintf(stderr, "particles: follow %s -> %s\n", name.c_str(), def->name.c_str());
     if (!def || def->emitters.empty()) return;
-    Instance in{def, at, s * scale};
+    Instance in;
+    in.def = def, in.position = at, in.scale = s * scale;
     in.key = key;
     in.maxAge = -1;
     in.emitted.assign(def->emitters.size(), 0.f);
