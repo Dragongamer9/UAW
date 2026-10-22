@@ -208,18 +208,48 @@ int main(int argc, char** argv) {
             std::vector<std::set<std::string>> built(2);
             auto roster = [&]() {
                 if (!std::getenv("UAW_ROSTER")) return;
+                auto up = [](std::string x) { for (char& c : x) c = char(std::toupper(static_cast<unsigned char>(c))); return x; };
                 for (size_t i = 0; i < ais.size(); ++i) {
                     const Player* p = w.player(ais[i].player());
+                    // What a skirmish can ever reach from the starting forces: an object is reachable when
+                    // one of its options has every requirement reachable and a reachable builder (or none:
+                    // placed by a base builder). A construction site makes its structure reachable.
+                    std::set<std::string> reachable; // upper case
+                    if (auto it = forces.find(up(p->faction)); it != forces.end())
+                        for (const std::string& f : it->second) reachable.insert(up(f));
+                    for (bool grew = true; grew;) {
+                        grew = false;
+                        for (const std::string& o : tech.objects()) {
+                            if (reachable.count(up(o))) continue;
+                            for (const BuildOption& bo : tech.options(o)) {
+                                bool ok = true;
+                                for (const std::string& r : bo.required) ok = ok && reachable.count(up(r));
+                                if (!bo.builders.empty()) {
+                                    bool any = false;
+                                    for (const std::string& b2 : bo.builders) any = any || reachable.count(up(b2));
+                                    ok = ok && any;
+                                }
+                                if (!ok) continue;
+                                reachable.insert(up(o));
+                                if (const GameObjectType* ot = db.find(o))
+                                    if (const std::string* into = ot->find("Tactical_Buildable_Constructed")) reachable.insert(up(alamo::trim(*into)));
+                                grew = true;
+                                break;
+                            }
+                        }
+                    }
+                    std::set<std::string> have;
+                    for (const std::string& n : built[i]) have.insert(up(n));
                     std::vector<std::string> missing;
                     size_t offered = 0;
                     for (const std::string& o : tech.objects()) {
                         const GameObjectType* t = db.find(o);
-                        if (!t || !buildInfo(*t, db).spawnsUnit || o.find("_Construction") != std::string::npos) continue;
+                        if (!t || !buildInfo(*t, db).spawnsUnit || up(o).find("_CONSTRUCTION") != std::string::npos) continue;
+                        if (!reachable.count(up(o))) continue; // can't be had in a skirmish
                         const std::string* aff = t->find("Affiliation");
-                        auto up = [](std::string x) { for (char& c : x) c = char(std::toupper(static_cast<unsigned char>(c))); return x; };
                         if (!aff || up(*aff).find(up(p->faction)) == std::string::npos) continue;
                         ++offered;
-                        if (!built[i].count(o)) missing.push_back(o);
+                        if (!have.count(up(o))) missing.push_back(o);
                     }
                     std::printf("roster %s: built %zu of %zu; never:", p->faction.c_str(), offered - missing.size(), offered);
                     for (const auto& m : missing) std::printf(" %s", m.c_str());
