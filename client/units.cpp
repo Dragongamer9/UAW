@@ -874,11 +874,15 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             // Health bar above selected or damaged units.
             const float frac = std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f);
             const float barW = std::min(std::max(rad * 2.5f, 14.f), 110.f);
-            const float top = u.structure ? 45.f : std::max(rad * 2.4f, 16.f) + 8;
-            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + top) * Mat4::scale3(barW, 2.5f, 2.5f),
-                      {0.1f, 0.1f, 0.1f, 1});
-            r.drawBox(Mat4::translate(u.position[0] - barW * (1 - frac) / 2, u.position[1], u.position[2] + top + 0.3f) *
-                          Mat4::scale3(barW * frac, 2.8f, 2.6f),
+            float top = u.structure ? 45.f : std::max(rad * 2.4f, 16.f) + 8;
+            if (model) // above the model
+                top = std::max(u.structure ? 20.f : top, model->boundsMax[2] * float(u.type->number("Scale_Factor").value_or(1.0)) + 8);
+            // Across the view, so it reads the same from any camera angle.
+            const alamo::Vec3& cp = r.cameraPosition();
+            const float across = std::atan2(u.position[1] - cp[1], u.position[0] - cp[0]) + 1.5707963f;
+            const Mat4 at = Mat4::translate(u.position[0], u.position[1], u.position[2] + top) * Mat4::rotateZ(across);
+            r.drawBox(at * Mat4::scale3(barW, 2.5f, 2.5f), {0.1f, 0.1f, 0.1f, 1});
+            r.drawBox(at * Mat4::translate(-barW * (1 - frac) / 2, 0, 0.3f) * Mat4::scale3(barW * frac, 2.8f, 2.6f),
                       {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
         }
     }
