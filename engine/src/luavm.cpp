@@ -224,6 +224,26 @@ LuaVM::LuaVM() : globals_(std::make_shared<LuaTable>()) {
         };
         return std::vector<LuaValue>{LuaValue::function(step), a.empty() ? LuaValue() : a[0], LuaValue::number(0)};
     });
+    setFunction("setmetatable", [](const std::vector<LuaValue>& a) {
+        if (a.empty() || !a[0].isTable()) return std::vector<LuaValue>{};
+        a[0].t->meta = a.size() > 1 && a[1].isTable() ? a[1].t : nullptr;
+        return std::vector<LuaValue>{a[0]};
+    });
+    setFunction("getmetatable", [](const std::vector<LuaValue>& a) {
+        if (a.empty() || !a[0].isTable() || !a[0].t->meta) return std::vector<LuaValue>{LuaValue()};
+        const LuaValue protect = a[0].t->meta->get(LuaValue::string("__metatable"));
+        return std::vector<LuaValue>{protect.isNil() ? LuaValue::table(a[0].t->meta) : protect};
+    });
+    setFunction("rawget", [](const std::vector<LuaValue>& a) {
+        return std::vector<LuaValue>{a.size() > 1 && a[0].isTable() ? a[0].t->get(a[1]) : LuaValue()};
+    });
+    setFunction("rawset", [](const std::vector<LuaValue>& a) {
+        if (a.size() > 2 && a[0].isTable()) a[0].t->set(a[1], a[2]);
+        return std::vector<LuaValue>{a.empty() ? LuaValue() : a[0]};
+    });
+    setFunction("rawequal", [](const std::vector<LuaValue>& a) {
+        return std::vector<LuaValue>{LuaValue::boolean(a.size() > 1 && rawEquals(a[0], a[1]))};
+    });
     setFunction("type", [](const std::vector<LuaValue>& a) {
         static const char* names[] = {"nil", "boolean", "number", "string", "table", "function", "function"};
         return std::vector<LuaValue>{LuaValue::string(names[int(a.empty() ? LuaValue::Type::Nil : a[0].type)])};
@@ -326,17 +346,52 @@ std::vector<LuaValue> LuaVM::execute(const std::shared_ptr<LuaClosure>& cl, std:
     }
     const auto& K = P.constants;
     auto RK = [&](uint32_t x) -> LuaValue { return (x & 0x100) ? (size_t(x & 0xFF) < K.size() ? K[x & 0xFF] : LuaValue()) : reg(x); };
-    auto index = [&](const LuaValue& t, const LuaValue& k) -> LuaValue {
-        if (t.isTable()) return t.t->get(k);
-        if (t.isString() && k.isString() && k.s == "len") return LuaValue();
-        return LuaValue();
+    // Metamethods: a table's metatable entry (nil when it has none).
+    auto metamethod = [](const LuaValue& v, const char* event) -> LuaValue {
+        if (!v.isTable() || !v.t->meta) return LuaValue();
+        return v.t->meta->get(LuaValue::string(event));
     };
-    auto invoke = [&](const LuaValue& f, std::vector<LuaValue> a) -> std::vector<LuaValue> {
+    std::function<std::vector<LuaValue>(const LuaValue&, std::vector<LuaValue>)> invoke =
+        [&](const LuaValue& f, std::vector<LuaValue> a) -> std::vector<LuaValue> {
         if (f.type == LuaValue::Type::Native && f.native) return (*f.native)(a);
         if (f.type == LuaValue::Type::Function && f.f) return execute(f.f, std::move(a), depth + 1);
+        if (const LuaValue call = metamethod(f, "__call"); !call.isNil()) { // a callable table
+            a.insert(a.begin(), f);
+            return invoke(call, std::move(a));
+        }
         return {}; // calling nil: forgiving
     };
+    auto first = [](std::vector<LuaValue> r) { return r.empty() ? LuaValue() : std::move(r[0]); };
+    std::function<LuaValue(const LuaValue&, const LuaValue&, int)> indexDepth = [&](const LuaValue& t, const LuaValue& k, int d) -> LuaValue {
+        if (t.isTable()) {
+            LuaValue v = t.t->get(k);
+            if (!v.isNil() || !t.t->meta || d > 100) return v;
+            const LuaValue h = t.t->meta->get(LuaValue::string("__index"));
+            if (h.isNil()) return v;
+            if (h.isTable()) return indexDepth(h, k, d + 1);
+            return first(invoke(h, {t, k}));
+        }
+        return LuaValue();
+    };
+    auto index = [&](const LuaValue& t, const LuaValue& k) -> LuaValue { return indexDepth(t, k, 0); };
+    std::function<void(const LuaValue&, const LuaValue&, const LuaValue&, int)> assign =
+        [&](const LuaValue& t, const LuaValue& k, const LuaValue& v, int d) {
+        if (!t.isTable()) return;
+        if (t.t->meta && d < 100 && t.t->get(k).isNil()) {
+            const LuaValue h = t.t->meta->get(LuaValue::string("__newindex"));
+            if (h.isTable()) { assign(h, k, v, d + 1); return; }
+            if (!h.isNil()) { invoke(h, {t, k, v}); return; }
+        }
+        t.t->set(k, v);
+    };
+    static const char* kArithEvents[] = {"__add", "__sub", "__mul", "__div", "__mod", "__pow"};
     auto arith = [&](int op, const LuaValue& a, const LuaValue& b) -> LuaValue {
+        if (a.isTable() || b.isTable()) {
+            const char* ev = kArithEvents[op - 12];
+            LuaValue h = metamethod(a, ev);
+            if (h.isNil()) h = metamethod(b, ev);
+            if (!h.isNil()) return first(invoke(h, {a, b}));
+        }
         const double x = toNumber(a), y = toNumber(b);
         switch (op) {
         case 12: return LuaValue::number(x + y);
@@ -350,7 +405,22 @@ std::vector<LuaValue> LuaVM::execute(const std::shared_ptr<LuaClosure>& cl, std:
     };
     auto lessThan = [&](const LuaValue& a, const LuaValue& b) {
         if (a.isString() && b.isString()) return a.s < b.s;
+        if (a.isTable() && b.isTable())
+            if (const LuaValue h = metamethod(a, "__lt"); !h.isNil()) return first(invoke(h, {a, b})).truthy();
         return toNumber(a) < toNumber(b);
+    };
+    auto lessEqual = [&](const LuaValue& a, const LuaValue& b) {
+        if (a.isTable() && b.isTable()) {
+            if (const LuaValue h = metamethod(a, "__le"); !h.isNil()) return first(invoke(h, {a, b})).truthy();
+            if (const LuaValue h = metamethod(a, "__lt"); !h.isNil()) return !first(invoke(h, {b, a})).truthy();
+        }
+        return !lessThan(b, a);
+    };
+    auto equal = [&](const LuaValue& a, const LuaValue& b) {
+        if (rawEquals(a, b)) return true;
+        if (a.isTable() && b.isTable())
+            if (const LuaValue h = metamethod(a, "__eq"); !h.isNil() && rawEquals(h, metamethod(b, "__eq"))) return first(invoke(h, {a, b})).truthy();
+        return false;
     };
 
     size_t pc = 0, top = 0;
@@ -375,27 +445,40 @@ std::vector<LuaValue> LuaVM::execute(const std::shared_ptr<LuaClosure>& cl, std:
         case 6: { LuaValue t = reg(B); reg(A) = index(t, RK(C)); break; }           // GETTABLE
         case 7: if (Bx < K.size()) globals_->set(K[Bx], reg(A)); break;             // SETGLOBAL
         case 8: if (B < cl->upvalues.size()) *cl->upvalues[B] = reg(A); break;      // SETUPVAL
-        case 9: { LuaValue t = reg(A); if (t.isTable()) t.t->set(RK(B), RK(C)); break; } // SETTABLE
+        case 9: { LuaValue t = reg(A); assign(t, RK(B), RK(C), 0); break; }         // SETTABLE
         case 10: reg(A) = LuaValue::newTable(); break;                               // NEWTABLE
         case 11: { LuaValue o = reg(B); reg(A + 1) = o; reg(A) = index(o, RK(C)); break; } // SELF
         case 12: case 13: case 14: case 15: case 16: case 17: reg(A) = arith(op, RK(B), RK(C)); break;
-        case 18: reg(A) = LuaValue::number(-toNumber(reg(B))); break;               // UNM
+        case 18: {                                                                   // UNM
+            const LuaValue v = reg(B);
+            if (const LuaValue h = metamethod(v, "__unm"); !h.isNil()) reg(A) = first(invoke(h, {v, v}));
+            else reg(A) = LuaValue::number(-toNumber(v));
+            break;
+        }
         case 19: reg(A) = LuaValue::boolean(!reg(B).truthy()); break;               // NOT
         case 20: {                                                                   // LEN
-            const LuaValue& v = reg(B);
-            reg(A) = LuaValue::number(v.isString() ? double(v.s.size()) : v.isTable() ? double(v.t->length()) : 0);
+            const LuaValue v = reg(B);
+            if (const LuaValue h = metamethod(v, "__len"); !h.isNil()) reg(A) = first(invoke(h, {v}));
+            else reg(A) = LuaValue::number(v.isString() ? double(v.s.size()) : v.isTable() ? double(v.t->length()) : 0);
             break;
         }
         case 21: {                                                                   // CONCAT
-            std::string s;
-            for (uint32_t k = B; k <= C; ++k) s += reg(k).str();
-            reg(A) = LuaValue::string(std::move(s));
+            // Right to left, as Lua does, so a table operand's __concat sees the rest joined.
+            LuaValue acc = reg(C);
+            for (uint32_t k = C; k-- > B;) {
+                const LuaValue left = reg(k);
+                LuaValue h = metamethod(left, "__concat");
+                if (h.isNil()) h = metamethod(acc, "__concat");
+                if (!h.isNil()) acc = first(invoke(h, {left, acc}));
+                else acc = LuaValue::string(left.str() + acc.str());
+            }
+            reg(A) = acc.isString() || acc.isTable() ? acc : LuaValue::string(acc.str());
             break;
         }
         case 22: pc = size_t(int64_t(pc) + sBx); break;                             // JMP
-        case 23: if (rawEquals(RK(B), RK(C)) != (A != 0)) ++pc; break;              // EQ
+        case 23: if (equal(RK(B), RK(C)) != (A != 0)) ++pc; break;                  // EQ
         case 24: if (lessThan(RK(B), RK(C)) != (A != 0)) ++pc; break;               // LT
-        case 25: if ((!lessThan(RK(C), RK(B))) != (A != 0)) ++pc; break;            // LE
+        case 25: if (lessEqual(RK(B), RK(C)) != (A != 0)) ++pc; break;              // LE
         case 26: if (reg(A).truthy() != (C != 0)) ++pc; break;                      // TEST
         case 27: if (reg(B).truthy() == (C != 0)) reg(A) = reg(B); else ++pc; break; // TESTSET
         case 28: case 29: {                                                          // CALL / TAILCALL

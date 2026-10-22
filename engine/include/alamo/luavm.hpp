@@ -4,7 +4,9 @@
 // 4-byte float (header "\x1bLuaQ" format 'p', number size 4) and every function header has
 // one extra int after lastlinedefined. This VM runs that bytecode well enough to evaluate
 // data scripts (research trees, starting forces): all 38 opcodes, closures and upvalues,
-// varargs, numeric and generic for loops. There are no metatables or coroutines, and it is
+// varargs, numeric and generic for loops, metatables (__index, __newindex, __call, arithmetic,
+// __concat, __unm, __len, __eq, __lt, __le; setmetatable, getmetatable, rawget, rawset,
+// rawequal). There are no coroutines, and it is
 // forgiving where real Lua would raise errors - indexing or calling nil yields nil - so a
 // script that calls engine functions we don't provide still runs to the end.
 #pragma once
@@ -58,6 +60,7 @@ bool rawEquals(const LuaValue& a, const LuaValue& b);
 
 struct LuaTable {
     std::map<LuaValue, LuaValue> fields; // nil values are erased
+    std::shared_ptr<LuaTable> meta;      // metatable (setmetatable), or null
     LuaValue get(const LuaValue& key) const;
     void set(const LuaValue& key, LuaValue value);
     size_t length() const;               // border: largest n with 1..n present

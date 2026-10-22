@@ -655,6 +655,65 @@ static std::vector<uint8_t> testChunk() {
     return c;
 }
 
+// Metatables:  d = {hp = 7}; mt = {__index = d, __newindex = log, __add = addf}; log = {}
+//   o = setmetatable({}, mt); v = o.hp; o.x = 5; r = o + 1
+static std::vector<uint8_t> metaChunk() {
+    std::vector<uint8_t> c = {0x1b, 'L', 'u', 'a', 0x51, 'p', 1, 4, 4, 4, 4, 0};
+    auto i32 = [&](uint32_t v) { for (int k = 0; k < 4; ++k) c.push_back(uint8_t(v >> (8 * k))); };
+    auto str = [&](const char* s) { c.push_back(4); i32(uint32_t(std::strlen(s) + 1)); for (const char* p = s; *p; ++p) c.push_back(uint8_t(*p)); c.push_back(0); };
+    auto num = [&](float f) { c.push_back(3); uint32_t v; std::memcpy(&v, &f, 4); i32(v); };
+    auto abc = [](uint32_t op, uint32_t a, uint32_t b, uint32_t cc) { return op | a << 6 | cc << 14 | b << 23; };
+    auto abx = [](uint32_t op, uint32_t a, uint32_t bx) { return op | a << 6 | bx << 14; };
+    const uint32_t K = 256;
+    const std::vector<uint32_t> code = {
+        abc(10, 0, 0, 0),           // NEWTABLE R0            d
+        abc(9, 0, K + 1, K + 2),    // SETTABLE R0 "hp" 7
+        abc(10, 1, 0, 0),           // NEWTABLE R1            mt
+        abc(9, 1, K + 3, 0),        // SETTABLE R1 "__index" R0
+        abc(10, 2, 0, 0),           // NEWTABLE R2            log
+        abc(9, 1, K + 5, 2),        // SETTABLE R1 "__newindex" R2
+        abx(5, 3, 11),              // GETGLOBAL R3 addf
+        abc(9, 1, K + 10, 3),       // SETTABLE R1 "__add" R3
+        abx(7, 2, 8),               // SETGLOBAL log
+        abx(5, 3, 0),               // GETGLOBAL R3 setmetatable
+        abc(10, 4, 0, 0),           // NEWTABLE R4
+        abc(0, 5, 1, 0),            // MOVE R5 R1
+        abc(28, 3, 3, 2),           // CALL R3(R4, R5) -> R3
+        abx(7, 3, 9),               // SETGLOBAL o
+        abc(6, 4, 3, K + 1),        // GETTABLE R4 o "hp"
+        abx(7, 4, 4),               // SETGLOBAL v
+        abc(9, 3, K + 6, K + 7),    // SETTABLE o "x" 5
+        abc(12, 4, 3, K + 12),      // ADD R4 o 1
+        abx(7, 4, 13),              // SETGLOBAL r
+        abc(30, 0, 1, 0),           // RETURN
+    };
+    i32(0); i32(0); i32(0); i32(0);   // source, linedefined, lastlinedefined, extra
+    c.insert(c.end(), {0, 0, 2, 6});  // upvalues, params, vararg, maxstack
+    i32(uint32_t(code.size()));
+    for (uint32_t ins : code) i32(ins);
+    i32(14);
+    str("setmetatable"); str("hp"); num(7); str("__index"); str("v"); str("__newindex"); str("x"); num(5);
+    str("log"); str("o"); str("__add"); str("addf"); num(1); str("r");
+    i32(0); i32(0); i32(0); i32(0);   // protos, lines, locals, upvalue names
+    return c;
+}
+
+static void testLuaMeta() {
+    LuaVM vm;
+    vm.setFunction("addf", [](const std::vector<LuaValue>& a) {
+        CHECK(a.size() == 2 && a[0].isTable() && a[1].n == 1);
+        return std::vector<LuaValue>{LuaValue::number(42)};
+    });
+    std::string err;
+    CHECK(vm.run(metaChunk(), &err));
+    CHECK(vm.global("v").n == 7);                                       // __index table
+    CHECK(vm.global("o").isTable() && vm.global("o").t->get(LuaValue::string("x")).isNil()); // __newindex
+    CHECK(vm.global("log").get("x").n == 5);
+    CHECK(vm.global("r").n == 42);                                      // __add
+    const auto mt = vm.call(vm.global("getmetatable"), {vm.global("o")});
+    CHECK(!mt.empty() && mt[0].isTable() && mt[0].get("__index").get("hp").n == 7);
+}
+
 static void testLua() {
     LuaVM vm;
     std::string err;
@@ -696,6 +755,7 @@ static void testLua() {
 int main() {
     const fs::path root = fs::temp_directory_path() / "uaw_native_test_abilities";
     const Data d = testData(root);
+    testLuaMeta();
     testParsing(d);
     testAura(d);
     testCloak(d);
