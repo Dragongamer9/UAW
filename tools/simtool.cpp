@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <map>
+#include <set>
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
@@ -200,9 +201,38 @@ int main(int argc, char** argv) {
             std::vector<std::string> last(2);
             const bool verbose = std::getenv("UAW_AI_LOG") != nullptr;
             const int end = int(minutes * 60 * kTicksPerSecond);
+            // UAW_ROSTER=1: what each side's tech tree offers that it never built.
+            std::vector<std::set<std::string>> built(2);
+            auto roster = [&]() {
+                if (!std::getenv("UAW_ROSTER")) return;
+                for (size_t i = 0; i < ais.size(); ++i) {
+                    const Player* p = w.player(ais[i].player());
+                    std::vector<std::string> missing;
+                    size_t offered = 0;
+                    for (const std::string& o : tech.objects()) {
+                        const GameObjectType* t = db.find(o);
+                        if (!t || !buildInfo(*t, db).spawnsUnit || o.find("_Construction") != std::string::npos) continue;
+                        const std::string* aff = t->find("Affiliation");
+                        auto up = [](std::string x) { for (char& c : x) c = char(std::toupper(static_cast<unsigned char>(c))); return x; };
+                        if (!aff || up(*aff).find(up(p->faction)) == std::string::npos) continue;
+                        ++offered;
+                        if (!built[i].count(o)) missing.push_back(o);
+                    }
+                    std::printf("roster %s: built %zu of %zu; never:", p->faction.c_str(), offered - missing.size(), offered);
+                    for (const auto& m : missing) std::printf(" %s", m.c_str());
+                    std::printf("\n");
+                }
+            };
             for (int t = 0; t <= end; ++t) {
                 for (auto& ai : ais) ai.update();
                 w.tick();
+                if (t % 30 == 0)
+                    for (const Unit& u : w.units())
+                        for (size_t i = 0; i < ais.size(); ++i)
+                            if (u.owner == ais[i].player()) {
+                                built[i].insert(u.type->name);
+                                if (const std::string* c = u.type->find("Tactical_Buildable_Constructed")) built[i].insert(alamo::trim(*c));
+                            }
                 for (size_t i = 0; i < ais.size(); ++i)
                     if (ais[i].lastAction() != last[i] && (verbose || ais[i].lastAction().rfind("attack", 0) == 0 ||
                                                             ais[i].lastAction() == "retreat" || ais[i].lastAction() == "defend")) {
@@ -231,10 +261,12 @@ int main(int argc, char** argv) {
                 const bool da = defeated(w, a), db2 = defeated(w, b);
                 if (da || db2) {
                     std::printf("%6.1fs  %s wins\n", w.seconds(), da && db2 ? "nobody" : w.player(da ? b : a)->faction.c_str());
+                    roster();
                     return 0;
                 }
             }
             std::printf("time up, no winner\n");
+            roster();
             return 0;
         }
         if (cmd == "game" && argc > 4) {

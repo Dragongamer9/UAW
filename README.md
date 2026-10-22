@@ -379,7 +379,8 @@ simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Milit
 ```
 
 A match takes a few seconds to simulate (`UAW_FOG=1` plays it with fog of war; `UAW_MATCH_UNITS=1` lists both
-armies every minute). `UAW_AI_LOG=1` prints every AI decision.
+armies every minute, `UAW_ROSTER=1` what each side's tech tree offered that it never built). `UAW_AI_LOG=1`
+prints every AI decision.
 
 ## Superweapons
 
