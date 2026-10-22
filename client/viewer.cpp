@@ -535,6 +535,7 @@ int main(int argc, char** argv) {
         // LAN: the network's own tick count, which runs on while the game is paused (the world's
         // stops); orders and turns go by it. A Pause order pauses or resumes for everyone at once.
         uint64_t netTick = 0;
+        std::vector<alamo::Command> netLog; // every order run, at the world tick it ran (for saves)
         bool netPaused = false;
         int netPausedBy = -1;
         uint64_t waitingSince = 0; // LAN: when the simulation last had to wait for the others (0 = not waiting)
@@ -560,6 +561,8 @@ int main(int argc, char** argv) {
                             netPausedBy = c.owner;
                         } else {
                             world.apply(c);
+                            netLog.push_back(c);
+                            netLog.back().tick = world.tickCount();
                         }
                     }
                     world.setCapture(true);
@@ -763,7 +766,7 @@ int main(int argc, char** argv) {
             sg.camera[2] = cam.distance;
             sg.camera[3] = cam.yaw;
             sg.camera[4] = cam.pitch;
-            sg.commands = world.commandLog();
+            sg.commands = ls ? netLog : world.commandLog();
             return writeSave(path, sg);
         };
         bool placeholders = true;
@@ -1020,6 +1023,11 @@ int main(int argc, char** argv) {
                             pause.open = false;
                             break;
                         case PauseMenu::Result::Load:
+                            if (ls) {
+                                control.say("Loading would leave the network game", world.seconds());
+                                pause.open = false;
+                                break;
+                            }
                             loadPath = saveFolder() + "quicksave.uawsave";
                             opt.replay = false;
                             end = End::Load;
@@ -1057,12 +1065,12 @@ int main(int argc, char** argv) {
                             else if (hud.researchOpen) hud.researchOpen = false;
                             else if (hud.helpOpen) hud.helpOpen = false;
                             else pause.open = true;
-                        } else if (e.key.key == SDLK_F5 && ls) {
-                            control.say("Network games can't be saved", world.seconds());
                         } else if (e.key.key == SDLK_F5) {
                             const std::string path = saveFolder() + "quicksave.uawsave";
                             control.say(saveTo(path) ? "Game saved" : "Could not save the game", world.seconds());
                             std::printf("saved %s\n", path.c_str());
+                        } else if (e.key.key == SDLK_F9 && ls) {
+                            control.say("Loading would leave the network game", world.seconds());
                         } else if (e.key.key == SDLK_F9) {
                             loadPath = saveFolder() + "quicksave.uawsave";
                             opt.replay = false;
