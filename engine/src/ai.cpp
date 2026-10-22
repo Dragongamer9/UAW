@@ -641,8 +641,30 @@ void SkirmishAI::manageArmy() {
     centroid[0] /= float(army.size());
     centroid[1] /= float(army.size());
 
-    // Defend: enemies near any of our structures take priority (a wave already under way carries on;
-    // the base's own defences and new units deal with stragglers).
+    // A wave abroad comes home when a real force (not a straggler) is wrecking the base.
+    if (attacking_) {
+        float threat = 0;
+        Vec3 where{};
+        std::unordered_set<uint32_t> counted;
+        for (const Unit& s : w_.units()) {
+            if (s.owner != player_ || !s.structure) continue;
+            for (uint32_t id : w_.unitsNear(s.position, 650)) {
+                const Unit* e = w_.unit(id);
+                if (!e || !w_.enemies(player_, e->owner) || e->owner < 0 || e->structure || !sees(*e) || !counted.insert(id).second) continue;
+                const float v = unitStrength(*e);
+                if (v > 0) where = e->position;
+                threat += v;
+            }
+        }
+        if (threat > 0.4f * armyValue(army)) {
+            attacking_ = false;
+            w_.commandAttackMove(army, where);
+            lastAction_ = "recall";
+            return;
+        }
+    }
+    // Defend: enemies near any of our structures take priority (a wave already under way carries on
+    // unless recalled above; the base's own defences and new units deal with stragglers).
     if (!attacking_)
         for (const Unit& s : w_.units()) {
             if (s.owner != player_ || !s.structure) continue;
