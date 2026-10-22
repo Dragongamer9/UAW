@@ -76,6 +76,8 @@ public:
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
     void rescale(float scale) { paint_.rescale(scale); }
+    // Slots set to Random get a faction (call when the game starts).
+    void resolveRandom(uint64_t seed);
     const SkirmishSetup& setup() const { return setup_; }
     SkirmishSetup& editSetup() { return setup_; } // LAN lobby: the host's changes (players joining)
     // A setup from the LAN host: map and slots as given (map picked in the list too).

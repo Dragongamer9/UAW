@@ -1,4 +1,6 @@
 #include "menu.hpp"
+
+#include <random>
 #include "units.hpp"
 #include "hud.hpp"
 
@@ -218,6 +220,12 @@ void SkirmishMenu::choose(size_t i) {
     }
 }
 
+void SkirmishMenu::resolveRandom(uint64_t seed) {
+    std::mt19937_64 rng(seed);
+    for (PlayerSlot& p : setup_.slots)
+        if (upper(p.faction) == "RANDOM" && !factions_.empty()) p.faction = factions_[size_t(rng() % factions_.size())];
+}
+
 void SkirmishMenu::cycle(size_t slot, int field) {
     if (slot >= setup_.slots.size()) return;
     PlayerSlot& p = setup_.slots[slot];
@@ -231,11 +239,13 @@ void SkirmishMenu::cycle(size_t slot, int field) {
         } else {
             p.kind = K::Open;
         }
-    } else if (field == 1) {
-        size_t f = 0;
-        for (size_t k = 0; k < factions_.size(); ++k)
-            if (upper(factions_[k]) == upper(p.faction)) f = k;
-        p.faction = factions_[(f + 1) % factions_.size()];
+    } else if (field == 1) { // the factions, then Random (picked when the game starts)
+        std::vector<std::string> choices = factions_;
+        choices.push_back("Random");
+        size_t f = choices.size() - 1;
+        for (size_t k = 0; k < choices.size(); ++k)
+            if (upper(choices[k]) == upper(p.faction)) f = k;
+        p.faction = choices[(f + 1) % choices.size()];
     } else if (field == 2) {
         p.team = p.team >= 3 ? -1 : p.team + 1;
     }
@@ -310,7 +320,7 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
             const int n = e.button.button == SDL_BUTTON_RIGHT ? 3 : 1; // right click cycles backwards
             for (int k = 0; k < n; ++k) cycle(size_t((id - kSlotBase) / 4), (id - kSlotBase) % 4);
             if (n == 3 && (id - kSlotBase) % 4 == 1) // factions: step back by one
-                for (size_t k = 0; k + 4 < factions_.size(); ++k) cycle(size_t((id - kSlotBase) / 4), 1);
+                for (size_t k = 0; k + 4 < factions_.size() + 1; ++k) cycle(size_t((id - kSlotBase) / 4), 1);
         }
         break;
     }

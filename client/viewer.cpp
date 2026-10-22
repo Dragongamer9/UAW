@@ -1475,8 +1475,9 @@ int main(int argc, char** argv) {
                         if (fullscreenKey(e)) continue;
                         const SkirmishMenu::Result r = menu->handle(e);
                         if (r == SkirmishMenu::Result::Start) {
+                            std::ofstream(saveFolder() + "lastsetup.txt") << encodeSetup(menu->setup()) << "\n"; // Random stays Random
+                            menu->resolveRandom(SDL_GetTicksNS());
                             if (lockstep && lockstep->isHost()) lockstep->start(menu->setup());
-                            std::ofstream(saveFolder() + "lastsetup.txt") << encodeSetup(menu->setup()) << "\n";
                             done = true;
                         }
                         if (r == SkirmishMenu::Result::Quit) {

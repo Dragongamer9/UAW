@@ -95,7 +95,7 @@ uaw-viewer "<game>" M25_Grand_Canyon --slots you:Novus:1,ai:Masari:1,ai:Alien:2,
 **Setup screen.** Without a map (or double-clicked from the game folder) the viewer opens a skirmish
 setup screen: every map with two or more start positions (22 with the base game and mods), a top-down
 preview with the numbered starts, and one row per start position: open, you or computer, the faction, and
-a team (players on the same team are allies; no team means everyone is an enemy). Click to change a
+a team (players on the same team are allies; no team means everyone is an enemy); a faction can also be *Random*. Click to change a
 setting, right click to step back; Enter or *Start game* plays it. In a game, Esc (with nothing to cancel)
 opens the pause menu: resume, restart, back to the setup screen, or exit. Fog of war is on unless switched
 off on the setup screen (or `--no-fog`): unexplored ground is dark, explored ground you can't see right now is
