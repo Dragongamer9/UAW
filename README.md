@@ -115,7 +115,8 @@ firewall); the others click *Join LAN game* and type the host's address (or star
 teams and computer players and starts the game. Every machine runs the whole simulation and only the players'
 orders travel: an order runs 0.2-0.3 s after it is given, on every machine at the same tick. Each machine
 reports a checksum of the game state every turn, and the host announces it if the games ever differ. All
-players need the same game files and mods. Network games run at normal speed and can't be saved; Pause
+players need the same game files and mods. Network games run at normal speed. F5 saves the orders as they
+ran, so the save replays the game (tested: it reloads to the same state); loading isn't possible mid-game. Pause
 pauses (and resumes) the game for everyone at the same tick (the turns keep going while the world stands
 still; tested: a client pausing for 15 s of a 60 s game, both machines end on the same world tick and state).
 
