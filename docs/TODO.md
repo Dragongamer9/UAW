@@ -28,9 +28,8 @@ have their models; what is still missing:
 - `HP_AAT_Turret`, `HP_AAT_00`, `HP_AAT_01` (Novus AAT tank, Remix) name
   `armored_assault_tank_turret/ll/rl.alo`, which Remix doesn't ship. The tank body draws; those
   three hardpoints don't.
-- `Alien_Walker_Habitat_HP_Armor_Leg_Under_Construction` names `ABHP_Habitat_Armor_Leg.alo.alo`
-  (typo in the mod XML). The real `ABHP_HABITAT_ARMOR_LEG.ALO` exists; tolerate the doubled
-  extension when resolving model names.
+- (fixed) `Alien_Walker_Habitat_HP_Armor_Leg_Under_Construction` names `ABHP_Habitat_Armor_Leg.alo.alo`
+  (typo in the mod XML); `modelPath` now drops the doubled extension.
 
 **Models never used in skirmish:** 8 cinematic heroes (`CIN_*`, `Cin_Orlok_Armgone`) and 4
 developer test objects (`Test_Arrow`, `Test_Turret`, `Test_Hardopint_Shield`, `Test_Building`).

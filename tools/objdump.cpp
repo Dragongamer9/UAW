@@ -143,6 +143,14 @@ int main(int argc, char** argv) {
                 locks.effects.insert(l.effects.begin(), l.effects.end());
             }
             static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones", "burst"};
+            if (argc > 3 && std::string_view(argv[3]).substr(0, 5) == "type:") { // who has abilities of a type
+                const std::string want = std::string(argv[3]).substr(5);
+                for (const GameObjectType& o : db.objects())
+                    for (const AbilitySpec& a : abilitiesFor(o, db, generatorsFor(o)))
+                        if (iequals(a.abilityType, want))
+                            std::printf("  %-40s %-40s %s\n", o.name.c_str(), a.name.c_str(), kKind[int(a.kind)]);
+                return 0;
+            }
             if (argc > 3) {
                 const GameObjectType* o = db.find(argv[3]);
                 if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }

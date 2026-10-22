@@ -22,8 +22,15 @@ std::optional<Image> loadGameTexture(MegVfs& vfs, const std::string& name) {
 }
 
 std::string modelPath(const std::string& name) {
-    if (name.find('\\') != std::string::npos || name.find('/') != std::string::npos) return name;
-    return "Data\\Art\\Models\\" + name;
+    std::string n = name;
+    // Tolerate a doubled extension ("ABHP_Habitat_Armor_Leg.alo.alo" in Remix's XML).
+    auto endsAlo = [](const std::string& s) {
+        return s.size() >= 4 && s[s.size() - 4] == '.' && std::tolower(static_cast<unsigned char>(s[s.size() - 3])) == 'a' &&
+               std::tolower(static_cast<unsigned char>(s[s.size() - 2])) == 'l' && std::tolower(static_cast<unsigned char>(s[s.size() - 1])) == 'o';
+    };
+    while (n.size() > 8 && endsAlo(n) && endsAlo(n.substr(0, n.size() - 4))) n.resize(n.size() - 4);
+    if (n.find('\\') != std::string::npos || n.find('/') != std::string::npos) return n;
+    return "Data\\Art\\Models\\" + n;
 }
 
 namespace {
