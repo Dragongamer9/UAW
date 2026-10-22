@@ -668,6 +668,34 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                       {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
         }
     }
+    // The power network (Novus): while placing a structure or with a node selected, the links between
+    // your powered generators and transmitters.
+    {
+        using P = alamo::EconomySpec::Power;
+        bool show = placing();
+        for (uint32_t id : selected_)
+            if (const alamo::Unit* u = w.unit(id); u && u->owner == player_ && w.economy(*u->type).power != P::None) show = true;
+        if (show) {
+            std::vector<const alamo::Unit*> nodes;
+            for (const alamo::Unit& u : w.units()) {
+                if (u.owner != player_ || u.underConstruction || !u.powered) continue;
+                const P role = w.economy(*u.type).power;
+                if (role == P::Generator || role == P::Transmitter) nodes.push_back(&u);
+            }
+            for (size_t i = 0; i < nodes.size(); ++i)
+                for (size_t j = i + 1; j < nodes.size(); ++j) {
+                    const alamo::Unit& a = *nodes[i];
+                    const alamo::Unit& b = *nodes[j];
+                    const float reach = std::max(w.economy(*a.type).transmitRadius, w.economy(*b.type).transmitRadius);
+                    const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1], len = std::hypot(dx, dy);
+                    if (len > reach || len < 1) continue;
+                    const float z = std::max(a.position[2], b.position[2]) + 18;
+                    r.drawBox(Mat4::translate((a.position[0] + b.position[0]) / 2, (a.position[1] + b.position[1]) / 2, z) *
+                                  Mat4::rotateZ(std::atan2(dy, dx)) * Mat4::scale3(len, 1.2f, 1.2f),
+                              {0.35f, 0.85f, 1.f, 1});
+                }
+        }
+    }
     // Units riding the Novus power network: a bright mote travelling along it.
     for (const alamo::Unit& u : w.units()) {
         if (u.flowTicks <= 0) continue;
