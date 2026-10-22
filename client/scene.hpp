@@ -15,7 +15,7 @@ struct SceneObject {
     alamo::Vec3 position{};
     alamo::Vec4 color{1, 1, 1, 1};   // placeholder colour / start beacon colour
     float boxSize = 10;
-    enum class Kind { Prop, Unit, Structure, Resource, Start } kind = Kind::Prop;
+    enum class Kind { Prop, Unit, Structure, Resource, Start, Sky } kind = Kind::Prop;
     int startSlot = -1;
 };
 
@@ -30,6 +30,7 @@ public:
     Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, bool includeAllGroups);
 
     void draw(Renderer& r, bool showPlaceholders) const;
+    void drawSky(Renderer& r) const { if (sky_) r.drawSky(*sky_); }
 
     const alamo::Map& map() const { return map_; }
     const std::vector<SceneObject>& objects() const { return objects_; }
@@ -39,6 +40,7 @@ public:
 private:
     const alamo::Map& map_;
     std::vector<SceneObject> objects_;
+    const GpuModel* sky_ = nullptr;
     SceneStats stats_;
 };
 

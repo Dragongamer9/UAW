@@ -581,8 +581,10 @@ int main(int argc, char** argv) {
             if (lineupMode)
                 renderer.drawBox(Mat4::translate(lineupFloor[0], lineupFloor[1], -1) * Mat4::scale3(lineupFloor[2], lineupFloor[2], 2),
                                  {0.36f, 0.38f, 0.36f, 1});
-            else
+            else {
+                scene.drawSky(renderer);
                 scene.draw(renderer, placeholders);
+            }
             control.draw(renderer, world, world.seconds());
             effects.watch(world, control);
             effects.update(std::clamp(world.seconds() - lastFrameTime, 0.f, 0.25f));

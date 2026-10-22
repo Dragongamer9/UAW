@@ -731,6 +731,29 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
 }
 
+void Renderer::drawSky(const GpuModel& m) {
+    glUseProgram(program_);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE_);
+    glEnable(GL_BLEND);
+    glUniform1i(uUnlit_, 1);
+    // Centred on the camera so it never comes closer; sized to stay inside the far plane.
+    const float ext = std::max({m.boundsMax[0] - m.boundsMin[0], m.boundsMax[1] - m.boundsMin[1], 1.f});
+    const float scale = farPlane_ * 0.9f / (ext * 0.5f);
+    const Mat4 xf = Mat4::translate(camPos_[0], camPos_[1], camPos_[2] - farPlane_ * 0.05f) * Mat4::scale(scale);
+    for (const GpuMesh& mesh : m.meshes) {
+        if (mesh.blend == GpuMesh::Blend::Additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        setUniforms(xf, mesh.tint, mesh.texture);
+        glUniform1i(uSkinned_, 0);
+        mesh.draw();
+    }
+    glUniform1i(uUnlit_, 0);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE_);
+    glEnable(GL_DEPTH_TEST);
+}
+
 void Renderer::setClipHeight(float z) {
     glUseProgram(program_);
     glUniform1f(glGetUniformLocation(program_, "uClipZ"), z);

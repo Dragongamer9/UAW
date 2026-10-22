@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <cstdio>
 #include "scene.hpp"
 
 #include <algorithm>
@@ -39,6 +41,12 @@ Scene::Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, 
         }
         if (t->name.rfind("Marker_", 0) == 0) continue; // editor-only helpers
 
+        if (const std::string* b = t->find("Behavior"); b && b->find("SKY_DOME") != std::string::npos) {
+            // Sky domes go round the camera (Scene::drawSky), not on the map; the first one is used.
+            if (const std::string* m = t->find("Land_Model_Name"); m && !sky_)
+                if ((sky_ = r.model(alamo::trim(*m)))) ++stats_.objects;
+            continue;
+        }
         if (cat.find("Structure") != std::string::npos || cat.find("Walker") != std::string::npos) so.kind = SceneObject::Kind::Structure;
         else if (cat.find("Units") != std::string::npos || cat.find("Heroes") != std::string::npos) so.kind = SceneObject::Kind::Unit;
         else if (cat.find("Resource") != std::string::npos) so.kind = SceneObject::Kind::Resource;
@@ -57,6 +65,11 @@ Scene::Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, 
         case SceneObject::Kind::Unit: so.boxSize = 12; so.color = ownerColor(o.owner); break;
         case SceneObject::Kind::Resource: so.boxSize = 10; so.color = {0.45f, 0.85f, 0.95f, 1}; break;
         default: so.boxSize = 8; so.color = {0.55f, 0.5f, 0.45f, 1}; break;
+        }
+        if (so.model && std::getenv("UAW_BIG_PROPS")) {
+            const float ext = std::max({so.model->boundsMax[0] - so.model->boundsMin[0], so.model->boundsMax[1] - so.model->boundsMin[1],
+                                        so.model->boundsMax[2] - so.model->boundsMin[2]}) * scale;
+            if (ext > 400) std::fprintf(stderr, "big prop %s (%.0f) at %.0f,%.0f\n", t->name.c_str(), ext, o.position[0], o.position[1]);
         }
         ++stats_.objects;
         if (so.model) ++stats_.withModel;
