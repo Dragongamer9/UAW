@@ -205,7 +205,8 @@ named victims.
   `Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`; muzzle flashes (`..._flash` proxies) play at
   the barrel with each shot, and Masari light/dark flashes when they change mode.
 - The dead leave their death clone (`Death_Clone`): collapsing buildings, burnt-out hulls and corpses
-  playing their death animations, for `Death_Persistence_Duration`, then sinking.
+  playing their death animations, for `Death_Persistence_Duration`, then sinking; vehicles and structures
+  leave a scorch mark on the ground for half a minute.
 - Water ripples with the map's water bump map, drifting and catching the sun; textures with a
   `UVScrollRate` scroll.
 - `UAW_NO_SHADOWS=1` / `UAW_NO_BUMPS=1` switch shadows / normal maps off, as does *Graphics: fast* in the
