@@ -120,7 +120,7 @@ back; an optional third field keeps only names containing it):
 `--lineup Novus:structures`, `--lineup Alien:units:Walker`.
 `UAW_MODEL_ERRORS=1` prints why a model could not be loaded.
 
-A few textures named by mod models ship with no mod (`SeI_e5`, `Nb_shield*`, `NB_Girder2`,
+🚩 Missing art is tracked in [docs/TODO.md](docs/TODO.md). A few textures named by mod models ship with no mod (`SeI_e5`, `Nb_shield*`, `NB_Girder2`,
 `zb_foundationv_v2`, `redflash`, `Ev_tiecrawlertreads*`, `W_cannon_flash`); those meshes are drawn
 untextured grey, and translucent layers without their texture are skipped.
 

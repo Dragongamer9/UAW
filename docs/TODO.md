@@ -16,3 +16,29 @@ copy the final numbers into `Balance::defaults()` and the README's balance table
 AI uses every unit and building of each faction, so the games exercise the whole roster.
 
 Last run (2026-10-22): Novus 3, Masari 3, Hierarchy 3, Military 1 wins of 6; 2 draws.
+
+## 🚩 Missing art (not shipped by the game or any mod)
+
+Checked 2026-10-22 against the base archives, Community Patch 4, Human Resurgence 1.02 and
+Universe at Remix 2.8, plus the rest of the launcher folder. All 231 buildable units and structures
+have their models; what is still missing:
+
+**Models that matter in play**
+- `HP_AAT_Turret`, `HP_AAT_00`, `HP_AAT_01` (Novus AAT tank, Remix) name
+  `armored_assault_tank_turret/ll/rl.alo`, which Remix doesn't ship. The tank body draws; those
+  three hardpoints don't.
+- `Alien_Walker_Habitat_HP_Armor_Leg_Under_Construction` names `ABHP_Habitat_Armor_Leg.alo.alo`
+  (typo in the mod XML). The real `ABHP_HABITAT_ARMOR_LEG.ALO` exists; tolerate the doubled
+  extension when resolving model names.
+
+**Models never used in skirmish:** 8 cinematic heroes (`CIN_*`, `Cin_Orlok_Armgone`) and 4
+developer test objects (`Test_Arrow`, `Test_Turret`, `Test_Hardopint_Shield`, `Test_Building`).
+
+**Textures** named by mod models (most look like Star Wars: Empire at War art the mod authors
+ported without its textures): `SeI_e5`, `redflash`, `Nb_shieldbase`, `Nb_shieldripple`,
+`Nb_shieldwave`, `NB_Girder2`, `zb_foundationv_v2`, `Ev_tiecrawlertreads`,
+`Ev_tiecrawlertreads_bump`, `W_cannon_flash`. Opaque meshes draw untextured grey; translucent
+layers (the droideka shield) are skipped. If an Empire at War install turns up, copy them from it.
+
+Recheck: every faction type's `Land_Model_Name` must exist (`uaw-viewer --lineup` also logs failures with `UAW_MODEL_ERRORS=1`),
+and every texture its model names.
