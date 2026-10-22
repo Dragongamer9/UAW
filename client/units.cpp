@@ -530,7 +530,10 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             }
             // Alamo models face -Y in model space; the simulation's facing 0 is +X.
             const Mat4 xf = base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale);
+            if (u.underConstruction) // rising out of the ground as it is built
+                r.setClipHeight(u.position[2] + std::max(2.f, model->boundsMax[2] * scale * std::clamp(u.buildProgress, 0.f, 1.f)));
             r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
+            if (u.underConstruction) r.setClipHeight(1e9f);
             if (!u.hardpoints.empty()) drawHardpoints(r, u, *u.type, *model, xf, pose, 0);
             // Attached effects (engine glows, flames, lightning cores) near the camera.
             if (effects && !model->proxies.empty() && !u.underConstruction) {
@@ -586,9 +589,20 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     for (const alamo::Unit& u : w.units()) {
         if (!shown(w, u)) continue;
         if (u.structure && u.underConstruction) {
-            const float h = 8 + 40 * u.buildProgress;
-            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::scale3(u.footprintX * 2, u.footprintY * 2, h),
-                      {0.55f, 0.6f, 0.65f, 1});
+            // The building rises (cut off at its progress); a glowing band marks the cut, over a
+            // low frame of the site.
+            float top = 8 + 40 * u.buildProgress;
+            if (const std::string* name = u.type->find("Land_Model_Name"); name && !alamo::trim(*name).empty())
+                if (const GpuModel* m = r.model(alamo::trim(*name)))
+                    top = std::max(2.f, m->boundsMax[2] * float(u.type->number("Scale_Factor").value_or(1.0)) * std::clamp(u.buildProgress, 0.f, 1.f));
+            const float fx = u.footprintX * 2, fy = u.footprintY * 2;
+            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::scale3(fx, fy, 1.5f), {0.45f, 0.5f, 0.55f, 1});
+            const Vec4 band{0.5f, 0.9f, 1.f, 1};
+            const float z = u.position[2] + top, t = 1.2f;
+            r.drawBox(Mat4::translate(u.position[0], u.position[1] + fy / 2, z) * Mat4::scale3(fx, t, t), band);
+            r.drawBox(Mat4::translate(u.position[0], u.position[1] - fy / 2, z) * Mat4::scale3(fx, t, t), band);
+            r.drawBox(Mat4::translate(u.position[0] + fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), band);
+            r.drawBox(Mat4::translate(u.position[0] - fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), band);
         }
         if (u.structure && u.hasRally && selected_.count(u.id)) {
             const float z = w.map().heightAt(u.rally[0], u.rally[1]);

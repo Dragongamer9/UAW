@@ -85,6 +85,8 @@ public:
     // 2D overlay in pixels (top-left origin), alpha-blended over everything, unlit.
     void drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color);
     void drawOverlayTriangles(const std::vector<GpuVertex>& vertices, GLuint texture); // x/y in pixels
+    // Models drawn after this are cut off above height z (1e9 = no cut): buildings rising as they are built.
+    void setClipHeight(float z);
     // World-space triangles (camera-facing particle quads), unlit, blended, no depth writes.
     void drawParticles(const std::vector<GpuVertex>& vertices, GLuint texture, bool additive);
     // A game texture by name (cached; 0 if missing).

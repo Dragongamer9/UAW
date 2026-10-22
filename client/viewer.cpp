@@ -613,7 +613,12 @@ int main(int argc, char** argv) {
                             const Vec3 site{b[0] + std::cos(a) * 200, b[1] + std::sin(a) * 200, 0};
                             done = world.commandConstruct(builder, t, site) == OrderResult::Ok;
                         }
-                        if (done) { std::printf("demo: constructing %s\n", t.c_str()); break; }
+                        if (done) {
+                            for (const Unit& u : world.units())
+                                if (u.underConstruction && u.owner == control.player())
+                                    std::printf("demo: constructing %s at %.0f,%.0f\n", t.c_str(), u.position[0], u.position[1]);
+                            break;
+                        }
                     }
                 }
                 if (hq) {

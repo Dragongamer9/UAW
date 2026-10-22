@@ -57,6 +57,7 @@ uniform vec3 uFogColor;
 uniform vec4 uFogRange; // x = start, y = end
 uniform int uUnlit;
 uniform int uAlphaTest;
+uniform float uClipZ;      // fragments above this height are cut away (structures being built)
 uniform sampler2D uFow;
 uniform vec4 uFowParams; // xy = 1 / map size, z = 1 when fog of war is on
 out vec4 fragColor;
@@ -64,6 +65,7 @@ void main() {
     vec4 base = vColor * uTint;
     if (uHasTex != 0) base *= texture(uTex, vUv);
     if (uAlphaTest != 0 && base.a < 0.5) discard;
+    if (vWorld.z > uClipZ) discard;
     if (uUnlit != 0) { fragColor = base; return; }
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
@@ -535,6 +537,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform1i(uTex_, 0);
     glUniform1i(uUnlit_, 0);
     glUniform1i(uAlphaTest_, 0);
+    glUniform1f(glGetUniformLocation(program_, "uClipZ"), 1e9f);
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
     glActiveTexture(GL_TEXTURE2);
@@ -726,6 +729,11 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
     glEnable(GL_DEPTH_TEST);
     glUniform1i(uUnlit_, 0);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+}
+
+void Renderer::setClipHeight(float z) {
+    glUseProgram(program_);
+    glUniform1f(glGetUniformLocation(program_, "uClipZ"), z);
 }
 
 void Renderer::drawParticles(const std::vector<GpuVertex>& v, GLuint texture, bool additive) {
