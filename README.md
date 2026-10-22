@@ -310,7 +310,17 @@ and tech. It aims to use **the whole roster**:
 The army gathers at a rally point, defends structures under attack, and attacks the nearest enemy structure
 when its strength (sqrt of health x damage per second, summed) is 1.3x the enemy's after minute 4 with six
 units, 3x after minute 3, at the population cap, or after minute 12 with ten units; it regroups when a wave
-drops below a third. Only units with `Is_Tactical_Base_Builder` construct; objects with no `Tactical_Builder`
+drops below a third. A wave abroad comes home when a real force (not a straggler) is wrecking the base; units
+standing at the wave's target attack it outright; a target it hasn't hurt in a minute is given up on for three.
+When the enemy fields aircraft, production leans toward units that can shoot them down, and units at their
+build limit (heroes) are skipped.
+
+**Fog of war**: the AI plays by it. It knows the enemy start bases (start positions are no secret) and what it
+has seen since; it judges the enemy army from the units it has seen (assuming a fair match until it has seen
+any), defends against and fires superweapons at what it can see, and, when it has lost track of every enemy
+building, sweeps the map in a 3x3 grid until something turns up.
+
+Only units with `Is_Tactical_Base_Builder` construct; objects with no `Tactical_Builder`
 and no builder among their requirements (Hierarchy walkers, the Remix missile silo) are placed by any base
 builder of their faction. `UAW_AI_DEBUG=1` prints production turns and construction attempts.
 
@@ -325,7 +335,7 @@ simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someon
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 ```
 
-A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decision.
+A match takes a few seconds to simulate (`UAW_FOG=1` plays it with fog of war). `UAW_AI_LOG=1` prints every AI decision.
 
 ## Superweapons
 
