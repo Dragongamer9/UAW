@@ -451,6 +451,7 @@ int main(int argc, char** argv) {
         UnitControl control(opt.player - 1);
         ParticleEffects effects(vfs, db);
         control.effects = &effects;
+        control.db_ = &db;
         float lastFrameTime = world.seconds();
         control.showResources = !lineupMode;
         control.fog = !opt.spectate; // spectators see everything

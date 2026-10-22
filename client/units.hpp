@@ -122,6 +122,9 @@ public:
 
     void draw(Renderer& r, alamo::World& w, float time) const;
     void drawBox(Renderer& r, const View& v, float x0, float y0, float x1, float y1) const; // drag rectangle
+    const alamo::GameDatabase* db_ = nullptr; // set by the viewer: hardpoint models (walker legs, crowns)
+    void drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo::GameObjectType& type, const GpuModel& model,
+                        const Mat4& xf, const Pose* pose, int depth) const;
 
 private:
     int player_;

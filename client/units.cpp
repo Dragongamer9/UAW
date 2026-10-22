@@ -1,6 +1,9 @@
 #include "units.hpp"
 #include "particles.hpp"
 
+#include <cctype>
+#include <unordered_map>
+
 #include <algorithm>
 #include <cstring>
 #include <cmath>
@@ -387,6 +390,70 @@ void UnitControl::unload(alamo::World& w) {
     if (n) say("Unloading", w.seconds());
 }
 
+namespace {
+
+// Attached_Hard_Points: pairs of (hardpoint type, bone of the parent model), cached per type.
+struct Attachment {
+    const alamo::GameObjectType* type;
+    std::string bone;
+};
+const std::vector<Attachment>& attachmentsOf(const alamo::GameObjectType& t, const alamo::GameDatabase& db) {
+    static std::unordered_map<const alamo::GameObjectType*, std::vector<Attachment>> cache;
+    auto it = cache.find(&t);
+    if (it != cache.end()) return it->second;
+    std::vector<Attachment> out;
+    if (const std::string* list = t.find("Attached_Hard_Points")) {
+        std::vector<std::string> words;
+        std::string cur;
+        for (char c : *list + ",") {
+            if (c == ',' || std::isspace(static_cast<unsigned char>(c))) {
+                if (!cur.empty()) words.push_back(cur);
+                cur.clear();
+            } else {
+                cur += c;
+            }
+        }
+        for (size_t i = 0; i + 1 < words.size(); i += 2)
+            if (const alamo::GameObjectType* hp = db.find(words[i])) out.push_back({hp, words[i + 1]});
+    }
+    return cache.emplace(&t, std::move(out)).first->second;
+}
+
+int boneIndex(const GpuModel& m, const std::string& name) {
+    for (size_t b = 0; b < m.skeleton.bones.size(); ++b) {
+        const std::string& n = m.skeleton.bones[b].name;
+        if (n.size() == name.size() && std::equal(n.begin(), n.end(), name.begin(), [](char a, char c) {
+                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(c));
+            }))
+            return int(b);
+    }
+    return -1;
+}
+
+} // namespace
+
+void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo::GameObjectType& type, const GpuModel& model,
+                                 const Mat4& xf, const Pose* pose, int depth) const {
+    // Walker legs, crowns and their weapons: each hardpoint's own model on its bone of the parent
+    // (posed with the parent's animation), as long as the unit still has one of that type alive.
+    if (depth > 3 || !db_) return;
+    for (const Attachment& a : attachmentsOf(type, *db_)) {
+        bool alive = false;
+        for (const alamo::Unit::HardPoint& hp : u.hardpoints) alive = alive || (hp.type == a.type && hp.alive());
+        if (!alive) continue;
+        const std::string* name = a.type->find("Land_Model_Name");
+        const GpuModel* hm = name && !alamo::trim(*name).empty() ? r.model(alamo::trim(*name)) : nullptr;
+        const int b = boneIndex(model, a.bone);
+        if (b < 0) continue;
+        Mat4 bone = Mat4::fromAlamo(model.skeleton.boneWorld(uint32_t(b)));
+        if (pose && size_t(b) < pose->size()) bone = Mat4::fromAlamo((*pose)[size_t(b)]) * bone;
+        const Mat4 at = xf * bone * Mat4::scale(float(a.type->number("Scale_Factor").value_or(1.0)));
+        if (!hm) continue;
+        r.drawModel(*hm, at);
+        drawHardpoints(r, u, *a.type, *hm, at, nullptr, depth + 1);
+    }
+}
+
 bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
     if (u.inside) return false;
     if (player_ < 0 || !w.enemies(player_, u.owner)) return true;
@@ -452,6 +519,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             // Alamo models face -Y in model space; the simulation's facing 0 is +X.
             const Mat4 xf = base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale);
             r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
+            if (!u.hardpoints.empty()) drawHardpoints(r, u, *u.type, *model, xf, pose, 0);
             // Attached effects (engine glows, flames, lightning cores) near the camera.
             if (effects && !model->proxies.empty() && !u.underConstruction) {
                 const alamo::Vec3& cp = r.cameraPosition();
@@ -481,9 +549,14 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] - c) * Mat4::scale(c), {0.9f, 0.72f, 0.25f, 1});
         }
         if (sel) {
-            const float s = rad * 2.6f + 4;
-            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + 0.5f) * Mat4::scale3(s, s, 0.8f),
-                      {0.3f, 1.f, 0.4f, 1});
+            // A thin square frame on the ground (a filled plate hides the unit's surroundings).
+            const float s = rad * 2.6f + 4, t = std::max(1.2f, s * 0.04f), z = u.position[2] + 0.6f;
+            const Vec4 green{0.3f, 1.f, 0.4f, 1};
+            const float cx = u.position[0], cy = u.position[1], h = s / 2;
+            r.drawBox(Mat4::translate(cx, cy + h, z) * Mat4::scale3(s, t, 0.6f), green);
+            r.drawBox(Mat4::translate(cx, cy - h, z) * Mat4::scale3(s, t, 0.6f), green);
+            r.drawBox(Mat4::translate(cx + h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
+            r.drawBox(Mat4::translate(cx - h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
         }
         if (sel || u.health < u.maxHealth) {
             // Health bar above selected or damaged units.
