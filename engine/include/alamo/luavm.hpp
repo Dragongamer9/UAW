@@ -6,7 +6,8 @@
 // data scripts (research trees, starting forces): all 38 opcodes, closures and upvalues,
 // varargs, numeric and generic for loops, metatables (__index, __newindex, __call, arithmetic,
 // __concat, __unm, __len, __eq, __lt, __le; setmetatable, getmetatable, rawget, rawset,
-// rawequal). There are no coroutines, and it is
+// rawequal), coroutines (create, resume, yield, status, wrap, running; each runs on its own
+// thread, handing control back and forth so only one ever runs). It is
 // forgiving where real Lua would raise errors - indexing or calling nil yields nil - so a
 // script that calls engine functions we don't provide still runs to the end.
 #pragma once
@@ -24,10 +25,11 @@ namespace alamo {
 struct LuaTable;
 struct LuaClosure;
 struct LuaValue;
+struct LuaCoroutine;
 using LuaNative = std::function<std::vector<LuaValue>(const std::vector<LuaValue>& args)>;
 
 struct LuaValue {
-    enum class Type : uint8_t { Nil, Bool, Number, String, Table, Function, Native };
+    enum class Type : uint8_t { Nil, Bool, Number, String, Table, Function, Native, Thread };
     Type type = Type::Nil;
     bool b = false;
     double n = 0;
@@ -35,6 +37,7 @@ struct LuaValue {
     std::shared_ptr<LuaTable> t;
     std::shared_ptr<LuaClosure> f;
     std::shared_ptr<LuaNative> native;
+    std::shared_ptr<LuaCoroutine> co; // Thread
 
     LuaValue() = default;
     static LuaValue boolean(bool v) { LuaValue r; r.type = Type::Bool; r.b = v; return r; }

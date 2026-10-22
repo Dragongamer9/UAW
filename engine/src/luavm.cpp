@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cstdio>
 #include <cctype>
 #include <cstring>
@@ -38,6 +41,7 @@ bool operator<(const LuaValue& a, const LuaValue& b) {
     case LuaValue::Type::Table: return a.t.get() < b.t.get();
     case LuaValue::Type::Function: return a.f.get() < b.f.get();
     case LuaValue::Type::Native: return a.native.get() < b.native.get();
+    case LuaValue::Type::Thread: return a.co.get() < b.co.get();
     }
     return false;
 }
@@ -52,9 +56,102 @@ bool rawEquals(const LuaValue& a, const LuaValue& b) {
     case LuaValue::Type::Table: return a.t == b.t;
     case LuaValue::Type::Function: return a.f == b.f;
     case LuaValue::Type::Native: return a.native == b.native;
+    case LuaValue::Type::Thread: return a.co == b.co;
     }
     return false;
 }
+
+// ---------------------------------------------------------------- coroutines
+//
+// Each coroutine runs its function on a thread of its own; resume and yield hand control back
+// and forth under one mutex, so exactly one thread runs Lua at any time and the VM needs no other
+// locking. A coroutine dropped while suspended is woken with `kill` and unwinds.
+struct LuaCoroutine {
+    LuaValue fn;
+    std::function<std::vector<LuaValue>(const LuaValue&, std::vector<LuaValue>)> call; // runs fn (the VM's call)
+    enum class State { Suspended, Running, Normal, Dead } state = State::Suspended;
+    std::thread th;
+    std::mutex m;
+    std::condition_variable cv;
+    bool started = false, coTurn = false, kill = false;
+    std::vector<LuaValue> transfer;
+    ~LuaCoroutine() {
+        if (!th.joinable()) return;
+        if (th.get_id() == std::this_thread::get_id()) { th.detach(); return; } // dropped from inside itself
+        {
+            std::lock_guard<std::mutex> l(m);
+            kill = true;
+            coTurn = true;
+        }
+        cv.notify_all();
+        th.join();
+    }
+};
+
+namespace {
+struct CoroutineKilled {};
+thread_local LuaCoroutine* currentCoroutine = nullptr;
+
+std::vector<LuaValue> resumeCoroutine(const std::shared_ptr<LuaCoroutine>& co, std::vector<LuaValue> args) {
+    if (!co || co->state == LuaCoroutine::State::Dead) return {LuaValue::boolean(false), LuaValue::string("cannot resume dead coroutine")};
+    if (co->state != LuaCoroutine::State::Suspended)
+        return {LuaValue::boolean(false), LuaValue::string("cannot resume non-suspended coroutine")};
+    LuaCoroutine* prev = currentCoroutine;
+    if (prev) prev->state = LuaCoroutine::State::Normal;
+    std::unique_lock<std::mutex> l(co->m);
+    co->state = LuaCoroutine::State::Running;
+    co->transfer = std::move(args);
+    co->coTurn = true;
+    if (!co->started) {
+        co->started = true;
+        LuaCoroutine* raw = co.get();
+        co->th = std::thread([raw]() {
+            currentCoroutine = raw;
+            std::vector<LuaValue> in;
+            {
+                std::unique_lock<std::mutex> lk(raw->m);
+                raw->cv.wait(lk, [&] { return raw->coTurn; });
+                in = std::move(raw->transfer);
+            }
+            std::vector<LuaValue> out;
+            bool killed = false;
+            try {
+                if (!raw->kill) out = raw->call(raw->fn, std::move(in));
+            } catch (const CoroutineKilled&) {
+                killed = true;
+            }
+            std::lock_guard<std::mutex> lk(raw->m);
+            raw->state = LuaCoroutine::State::Dead;
+            if (!killed) raw->transfer = std::move(out);
+            raw->coTurn = false;
+            raw->cv.notify_all();
+        });
+    } else {
+        co->cv.notify_all();
+    }
+    co->cv.notify_all();
+    co->cv.wait(l, [&] { return !co->coTurn; });
+    std::vector<LuaValue> out = std::move(co->transfer);
+    l.unlock();
+    if (prev) prev->state = LuaCoroutine::State::Running;
+    out.insert(out.begin(), LuaValue::boolean(true));
+    return out;
+}
+
+std::vector<LuaValue> yieldCoroutine(std::vector<LuaValue> values) {
+    LuaCoroutine* co = currentCoroutine;
+    if (!co) return {}; // not in a coroutine: forgiving, nothing happens
+    std::unique_lock<std::mutex> l(co->m);
+    co->transfer = std::move(values);
+    co->state = LuaCoroutine::State::Suspended;
+    co->coTurn = false;
+    co->cv.notify_all();
+    co->cv.wait(l, [&] { return co->coTurn; });
+    if (co->kill) throw CoroutineKilled{};
+    co->state = LuaCoroutine::State::Running;
+    return std::move(co->transfer);
+}
+} // namespace
 
 LuaValue LuaTable::get(const LuaValue& key) const {
     auto it = fields.find(key);
@@ -244,8 +341,45 @@ LuaVM::LuaVM() : globals_(std::make_shared<LuaTable>()) {
     setFunction("rawequal", [](const std::vector<LuaValue>& a) {
         return std::vector<LuaValue>{LuaValue::boolean(a.size() > 1 && rawEquals(a[0], a[1]))};
     });
+    {
+        LuaValue co = LuaValue::newTable();
+        auto make = [this](const LuaValue& fn) {
+            auto c = std::make_shared<LuaCoroutine>();
+            c->fn = fn;
+            c->call = [this](const LuaValue& f, std::vector<LuaValue> a) { return call(f, a); };
+            LuaValue v;
+            v.type = LuaValue::Type::Thread;
+            v.co = c;
+            return v;
+        };
+        co.t->set(LuaValue::string("create"), LuaValue::function([make](const std::vector<LuaValue>& a) {
+            return std::vector<LuaValue>{a.empty() ? LuaValue() : make(a[0])};
+        }));
+        co.t->set(LuaValue::string("resume"), LuaValue::function([](const std::vector<LuaValue>& a) {
+            if (a.empty() || a[0].type != LuaValue::Type::Thread) return std::vector<LuaValue>{LuaValue::boolean(false)};
+            return resumeCoroutine(a[0].co, std::vector<LuaValue>(a.begin() + 1, a.end()));
+        }));
+        co.t->set(LuaValue::string("yield"), LuaValue::function([](const std::vector<LuaValue>& a) { return yieldCoroutine(a); }));
+        co.t->set(LuaValue::string("status"), LuaValue::function([](const std::vector<LuaValue>& a) {
+            if (a.empty() || a[0].type != LuaValue::Type::Thread) return std::vector<LuaValue>{LuaValue()};
+            static const char* names[] = {"suspended", "running", "normal", "dead"};
+            return std::vector<LuaValue>{LuaValue::string(names[int(a[0].co->state)])};
+        }));
+        co.t->set(LuaValue::string("running"), LuaValue::function([](const std::vector<LuaValue>&) {
+            return std::vector<LuaValue>{LuaValue()}; // the running coroutine isn't handed out as a value
+        }));
+        co.t->set(LuaValue::string("wrap"), LuaValue::function([make](const std::vector<LuaValue>& a) {
+            const LuaValue c = a.empty() ? LuaValue() : make(a[0]);
+            return std::vector<LuaValue>{LuaValue::function([c](const std::vector<LuaValue>& args) {
+                std::vector<LuaValue> r = resumeCoroutine(c.co, args);
+                if (!r.empty()) r.erase(r.begin()); // the values, without resume's success flag
+                return r;
+            })};
+        }));
+        setGlobal("coroutine", co);
+    }
     setFunction("type", [](const std::vector<LuaValue>& a) {
-        static const char* names[] = {"nil", "boolean", "number", "string", "table", "function", "function"};
+        static const char* names[] = {"nil", "boolean", "number", "string", "table", "function", "function", "thread"};
         return std::vector<LuaValue>{LuaValue::string(names[int(a.empty() ? LuaValue::Type::Nil : a[0].type)])};
     });
     setFunction("tostring", [](const std::vector<LuaValue>& a) {

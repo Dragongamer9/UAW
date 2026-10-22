@@ -698,6 +698,42 @@ static std::vector<uint8_t> metaChunk() {
     return c;
 }
 
+// Coroutines: a body (here a native function) that yields twice, then returns.
+static void testLuaCoroutines() {
+    LuaVM vm;
+    const LuaValue co = vm.global("coroutine");
+    const LuaValue yield = co.get("yield");
+    std::vector<double> seen;
+    const LuaValue body = LuaValue::function([&](const std::vector<LuaValue>& a) {
+        seen.push_back(a.empty() ? -1 : a[0].n);                       // 1: resume's first arguments
+        std::vector<LuaValue> r = vm.call(yield, {LuaValue::number(10)});
+        seen.push_back(r.empty() ? -1 : r[0].n);                       // 2: what the second resume passed
+        r = vm.call(yield, {LuaValue::number(20), LuaValue::number(21)});
+        seen.push_back(r.empty() ? -1 : r[0].n);
+        return std::vector<LuaValue>{LuaValue::string("done")};
+    });
+    const LuaValue c = vm.call(co.get("create"), {body})[0];
+    CHECK(c.type == LuaValue::Type::Thread);
+    CHECK(vm.call(co.get("status"), {c})[0].str() == "suspended");
+    auto r = vm.call(co.get("resume"), {c, LuaValue::number(1)});
+    CHECK(r.size() == 2 && r[0].truthy() && r[1].n == 10);
+    CHECK(vm.call(co.get("status"), {c})[0].str() == "suspended");
+    r = vm.call(co.get("resume"), {c, LuaValue::number(2)});
+    CHECK(r.size() == 3 && r[1].n == 20 && r[2].n == 21);
+    r = vm.call(co.get("resume"), {c, LuaValue::number(3)});
+    CHECK(r.size() == 2 && r[0].truthy() && r[1].str() == "done");
+    CHECK(vm.call(co.get("status"), {c})[0].str() == "dead");
+    r = vm.call(co.get("resume"), {c});
+    CHECK(!r.empty() && !r[0].truthy()); // dead
+    CHECK(seen.size() == 3 && seen[0] == 1 && seen[1] == 2 && seen[2] == 3);
+    // wrap, and a coroutine dropped while suspended (its thread is woken and unwinds).
+    const LuaValue w = vm.call(co.get("wrap"), {body})[0];
+    seen.clear();
+    r = vm.call(w, {LuaValue::number(5)});
+    CHECK(r.size() == 1 && r[0].n == 10 && seen.size() == 1 && seen[0] == 5);
+    CHECK(vm.call(yield, {LuaValue::number(1)}).empty()); // outside any coroutine: nothing happens
+}
+
 static void testLuaMeta() {
     LuaVM vm;
     vm.setFunction("addf", [](const std::vector<LuaValue>& a) {
@@ -756,6 +792,7 @@ int main() {
     const fs::path root = fs::temp_directory_path() / "uaw_native_test_abilities";
     const Data d = testData(root);
     testLuaMeta();
+    testLuaCoroutines();
     testParsing(d);
     testAura(d);
     testCloak(d);
