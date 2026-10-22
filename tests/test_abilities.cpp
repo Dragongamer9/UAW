@@ -843,12 +843,36 @@ local v1, v2 = setmetatable({v = 1}, V), setmetatable({v = 2}, V)
 ok(v1 + v2 == 3, "metamethods")
 Global_Value = "set"
 function Module_Fn(a, b) return a * b end
+-- the string, table and math libraries
+ok(string.format("%d|%5.2f|%s|%x|%q|%%", 42, 3.14159, "hi", 255, 'a"b') == '42| 3.14|hi|ff|"a\\"b"|%', "format")
+ok(("abc"):upper() == "ABC" and string.len("abc") == 3 and ("hello"):sub(2, -2) == "ell" and ("x"):rep(3) == "xxx", "string basics")
+ok(string.byte("A") == 65 and string.char(72, 105) == "Hi", "byte/char")
+ok(string.find("hello world", "wor") == 7 and string.find("a.b", ".", 1, true) == 2, "find plain")
+local s1, e1, cap = string.find("key = value", "(%w+)%s*=")
+ok(s1 == 1 and e1 == 5 and cap == "key", "find captures")
+ok(string.match("Unit_42_alpha", "_(%d+)_") == "42" and string.match("  trim  ", "^%s*(.-)%s*$") == "trim", "match")
+local words = {}
+for w in string.gmatch("one two  three", "%a+") do words[#words + 1] = w end
+ok(#words == 3 and words[3] == "three", "gmatch")
+local g, count = string.gsub("hello world", "o", "0")
+ok(g == "hell0 w0rld" and count == 2, "gsub string")
+ok(string.gsub("$name is $age", "%$(%w+)", {name = "Ann", age = 7}) == "Ann is 7", "gsub table")
+ok(string.gsub("abc", "%w", function(c) return c:upper() .. "." end) == "A.B.C.", "gsub function")
+ok(string.match("[tag]", "%b[]") == "[tag]" and string.match("THE (quick) fox", "%f[%a]%a+", 5) == "quick", "balance and frontier")
+local arr = {5, 1, 4, 2, 3}
+table.sort(arr)
+ok(table.concat(arr, ",") == "1,2,3,4,5", "sort and concat")
+table.sort(arr, function(x, y) return x > y end)
+ok(arr[1] == 5 and table.remove(arr) == 1 and #arr == 4 and table.remove(arr, 1) == 5 and arr[1] == 4, "sort with comparator, remove")
+ok(math.abs(-3) == 3 and math.ceil(1.2) == 2 and math.sqrt(16) == 4 and math.floor(math.pi) == 3, "math")
+local r = math.random(1, 6)
+ok(r >= 1 and r <= 6 and r == math.floor(r), "random")
 )LUA";
     std::string err;
     CHECK(vm.runSource(src, &err));
     if (!err.empty()) std::fprintf(stderr, "lua source: %s\n", err.c_str());
     for (const std::string& f : failed) std::fprintf(stderr, "lua source check failed: %s\n", f.c_str());
-    CHECK(failed.empty() && passed == 27);
+    CHECK(failed.empty() && passed == 42);
     CHECK(vm.global("Global_Value").str() == "set");
     const auto r = vm.call(vm.global("Module_Fn"), {LuaValue::number(6), LuaValue::number(7)});
     CHECK(r.size() == 1 && r[0].n == 42);

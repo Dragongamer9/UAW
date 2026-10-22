@@ -6,6 +6,8 @@
 //   objdump <game-root> weapons <ObjectName> [VictimName...]  weapons, dps, armor modifiers
 //   objdump <game-root> abilities [ObjectName]  abilities and effect generators (all units: a tally)
 //   objdump <game-root> research [faction]    research trees (run from the compiled tree scripts)
+//   objdump <game-root> scripts [all]      the game's Lua scripts: how many load, and the engine API
+//                                           they call (globals and methods no script defines)
 //   objdump <game-root> warnings
 // <game-root> is the folder containing Data/MegaFiles.xml.
 #include "common.hpp"
@@ -13,6 +15,7 @@
 #include "alamo/effects.hpp"
 #include "alamo/research.hpp"
 #include "alamo/gamedata.hpp"
+#include "alamo/luavm.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -23,7 +26,7 @@
 using namespace alamo;
 
 static int usage() {
-    std::cerr << "usage: objdump <game-root> summary | units [faction] | field <Name> | show <name> | effect <name> | weapons <name> | abilities [name] | research [faction] | warnings\n";
+    std::cerr << "usage: objdump <game-root> summary | units [faction] | field <Name> | show <name> | effect <name> | weapons <name> | abilities [name] | research [faction] | scripts [all] | warnings\n";
     return 2;
 }
 
@@ -41,6 +44,95 @@ static std::string num(std::optional<double> v) {
     return buf;
 }
 
+
+// Engine API inventory of the game's scripts: every global a script reads that no script assigns
+// (and the VM doesn't provide), and every name called as a method (obj:Name() or obj.Name()).
+static int scriptApi(MegVfs& vfs, bool all) {
+    std::map<std::string, std::set<std::string>> globals, methods; // name -> scripts using it
+    std::set<std::string> defined;
+    size_t compiled = 0, source = 0, failed = 0;
+    for (const std::string& path : vfs.list()) {
+        std::string up = path;
+        for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
+        if (up.rfind("DATA\\SCRIPTS\\", 0) != 0 || up.size() < 4 || up.compare(up.size() - 4, 4, ".LUA") != 0) continue;
+        const std::vector<uint8_t> bytes = vfs.read(path);
+        std::string err;
+        std::shared_ptr<LuaProto> main;
+        if (!bytes.empty() && bytes[0] == 0x1b) main = loadLuaChunk(bytes, &err), ++compiled;
+        else main = compileLua(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &err), ++source;
+        if (!main) {
+            ++failed;
+            std::printf("  failed: %s (%s)\n", path.c_str(), err.c_str());
+            continue;
+        }
+        const std::string script = up.substr(13);
+        std::vector<const LuaProto*> todo{main.get()};
+        while (!todo.empty()) {
+            const LuaProto& p = *todo.back();
+            todo.pop_back();
+            for (const auto& c : p.protos) todo.push_back(c.get());
+            auto name = [&](uint32_t k) -> std::string {
+                return k < p.constants.size() && p.constants[k].isString() ? p.constants[k].s : std::string();
+            };
+            for (size_t pc = 0; pc < p.code.size(); ++pc) {
+                const uint32_t i = p.code[pc];
+                const uint32_t op = i & 0x3F, A = (i >> 6) & 0xFF, C = (i >> 14) & 0x1FF, Bx = i >> 14;
+                if (op == 5) { if (std::string n = name(Bx); !n.empty()) globals[n].insert(script); }   // GETGLOBAL
+                else if (op == 7) { if (std::string n = name(Bx); !n.empty()) defined.insert(n); }       // SETGLOBAL
+                else if (op == 11 && (C & 0x100)) { if (std::string n = name(C & 0xFF); !n.empty()) methods[n].insert(script); } // SELF
+                else if (op == 6 && (C & 0x100)) {                                                        // GETTABLE then CALL
+                    for (size_t q = pc + 1; q < p.code.size() && q < pc + 12; ++q)
+                        if ((p.code[q] & 0x3F) == 28 && ((p.code[q] >> 6) & 0xFF) == A) {
+                            if (std::string n = name(C & 0xFF); !n.empty()) methods[n].insert(script);
+                            break;
+                        }
+                }
+            }
+        }
+    }
+    LuaVM vm; // what the VM provides itself
+    std::set<std::string> provided;
+    for (const auto& [k, v] : vm.globals().fields) {
+        provided.insert(k.str());
+        if (v.isTable())
+            for (const auto& [fk, fv] : v.t->fields) provided.insert(fk.str());
+    }
+    // Lua 5.1's own library: reported apart from the engine's API (what the VM still lacks of it).
+    static const char* kLuaLib[] = {
+        "assert", "collectgarbage", "dofile", "error", "gcinfo", "getfenv", "getmetatable", "ipairs", "loadstring",
+        "module", "next", "pairs", "pcall", "print", "rawequal", "rawget", "rawset", "require", "select", "setfenv",
+        "setmetatable", "tonumber", "tostring", "type", "unpack", "xpcall", "string", "table", "math", "coroutine", "os", "io", "debug",
+        "byte", "char", "find", "format", "gmatch", "gsub", "len", "lower", "match", "rep", "reverse", "sub", "upper",
+        "concat", "insert", "maxn", "remove", "sort", "getn", "setn", "foreach", "foreachi",
+        "abs", "ceil", "cos", "deg", "exp", "floor", "fmod", "frexp", "huge", "ldexp", "log", "log10", "max", "min",
+        "modf", "pi", "pow", "rad", "random", "randomseed", "sin", "sqrt", "tan", "clock", "date", "time"};
+    std::map<std::string, std::set<std::string>> lib;
+    for (const char* n : kLuaLib) {
+        for (auto* m : {&globals, &methods})
+            if (auto it = m->find(n); it != m->end()) {
+                if (!provided.count(n)) lib[n].insert(it->second.begin(), it->second.end());
+                m->erase(it);
+            }
+    }
+    for (const std::string& n : provided) defined.insert(n);
+    // Functions scripts define and call on their own tables (Behavior_Init, ...) are theirs, not the engine's.
+    auto print = [&](const char* what, const std::map<std::string, std::set<std::string>>& m) {
+        std::vector<std::pair<size_t, std::string>> v;
+        for (const auto& [n, users] : m)
+            if (!defined.count(n)) v.emplace_back(users.size(), n);
+        std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.first != b.first ? a.first > b.first : a.second < b.second; });
+        std::printf("%s: %zu\n", what, v.size());
+        const size_t shown = all ? v.size() : std::min<size_t>(v.size(), 40);
+        for (size_t i = 0; i < shown; ++i) std::printf("  %4zu  %s\n", v[i].first, v[i].second.c_str());
+        if (shown < v.size()) std::printf("  ... (objdump <game-root> scripts all)\n");
+    };
+    std::printf("scripts: %zu compiled, %zu source, %zu failed\n", compiled, source, failed);
+    print("engine globals (by number of scripts using them)", globals);
+    print("methods called", methods);
+    print("Lua library functions the VM lacks", lib);
+    return failed ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
     const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
@@ -48,6 +140,7 @@ int main(int argc, char** argv) {
     try {
         MegVfs vfs;
         auto missing = tools::mountWithMods(vfs, argv[1], modArg);
+        if (cmd == "scripts") return scriptApi(vfs, argc > 3 && std::string(argv[3]) == "all");
         GameDatabase db;
         db.load(vfs);
 

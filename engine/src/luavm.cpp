@@ -437,6 +437,7 @@ LuaVM::LuaVM() : globals_(std::make_shared<LuaTable>()) {
     }));
     setGlobal("math", math);
     setGlobal("string", LuaValue::newTable());
+    installLuaLibrary(*this);
 }
 
 bool LuaVM::run(const std::vector<uint8_t>& chunk, std::string* error) {
@@ -505,6 +506,10 @@ std::vector<LuaValue> LuaVM::execute(const std::shared_ptr<LuaClosure>& cl, std:
     };
     auto first = [](std::vector<LuaValue> r) { return r.empty() ? LuaValue() : std::move(r[0]); };
     std::function<LuaValue(const LuaValue&, const LuaValue&, int)> indexDepth = [&](const LuaValue& t, const LuaValue& k, int d) -> LuaValue {
+        if (t.isString()) { // ("text"):upper() and friends: strings index the string library
+            const LuaValue lib = globals_->get(LuaValue::string("string"));
+            return lib.isTable() ? lib.t->get(k) : LuaValue();
+        }
         if (t.isTable()) {
             LuaValue v = t.t->get(k);
             if (!v.isNil() || !t.t->meta || d > 100) return v;

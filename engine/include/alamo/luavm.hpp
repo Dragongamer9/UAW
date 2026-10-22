@@ -115,6 +115,9 @@ private:
 
 // Parses a chunk into its main function prototype (null on error).
 std::shared_ptr<LuaProto> loadLuaChunk(const std::vector<uint8_t>& chunk, std::string* error = nullptr);
+// Lua's string (with patterns), table and math libraries and print, on top of the VM's core
+// functions (the LuaVM constructor installs them).
+void installLuaLibrary(LuaVM& vm);
 // Compiles Lua 5.1 source into a main function prototype for the VM (null with "line N: ..." on a
 // syntax error). Mods ship some scripts as source.
 std::shared_ptr<LuaProto> compileLua(std::string_view source, std::string* error = nullptr);

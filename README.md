@@ -34,7 +34,7 @@ game, F10 shows every key; Esc opens the menu (save, load, sound, graphics, rest
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
 | 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 929 of 934 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory) |
 | 3 | Research trees: read by running the tree scripts (compiled, or a mod's source compiled first); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
-| 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; metatables and coroutines |
+| 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; metatables and coroutines; Lua's string (with patterns), table and math libraries |
 | 3 | Lua 5.1 source compiler (mods ship some scripts uncompiled) to the same VM | done: all 8 source scripts in the three mods compile and run; the Human Resurgence research tree is read by running it |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
 | 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
@@ -249,8 +249,15 @@ objdump "<game>" abilities            # tally: abilities per type, how many are 
 objdump "<game>" field Max_Garrison_Capacity   # every object with that field, and its value
 objdump "<game>" abilities Alien_Defiler   # its abilities, generators, effects and components
 objdump "<game>" research Alien       # the research tree: suites, costs, times, what they unlock
+objdump "<game>" scripts              # the Lua scripts: do they load, and the engine API they call
 objdump "<game>" warnings
 ```
+
+`scripts` loads every script under `Data/Scripts` (428 with the three mods: 421 compiled, 7 source,
+all load) and lists what a scripting host would have to provide: 623 engine globals (`Find_Player`,
+`Create_Thread`, `GetCurrentTime`, ...) and 1,743 method names (`Set_Hidden`, `Get_Owner`,
+`Register_Event_Handler`, ...), each with the number of scripts using it. Of Lua's own library
+only `require` (the host's job) is missing from the VM.
 
 Object fields are flattened to paths, e.g.
 `BehaviorType[ProductionBehaviorType].Build_Cost_Credits`. Variants copy
