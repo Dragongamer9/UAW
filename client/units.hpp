@@ -53,6 +53,7 @@ public:
 
     int player() const { return player_; }
     bool showResources = true; // scrap piles (off in the model gallery)
+    bool animate = true;       // play the units' .ALA animations
     const std::set<uint32_t>& selection() const { return selected_; }
 
     void clear() { selected_.clear(); }

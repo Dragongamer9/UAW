@@ -3,6 +3,7 @@
 #include "alamo/assets.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -18,16 +19,24 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aUv;
 layout(location = 3) in vec4 aColor;
+layout(location = 4) in vec4 aBone;
+layout(location = 5) in vec4 aWeight;
 uniform mat4 uViewProj;
 uniform mat4 uModel;
+uniform mat4 uSkin[64];
+uniform int uSkinned;
 out vec3 vNormal;
 out vec2 vUv;
 out vec4 vColor;
 out vec3 vWorld;
 void main() {
-    vec4 world = uModel * vec4(aPos, 1.0);
+    mat4 skin = mat4(1.0);
+    if (uSkinned != 0)
+        skin = aWeight.x * uSkin[int(aBone.x + 0.5)] + aWeight.y * uSkin[int(aBone.y + 0.5)] +
+               aWeight.z * uSkin[int(aBone.z + 0.5)] + aWeight.w * uSkin[int(aBone.w + 0.5)];
+    vec4 world = uModel * skin * vec4(aPos, 1.0);
     vWorld = world.xyz;
-    vNormal = mat3(uModel) * aNormal;
+    vNormal = mat3(uModel) * mat3(skin) * aNormal;
     vUv = aUv;
     vColor = aColor;
     gl_Position = uViewProj * world;
@@ -105,6 +114,10 @@ void GpuMesh::upload(const std::vector<GpuVertex>& verts, const void* indices, s
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, u)));
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, r)));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, bone)));
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, weight)));
     glBindVertexArray(0);
     indexCount = GLsizei(count);
     indexType = wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT;
@@ -150,6 +163,8 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uFogColor_ = glGetUniformLocation(program_, "uFogColor");
     uFogRange_ = glGetUniformLocation(program_, "uFogRange");
     uUnlit_ = glGetUniformLocation(program_, "uUnlit");
+    uSkin_ = glGetUniformLocation(program_, "uSkin");
+    uSkinned_ = glGetUniformLocation(program_, "uSkinned");
 
     // Unit box (-0.5..0.5 in X/Y, 0..1 in Z) for objects whose model isn't available.
     std::vector<GpuVertex> v;
@@ -225,10 +240,33 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 if (shader.find("Shadow") != std::string::npos) continue;
                 std::vector<GpuVertex> verts;
                 verts.reserve(sm.vertices.size());
+                // Vertices go in rest model space; when posed, each follows its bone with
+                // posed(bone) * inverse(rest(bone)): the mesh's own bone for rigid meshes, the
+                // vertex's bone-map slot for skinned ones.
+                // Weighted formats (alD3dVertB4I4...) blend up to four bones per vertex.
+                const bool weighted = sm.vertexFormat.find("B4I4") != std::string::npos && !sm.boneMap.empty();
+                std::vector<uint32_t> palette = sm.skinned() || weighted ? sm.boneMap : std::vector<uint32_t>{m.meshBone(mi)};
+                if (palette.size() > 64) palette.clear(); // beyond the shader's palette: drawn in rest pose
                 for (const alamo::Vertex& v : sm.vertices) {
                     alamo::Vec3 p = sm.skinned() ? v.position : alamo::transformPoint(xf, v.position);
                     alamo::Vec3 n = sm.skinned() ? v.normal : alamo::transformDir(xf, v.normal);
                     verts.push_back(vtx(p, Mat4::normalize(n), v.uv[0][0], v.uv[0][1], {1, 1, 1, 1}));
+                    GpuVertex& gv = verts.back();
+                    if (sm.skinned() && v.boneIndex[0] < palette.size()) {
+                        gv.bone[0] = float(v.boneIndex[0]);
+                    } else if (weighted) {
+                        float total = 0;
+                        for (int k = 0; k < 4; ++k)
+                            if (v.boneIndex[k] < palette.size() && v.boneWeight[k] > 0) {
+                                gv.bone[k] = float(v.boneIndex[k]);
+                                gv.weight[k] = v.boneWeight[k];
+                                total += v.boneWeight[k];
+                            } else {
+                                gv.weight[k] = 0;
+                            }
+                        if (total <= 0) gv.weight[0] = 1, gv.bone[0] = 0;
+                        else for (float& w : gv.weight) w /= total;
+                    }
                     for (int k = 0; k < 3; ++k) {
                         mn[k] = std::min(mn[k], p[k]);
                         mx[k] = std::max(mx[k], p[k]);
@@ -236,6 +274,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 }
                 GpuMesh gpu;
                 gpu.upload(verts, sm.indices.data(), sm.indices.size(), false);
+                gpu.palette = std::move(palette);
                 if (const std::string* t = sm.material.texture("BaseTexture"); t && !t->empty()) gpu.texture = texture(*t);
                 if (shader.find("Additive") != std::string::npos || shader.find("Glow") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Additive;
@@ -257,6 +296,9 @@ const GpuModel* Renderer::model(const std::string& aloName) {
             }
         }
         if (gm->meshes.empty()) throw std::runtime_error("no visible meshes");
+        gm->skeleton.bones = m.bones;
+        gm->restInverse.reserve(m.bones.size());
+        for (uint32_t b = 0; b < m.bones.size(); ++b) gm->restInverse.push_back(alamo::inverseRigid(m.boneWorld(b)));
         gm->boundsMin = {mn[0], mn[1], mn[2]};
         gm->boundsMax = {mx[0], mx[1], mx[2]};
         gm->loaded = true;
@@ -341,17 +383,71 @@ void Renderer::drawTerrain() {
     terrain_.draw();
 }
 
-void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint) {
+void Renderer::setSkin(const GpuMesh& mesh, const Pose* pose) {
+    if (!pose || mesh.palette.empty()) {
+        glUniform1i(uSkinned_, 0);
+        return;
+    }
+    std::array<float, 64 * 16> mats{};
+    for (size_t i = 0; i < mesh.palette.size(); ++i) {
+        const uint32_t b = mesh.palette[i];
+        const Mat4 m = b < pose->size() ? Mat4::fromAlamo((*pose)[b]) : Mat4{};
+        std::copy(m.m.begin(), m.m.end(), mats.begin() + long(i * 16));
+    }
+    glUniformMatrix4fv(uSkin_, GLsizei(mesh.palette.size()), GL_FALSE_, mats.data());
+    glUniform1i(uSkinned_, 1);
+}
+
+void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint, const Pose* pose) {
     const alamo::Vec3 at{transform.at(0, 3), transform.at(1, 3), transform.at(2, 3)};
     const float depth = lengthOf(Mat4::sub(at, camPos_));
+    std::shared_ptr<const Pose> kept;
     for (const GpuMesh& mesh : m.meshes) {
         if (mesh.blend != GpuMesh::Blend::Opaque) {
-            transparent_.push_back({&mesh, transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], tint[3]}, depth});
+            if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
+            transparent_.push_back({&mesh, transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], tint[3]}, depth, kept});
             continue;
         }
         setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture);
+        setSkin(mesh, pose);
         mesh.draw();
     }
+    glUniform1i(uSkinned_, 0);
+}
+
+const alamo::Animation* Renderer::animation(const std::string& alaName) {
+    const std::string key = alamo::normalizePath(alaName);
+    if (auto it = animations_.find(key); it != animations_.end()) return it->second.get();
+    std::unique_ptr<alamo::Animation> a;
+    const std::string path = alamo::modelPath(alaName);
+    try {
+        if (vfs_.exists(path)) {
+            a = std::make_unique<alamo::Animation>(alamo::loadAla(vfs_.read(path)));
+            if (a->frameCount == 0) a.reset();
+        }
+    } catch (const std::exception&) {
+        a.reset();
+    }
+    const alamo::Animation* out = a.get();
+    animations_[key] = std::move(a);
+    return out;
+}
+
+Pose Renderer::pose(const GpuModel& m, const alamo::Animation& anim, float seconds) const {
+    const uint32_t frame = anim.frameCount ? uint32_t(std::max(0.f, seconds) * anim.fps) % anim.frameCount : 0;
+    Pose out = alamo::poseModel(m.skeleton, &anim, frame);
+    for (size_t b = 0; b < out.size() && b < m.restInverse.size(); ++b) {
+        const alamo::Mat34& p = out[b];
+        const alamo::Mat34& r = m.restInverse[b];
+        alamo::Mat34 c{};
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 4; ++j)
+                c[i * 4 + j] = p[i * 4 + 0] * r[0 * 4 + j] + p[i * 4 + 1] * r[1 * 4 + j] + p[i * 4 + 2] * r[2 * 4 + j];
+            c[i * 4 + 3] += p[i * 4 + 3];
+        }
+        out[b] = c;
+    }
+    return out;
 }
 
 void Renderer::drawBox(const Mat4& transform, const alamo::Vec4& color) {
@@ -367,8 +463,10 @@ void Renderer::endFrame() {
         if (d.mesh->blend == GpuMesh::Blend::Additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         setUniforms(d.transform, d.tint, d.mesh->texture);
+        setSkin(*d.mesh, d.pose.get());
         d.mesh->draw();
     }
+    glUniform1i(uSkinned_, 0);
     glDepthMask(GL_TRUE_);
     glDisable(GL_BLEND);
 }

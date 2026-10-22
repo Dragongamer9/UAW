@@ -280,8 +280,23 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             model = r.model(alamo::trim(*name));
         if (model) {
             const float scale = float(u.type->number("Scale_Factor").value_or(1.0));
+            // Animated: <model>_MOVE_00 while moving, _ATTACK_00 while shooting, else _IDLE_00
+            // (falling back to idle), each unit at its own phase.
+            const Pose* pose = nullptr;
+            Pose posed;
+            if (animate && !u.structure) {
+                std::string stem = alamo::trim(*u.type->find("Land_Model_Name"));
+                if (const size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
+                const char* kind = u.moving() ? "_MOVE_00.ALA" : (u.target && !u.weapons.empty()) ? "_ATTACK_00.ALA" : "_IDLE_00.ALA";
+                const alamo::Animation* anim = r.animation(stem + kind);
+                if (!anim) anim = r.animation(stem + "_IDLE_00.ALA");
+                if (anim) {
+                    posed = r.pose(*model, *anim, time + float(u.id % 97) * 0.37f);
+                    pose = &posed;
+                }
+            }
             // Alamo models face -Y in model space; the simulation's facing 0 is +X.
-            r.drawModel(*model, base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale));
+            r.drawModel(*model, base * Mat4::rotateZ(1.5707963f) * Mat4::scale(scale), {1, 1, 1, 1}, pose);
         } else {
             const bool infantry = u.moveClass == alamo::MoveClass::Infantry;
             const float h = infantry ? std::max(rad * 2.2f, 9.f) : std::max(rad * 0.9f, 6.f);

@@ -32,7 +32,8 @@ redistributed.
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
 | 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
-| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
+| 2 | Animated units in the viewer: GPU skinning (rigid, skinned and 4-bone weighted meshes), idle/move/attack `.ALA` per unit | done (first version) |
+| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |

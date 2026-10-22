@@ -4,6 +4,7 @@
 #include "gl.hpp"
 #include "math.hpp"
 
+#include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/meg.hpp"
@@ -22,6 +23,9 @@ struct GpuVertex {
     float nx, ny, nz;
     float u, v;
     float r, g, b, a;
+    // Animated models: up to four slots in the mesh's bone palette and their weights.
+    float bone[4] = {0, 0, 0, 0};
+    float weight[4] = {1, 0, 0, 0};
 };
 
 struct GpuMesh {
@@ -31,6 +35,7 @@ struct GpuMesh {
     GLuint texture = 0;
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
+    std::vector<uint32_t> palette; // skeleton bone per vertex bone slot (empty: never posed)
 
     void upload(const std::vector<GpuVertex>& verts, const void* indices, size_t count, bool wide);
     void draw() const;
@@ -41,7 +46,12 @@ struct GpuModel {
     std::vector<GpuMesh> meshes;
     alamo::Vec3 boundsMin{}, boundsMax{};
     bool loaded = false;
+    alamo::Model skeleton;               // bones only, for posing
+    std::vector<alamo::Mat34> restInverse; // inverse rest (bind) world transform per bone
 };
+
+// Skin matrices for one posed model: per skeleton bone, posed * inverse(rest).
+using Pose = std::vector<alamo::Mat34>;
 
 class Renderer {
 public:
@@ -61,7 +71,11 @@ public:
     };
     void beginFrame(int width, int height, const Camera& cam, float farPlane);
     void drawTerrain();
-    void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1});
+    void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1}, const Pose* pose = nullptr);
+    // Animations (.ALA), cached; nullptr if missing.
+    const alamo::Animation* animation(const std::string& alaName);
+    // `m` posed by `anim` at `seconds` (looping).
+    Pose pose(const GpuModel& m, const alamo::Animation& anim, float seconds) const;
     void drawBox(const Mat4& transform, const alamo::Vec4& color);
     void endFrame(); // draws queued transparent meshes
     // 2D overlay in pixels (top-left origin), alpha-blended over everything, unlit.
@@ -82,11 +96,12 @@ public:
 private:
     GLuint texture(const std::string& name);
     void setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex);
+    void setSkin(const GpuMesh& mesh, const Pose* pose);
 
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1;
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
     int width_ = 1, height_ = 1;
@@ -97,6 +112,7 @@ private:
     GpuMesh box_;
     std::unordered_map<std::string, std::unique_ptr<GpuModel>> models_;
     std::unordered_map<std::string, GLuint> textures_;
+    std::unordered_map<std::string, std::unique_ptr<alamo::Animation>> animations_;
     size_t modelsLoaded_ = 0, modelsMissing_ = 0, texturesMissing_ = 0;
 
     struct Deferred {
@@ -104,6 +120,7 @@ private:
         Mat4 transform;
         alamo::Vec4 tint;
         float depth;
+        std::shared_ptr<const Pose> pose; // animated: kept until the transparent pass
     };
     std::vector<Deferred> transparent_;
 };
