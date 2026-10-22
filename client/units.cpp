@@ -449,8 +449,13 @@ void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo:
         if (b < 0) continue;
         Mat4 bone = Mat4::fromAlamo(model.skeleton.boneWorld(uint32_t(b)));
         if (pose && size_t(b) < pose->size()) bone = Mat4::fromAlamo((*pose)[size_t(b)]) * bone;
-        const Mat4 at = xf * bone * Mat4::scale(float(a.type->number("Scale_Factor").value_or(1.0)));
         if (!hm) continue;
+        Mat4 at = xf * bone * Mat4::scale(float(a.type->number("Scale_Factor").value_or(1.0)));
+        // The hardpoint model's own attachment bone (Tactical_Build_Hard_Point_Attachment_Bone, e.g. a
+        // walker leg's HP_Attach at the hip) goes on the parent's bone, not the model's origin.
+        if (const std::string* ab = a.type->find("Tactical_Build_Hard_Point_Attachment_Bone"))
+            if (const int hb = boneIndex(*hm, alamo::trim(*ab)); hb >= 0 && size_t(hb) < hm->restInverse.size())
+                at = at * Mat4::fromAlamo(hm->restInverse[size_t(hb)]);
         r.drawModel(*hm, at);
         drawHardpoints(r, u, *a.type, *hm, at, nullptr, depth + 1);
     }
