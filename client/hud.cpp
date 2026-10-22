@@ -338,6 +338,20 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         float y = y0 + pad;
         const alamo::Unit* first = w.unit(*sel.begin());
         if (sel.size() == 1 && first) {
+            // The unit's encyclopedia icon (EncyclopediaBehaviorType Icon_Name) at the panel's right edge.
+            if (const std::string* icon = first->type->find("Icon_Name"); icon && !alamo::trim(*icon).empty()) {
+                if (const GLuint tex = r.textureNamed(alamo::trim(*icon))) {
+                    const float sz = 72 * s, ix = W * 0.26f - sz - 2 * pad, iy = y0 + pad;
+                    auto vtx = [&](float x, float yv, float u, float v) {
+                        GpuVertex g{};
+                        g.px = x, g.py = yv, g.u = u, g.v = v, g.r = g.g = g.b = g.a = 1;
+                        return g;
+                    };
+                    std::vector<GpuVertex> q{vtx(ix, iy, 0, 0), vtx(ix + sz, iy, 1, 0), vtx(ix + sz, iy + sz, 1, 1),
+                                             vtx(ix, iy, 0, 0), vtx(ix + sz, iy + sz, 1, 1), vtx(ix, iy + sz, 0, 1)};
+                    r.drawOverlayTriangles(q, tex);
+                }
+            }
             textBig(text.displayName(*first->type), pad, y, kText);
             y += lh;
             std::string hp = "Health " + fmt("%.0f", first->health) + " / " + fmt("%.0f", first->maxHealth);
