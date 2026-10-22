@@ -66,6 +66,34 @@ std::optional<WeaponSpec> weaponFrom(const GameObjectType& t, const GameDatabase
     return w;
 }
 
+// Beam weapons (RadiationManagerBehaviorType, fired by a Radiation_Weapon_Ability): the beam
+// sweeps for Radiation_Sweep_Duration_In_Secs dealing Radiation_Direct_Damage every tick, then
+// rests for Radiation_Cooldown_In_Secs. Simulated as an instant-hit weapon with that cycle;
+// its range is the ability's Activation_Max_Range (else 60% of the beam length).
+std::optional<WeaponSpec> beamFrom(const GameObjectType& t) {
+    const auto perTick = t.number("Radiation_Direct_Damage");
+    if (!perTick || *perTick <= 0) return std::nullopt;
+    float range = 0;
+    for (const ObjectField& f : t.fields()) {
+        const std::string p = upper(f.path);
+        if (p.find("RADIATION_WEAPON_ABILITY[") != std::string::npos && p.size() > 21 &&
+            p.compare(p.size() - 21, 21, ".ACTIVATION_MAX_RANGE") == 0 && !f.values.empty())
+            range = float(std::atof(f.values.back().c_str()));
+    }
+    if (range <= 0) range = float(t.number("Radiation_Beam_Max_Length").value_or(200)) * 0.6f;
+    const int sweep = std::max(1, toTicks(t.number("Radiation_Sweep_Duration_In_Secs").value_or(1.0)));
+    const int rest = toTicks(t.number("Radiation_Cooldown_In_Secs").value_or(0.5));
+    WeaponSpec w;
+    w.source = &t;
+    w.maxRange = range;
+    w.rechargeTicks = std::max(1, sweep + rest);
+    w.projectileSpeed = 1e6f; // a beam: lands at once
+    w.damage = float(*perTick) * float(sweep);
+    if (const std::string* dt = t.find("Radiation_Damage_Type")) w.damageType = trim(*dt);
+    w.maxFlight = range + 100;
+    return w;
+}
+
 } // namespace
 
 void DamageTable::set(const std::string& damage, const std::string& armor, float mod) {
@@ -108,6 +136,7 @@ float WeaponSpec::damagePerSecond() const {
 std::vector<WeaponSpec> weaponsFor(const GameObjectType& unit, const GameDatabase& db) {
     std::vector<WeaponSpec> out;
     if (auto w = weaponFrom(unit, db)) out.push_back(*w);
+    else if (auto b = beamFrom(unit)) out.push_back(*b);
     if (const std::string* hps = unit.find("Attached_Hard_Points")) {
         // "HP_Type, bone" pairs, possibly across lines.
         const auto items = splitList(*hps);
@@ -115,6 +144,7 @@ std::vector<WeaponSpec> weaponsFor(const GameObjectType& unit, const GameDatabas
             const GameObjectType* hp = db.find(items[i]);
             if (!hp) continue;
             if (auto w = weaponFrom(*hp, db)) out.push_back(*w);
+            else if (auto b = beamFrom(*hp)) out.push_back(*b);
         }
     }
     return out;

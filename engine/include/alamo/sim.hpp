@@ -508,7 +508,7 @@ private:
     void updateSuperweapons();
     uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
     std::vector<Unit> pendingObjects_;   // created during a tick, added after it
-    struct PendingSpawn { std::string type; int owner; Vec3 position; };
+    struct PendingSpawn { std::string type; int owner; Vec3 position; int lifeTicks = -1; };
     std::vector<PendingSpawn> pendingSpawns_;
     mutable std::unordered_map<const GameObjectType*, TypeAbilities> abilityCache_;
     // Category filter results per (type, filter string, kind); filters live in cached specs.

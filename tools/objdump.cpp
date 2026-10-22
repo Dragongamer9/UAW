@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
                         armor ? trim(*armor).c_str() : "-");
             for (const WeaponSpec& w : weaponsFor(*o, db)) {
                 std::printf("  %-34s via %-32s range %g-%g, %d x %d pellet(s), burst gap %d, recharge %d ticks\n",
-                            w.projectile->name.c_str(), w.source->name.c_str(), w.minRange, w.maxRange, w.pulseCount,
+                            w.projectile ? w.projectile->name.c_str() : "(beam)", w.source->name.c_str(), w.minRange, w.maxRange, w.pulseCount,
                             w.pellets, w.pulseDelayTicks, w.rechargeTicks);
                 std::printf("      %s: %g damage + %g blast (radius %g), speed %g, %.1f dps\n", w.damageType.c_str(), w.damage,
                             w.blastDamage, w.blastRange, w.projectileSpeed, w.damagePerSecond());
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 locks.abilities.insert(l.abilities.begin(), l.abilities.end());
                 locks.effects.insert(l.effects.begin(), l.effects.end());
             }
-            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct"};
+            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones"};
             if (argc > 3) {
                 const GameObjectType* o = db.find(argv[3]);
                 if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }

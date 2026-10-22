@@ -674,6 +674,11 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
         return target != 0;
     }
     if (s.kind == AbilitySpec::Kind::Switch) return true; // always possible; callers decide when
+    if (s.kind == AbilitySpec::Kind::SpawnClones) { // when there is something to fight nearby
+        for (const Unit& o : units_)
+            if (o.alive() && enemies(u.owner, o.owner) && distXY(u.position, o.position) <= 250) { target = u.id; return true; }
+        return false;
+    }
     if (s.kind == AbilitySpec::Kind::SelfDestruct) {
         const float r = std::max(s.selfDestructRadius, 10.f) + 20;
         for (const Unit& o : units_)
@@ -773,6 +778,15 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
     }
     if (s.kind == AbilitySpec::Kind::SelfDestruct) {
         selfDestruct(u, s, target);
+        return;
+    }
+    if (s.kind == AbilitySpec::Kind::SpawnClones) {
+        // Around the unit, created after this tick (spawning now would move the unit list).
+        for (int k = 0; k < s.cloneCount; ++k) {
+            const float a = u.facing + 1.5707963f + 3.14159265f * float(k) / float(std::max(1, s.cloneCount - 1));
+            const Vec3 p = nav_.nearestPassable({u.position[0] + std::cos(a) * (u.radius * 2 + 12), u.position[1] + std::sin(a) * (u.radius * 2 + 12), 0});
+            pendingSpawns_.push_back({s.cloneType, u.owner, p, toTicks(s.cloneLifetime)});
+        }
         return;
     }
     if (s.kind == AbilitySpec::Kind::Leap) {
@@ -981,7 +995,15 @@ void World::updateAbilities() {
     pendingObjects_.clear();
     std::vector<PendingSpawn> spawns;
     spawns.swap(pendingSpawns_);
-    for (const PendingSpawn& p : spawns) spawn(p.type, p.owner, p.position);
+    for (const PendingSpawn& p : spawns) {
+        spawn(p.type, p.owner, p.position);
+        if (p.lifeTicks > 0)
+            for (uint32_t id : std::vector<uint32_t>(lastSpawned_))
+                if (Unit* c = unit(id)) c->lifeTicks = p.lifeTicks;
+    }
+    // Timed units (clones): gone when their time is up.
+    for (Unit& u : units_)
+        if (u.lifeTicks > 0 && --u.lifeTicks == 0) u.health = 0;
 }
 
 } // namespace alamo

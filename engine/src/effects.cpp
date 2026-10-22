@@ -328,6 +328,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             if (const std::string* v = lookup(kv, "Check_Ammo_Full")) s.needsAmmoRoom = truthy(*v);
         } else if (iequals(r.kind, "Leap_Activation_Ability")) {
             s.kind = AbilitySpec::Kind::Leap;
+        } else if (iequals(r.kind, "Radiation_Weapon_Ability")) {
+            s.kind = AbilitySpec::Kind::Weapon;
         }
     };
 
@@ -375,6 +377,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         } else if (s.abilityType == "SELF_DESTRUCT") {
             s.kind = AbilitySpec::Kind::SelfDestruct;
             s.needsTarget = false;
+        } else if (s.abilityType == "SPAWN_CLONES") {
+            if (const std::string* v = type.find("Spawn_Clones_Type_To_Spawn"); v && db.find(trim(*v))) {
+                s.kind = AbilitySpec::Kind::SpawnClones;
+                s.cloneType = trim(*v);
+                s.cloneCount = std::max(1, int(num(type.find("Spawn_Clones_Number_Of_Clones"), 2)));
+                s.cloneLifetime = num(type.find("Spawn_Clones_Clone_Lifetime_Seconds"), 15);
+                s.needsTarget = false;
+            }
         }
         if (s.kind == AbilitySpec::Kind::Leap || s.kind == AbilitySpec::Kind::SelfDestruct) {
             auto leapField = [&](const char* leaf) { return type.find(leaf); };

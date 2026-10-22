@@ -394,6 +394,11 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
 * `Transfer` components drain health (`Target_Effect HealthDamage`). When the source effect is
   `AmmoUnits` the drain fills the user's `Energy_Ammo_Capacity`, and abilities with `Check_Ammo_Full`
   stop when it is full: Orlok's crush takes about five cartridges' worth, which his siege mode spends.
+* **Beam weapons** (`RadiationManagerBehaviorType`, the Corruptor and Defiler sweeps): a weapon with
+  no projectile; damage is `Radiation_Direct_Damage` per tick over the sweep, range is the beam
+  ability's `Activation_Max_Range`.
+* **Clones** (`SPAWN_CLONES`): `Spawn_Clones_Count` copies of `Spawn_Clones_Type` appear next to the
+  unit and vanish after `Spawn_Clones_Lifetime_Seconds`.
 
 ## Research
 

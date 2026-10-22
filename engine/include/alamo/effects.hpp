@@ -125,6 +125,8 @@ struct AbilitySpec {
         Switch,         // SWITCH_TYPE / Masari elemental mode: become another type
         Leap,           // LEAP: jump to a target or location (LeapBehaviorType)
         SelfDestruct,   // SELF_DESTRUCT: blow up, damaging what is around
+        Weapon,         // Radiation_Weapon_Ability: a beam, simulated as the unit's weapon (combat.cpp)
+        SpawnClones,    // SPAWN_CLONES: temporary copies appear around the unit (SpawnClonesBehaviorType)
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name
@@ -160,6 +162,10 @@ struct AbilitySpec {
     std::string aiCategories;
     bool aiNoAutofire = false;
     bool needsAmmoRoom = false;         // Check_Ammo_Full: only while the unit's ammo isn't full
+    // SpawnClones.
+    std::string cloneType;
+    int cloneCount = 0;
+    float cloneLifetime = 15;           // seconds
 };
 
 // Effect generators defined on an object type.
