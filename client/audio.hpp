@@ -94,6 +94,7 @@ private:
         const alamo::MusicEvent* event = nullptr;
     };
     std::unique_ptr<Music> music_, fading_;
+    const alamo::MusicEvent* requestedMusic_ = nullptr;
     void mixMusic(Music& m, float* out, int frames);
     static void closeMusic(Music& m);
 };

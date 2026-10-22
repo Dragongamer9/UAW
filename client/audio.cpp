@@ -100,7 +100,8 @@ void Audio::closeMusic(Music& m) {
 }
 
 void Audio::playMusic(const alamo::MusicEvent* e) {
-    if (music_ && e && music_->event == e) return;
+    if (e == requestedMusic_) return; // already playing it (or it can't be played)
+    requestedMusic_ = e;
     if (fading_) closeMusic(*fading_);
     fading_ = std::move(music_);
     if (fading_) fading_->fadeRate = 1.f / (2.f * kRate); // two seconds
