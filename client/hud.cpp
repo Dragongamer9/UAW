@@ -130,10 +130,7 @@ void Hud::drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, 
         float x, y;
         toMap(u.position[0], u.position[1], x, y);
         const bool player = u.owner >= 0 && w.player(u.owner) && w.player(u.owner)->faction != "Neutral";
-        const Vec4 col = u.owner == control.player() ? Vec4{0.3f, 0.65f, 1.f, 1}
-                         : w.enemies(control.player(), u.owner) && player ? Vec4{1.f, 0.3f, 0.25f, 1}
-                         : player ? Vec4{0.4f, 0.95f, 0.45f, 1} // allies
-                                  : Vec4{0.75f, 0.75f, 0.75f, 1};
+        const Vec4 col = player ? playerColor(u.owner) : Vec4{0.75f, 0.75f, 0.75f, 1}; // each player's own colour
         const float h = (u.structure ? 3.f : 1.6f) * s;
         quad(x - h, y - h, x + h, y + h, col);
     }

@@ -1,4 +1,5 @@
 #include "menu.hpp"
+#include "units.hpp"
 #include "hud.hpp"
 
 #include "alamo/sim.hpp"
@@ -55,8 +56,8 @@ std::string factionTitle(const std::string& f) {
     return f;
 }
 
-const Vec4 kSlotColors[8] = {{0.25f, 0.55f, 1, 1}, {1, 0.3f, 0.25f, 1}, {0.35f, 0.9f, 0.4f, 1}, {1, 0.85f, 0.25f, 1},
-                             {0.75f, 0.4f, 1, 1},  {0.3f, 0.9f, 0.9f, 1}, {1, 0.6f, 0.2f, 1},  {0.85f, 0.85f, 0.85f, 1}};
+// Start positions in their player's colour (player n plays from slot n).
+Vec4 slotColor(size_t k) { return playerColor(int(k)); }
 
 } // namespace
 
@@ -397,7 +398,7 @@ void SkirmishMenu::draw(Renderer& r) {
         for (size_t k = 0; k < m.starts.size() && k < 8; ++k) {
             const float sx = px + m.starts[k][0] / m.sizeX * pw, sy = py + (1 - m.starts[k][1] / m.sizeY) * ph;
             const bool used = k < setup_.slots.size() && setup_.slots[k].kind != PlayerSlot::Kind::Open;
-            const Vec4 c = used ? kSlotColors[k] : Vec4{0.4f, 0.4f, 0.4f, 1};
+            const Vec4 c = used ? slotColor(k) : Vec4{0.4f, 0.4f, 0.4f, 1};
             r.drawOverlayRect(sx - 11 * s, sy - 11 * s, sx + 11 * s, sy + 11 * s, {0, 0, 0, 0.7f});
             r.drawOverlayRect(sx - 9 * s, sy - 9 * s, sx + 9 * s, sy + 9 * s, c);
             const std::string n = std::to_string(k + 1);
@@ -427,7 +428,7 @@ void SkirmishMenu::draw(Renderer& r) {
         for (size_t k = 0; k < setup_.slots.size(); ++k) {
             const PlayerSlot& p = setup_.slots[k];
             const float bh = lh + 4 * s;
-            r.drawOverlayRect(c0, y + 4 * s, c0 + 14 * s, y + bh - 4 * s, kSlotColors[k]);
+            r.drawOverlayRect(c0, y + 4 * s, c0 + 14 * s, y + bh - 4 * s, slotColor(k));
             paint_.text("Position " + std::to_string(k + 1), c0 + 22 * s, y + 2 * s, kText);
             std::string kind = p.kind == PlayerSlot::Kind::Open ? "Open" : p.kind == PlayerSlot::Kind::Human ? "You" : "Computer";
             if (lobby != Lobby::None && p.kind == PlayerSlot::Kind::Human) {
