@@ -41,7 +41,11 @@ public:
     void setPassable(int x, int y, bool p) {
         if (x >= 0 && y >= 0 && x < int(w_) && y < int(h_)) pass_[size_t(y) * w_ + x] = p;
     }
-    void rebuild() { computeClearance(); }
+    void rebuild() { computeClearance(); computeRegions(); }
+    // Connected walkable area of a cell (0 = blocked); cells of different regions can't reach each other.
+    uint32_t region(int x, int y) const {
+        return (x >= 0 && y >= 0 && x < int(w_) && y < int(h_) && !region_.empty()) ? region_[size_t(y) * w_ + x] : 0;
+    }
     bool passableAt(float wx, float wy) const { return passable(cellX(wx), cellY(wy)); }
     int cellX(float wx) const { return int(std::lround(wx / spacing_)); }
     int cellY(float wy) const { return int(std::lround(wy / spacing_)); }
@@ -70,7 +74,14 @@ private:
     float spacing_ = 20;
     std::vector<uint8_t> pass_;
     std::vector<uint8_t> clear_;
+    std::vector<uint32_t> region_;
     void computeClearance();
+    void computeRegions();
+    // A* scratch, reused between searches (stamped instead of cleared).
+    mutable std::vector<float> g_;
+    mutable std::vector<int32_t> parent_;
+    mutable std::vector<uint32_t> stamp_;
+    mutable uint32_t generation_ = 0;
 };
 
 } // namespace alamo

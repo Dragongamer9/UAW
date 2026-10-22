@@ -22,6 +22,7 @@ NavGrid::NavGrid(const Map& map) : w_(map.width), h_(map.height), spacing_(map.s
             }
     }
     computeClearance();
+    computeRegions();
 }
 
 void NavGrid::computeClearance() {
@@ -47,6 +48,33 @@ void NavGrid::computeClearance() {
                 }
         }
         frontier.swap(next);
+    }
+}
+
+void NavGrid::computeRegions() {
+    // Flood fill with the same moves A* makes (8-connected, no corner cutting).
+    region_.assign(pass_.size(), 0);
+    uint32_t next = 0;
+    std::vector<uint32_t> stack;
+    static const int dxs[8] = {1, -1, 0, 0, 1, 1, -1, -1}, dys[8] = {0, 0, 1, -1, 1, -1, 1, -1};
+    for (size_t i0 = 0; i0 < pass_.size(); ++i0) {
+        if (!pass_[i0] || region_[i0]) continue;
+        region_[i0] = ++next;
+        stack.push_back(uint32_t(i0));
+        while (!stack.empty()) {
+            const uint32_t ci = stack.back();
+            stack.pop_back();
+            const int cx = int(ci % w_), cy = int(ci / w_);
+            for (int k = 0; k < 8; ++k) {
+                const int nx = cx + dxs[k], ny = cy + dys[k];
+                if (!passable(nx, ny)) continue;
+                if (k >= 4 && (!passable(cx + dxs[k], cy) || !passable(cx, cy + dys[k]))) continue;
+                const size_t ni = size_t(ny) * w_ + size_t(nx);
+                if (region_[ni]) continue;
+                region_[ni] = next;
+                stack.push_back(uint32_t(ni));
+            }
+        }
     }
 }
 
@@ -89,15 +117,43 @@ std::vector<Vec3> NavGrid::findPath(Vec3 from, Vec3 to, size_t maxExpanded) cons
     int sx = std::clamp(cellX(start[0]), 0, int(w_) - 1), sy = std::clamp(cellY(start[1]), 0, int(h_) - 1);
     int gx = std::clamp(cellX(to[0]), 0, int(w_) - 1), gy = std::clamp(cellY(to[1]), 0, int(h_) - 1);
     if (!passable(sx, sy)) return {};
+    if (!passable(gx, gy)) {
+        // A blocked goal (the middle of a building): aim for the nearest open cell instead, so the
+        // search ends there rather than combing the whole map for a way in.
+        const Vec3 open = nearestPassable(to, 12);
+        gx = std::clamp(cellX(open[0]), 0, int(w_) - 1);
+        gy = std::clamp(cellY(open[1]), 0, int(h_) - 1);
+    }
 
     const size_t n = size_t(w_) * h_;
-    std::vector<float> g(n, 1e30f);
-    std::vector<int32_t> parent(n, -1);
-    std::vector<uint8_t> closed(n, 0);
+    // A goal in another walkable area can't be reached: only look a little way toward it (the path
+    // then ends at the closest point found) instead of searching the whole map.
+    if (!region_.empty()) {
+        const Vec3 near = passable(gx, gy) ? Vec3{to[0], to[1], 0} : nearestPassable(to, 8);
+        const uint32_t ra = region(sx, sy), rb = region(cellX(near[0]), cellY(near[1]));
+        if (ra && rb && ra != rb) maxExpanded = std::min<size_t>(maxExpanded, 3000);
+    }
+    // Scratch arrays live on: a cell's g and parent count only when its stamp is this search's.
+    if (g_.size() != n) {
+        g_.assign(n, 1e30f);
+        parent_.assign(n, -1);
+        stamp_.assign(n, 0);
+        generation_ = 0;
+    }
+    generation_ += 2; // even: seen this search; +1: closed
+    if (generation_ >= 0xfffffff0u) {
+        std::fill(stamp_.begin(), stamp_.end(), 0u);
+        generation_ = 2;
+    }
+    const uint32_t seen = generation_, done = generation_ + 1;
+    auto gOf = [&](size_t i) { return stamp_[i] >= seen ? g_[i] : 1e30f; };
+    auto isClosed = [&](size_t i) { return stamp_[i] == done; };
     auto idx = [&](int x, int y) { return size_t(y) * w_ + size_t(x); };
     auto heur = [&](int x, int y) {
         const float dx = float(std::abs(x - gx)), dy = float(std::abs(y - gy));
-        return (dx + dy) + (1.41421356f - 2.f) * std::min(dx, dy); // octile
+        // Octile distance, weighted: a slightly longer path (string-pulled afterwards anyway) for far
+        // fewer cells searched on big maps.
+        return 1.5f * ((dx + dy) + (1.41421356f - 2.f) * std::min(dx, dy));
     };
     struct Node {
         float f;
@@ -106,7 +162,9 @@ std::vector<Vec3> NavGrid::findPath(Vec3 from, Vec3 to, size_t maxExpanded) cons
     };
     std::priority_queue<Node> open;
     const size_t s = idx(sx, sy);
-    g[s] = 0;
+    g_[s] = 0;
+    parent_[s] = -1;
+    stamp_[s] = seen;
     open.push({heur(sx, sy), int32_t(s)});
 
     size_t best = s;
@@ -117,8 +175,8 @@ std::vector<Vec3> NavGrid::findPath(Vec3 from, Vec3 to, size_t maxExpanded) cons
         const Node cur = open.top();
         open.pop();
         const size_t ci = size_t(cur.i);
-        if (closed[ci]) continue;
-        closed[ci] = 1;
+        if (isClosed(ci)) continue;
+        stamp_[ci] = done;
         ++expanded;
         const int cx = int(ci % w_), cy = int(ci / w_);
         const float h = heur(cx, cy);
@@ -130,14 +188,15 @@ std::vector<Vec3> NavGrid::findPath(Vec3 from, Vec3 to, size_t maxExpanded) cons
             // No corner cutting through blocked cells.
             if (k >= 4 && (!passable(cx + dxs[k], cy) || !passable(cx, cy + dys[k]))) continue;
             const size_t ni = idx(nx, ny);
-            if (closed[ni]) continue;
+            if (isClosed(ni)) continue;
             // Prefer a cell of space from walls so groups don't jam on corners.
             const int c = clearance(nx, ny);
             const float wallCost = c <= 1 ? 2.5f : c == 2 ? 0.6f : 0.f;
-            const float ng = g[ci] + (k >= 4 ? 1.41421356f : 1.f) + wallCost;
-            if (ng < g[ni]) {
-                g[ni] = ng;
-                parent[ni] = int32_t(ci);
+            const float ng = g_[ci] + (k >= 4 ? 1.41421356f : 1.f) + wallCost;
+            if (ng < gOf(ni)) {
+                g_[ni] = ng;
+                parent_[ni] = int32_t(ci);
+                stamp_[ni] = seen;
                 open.push({ng + heur(nx, ny), int32_t(ni)});
             }
         }
@@ -145,7 +204,7 @@ std::vector<Vec3> NavGrid::findPath(Vec3 from, Vec3 to, size_t maxExpanded) cons
 
     // Walk back from the goal (or the closest reachable cell).
     std::vector<Vec3> cells;
-    for (int32_t i = int32_t(best); i >= 0; i = parent[size_t(i)])
+    for (int32_t i = int32_t(best); i >= 0; i = parent_[size_t(i)])
         cells.push_back({float(size_t(i) % w_) * spacing_, float(size_t(i) / w_) * spacing_, 0});
     std::reverse(cells.begin(), cells.end());
     if (best == size_t(gx + gy * int(w_)) && passableAt(to[0], to[1])) cells.back() = {to[0], to[1], 0};

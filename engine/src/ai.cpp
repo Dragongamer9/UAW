@@ -1,6 +1,9 @@
 #include "alamo/ai.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -667,14 +670,37 @@ void SkirmishAI::manageReapers() {
 void SkirmishAI::update() {
     if (++tick_ % kThinkEvery != player_ % kThinkEvery) return; // stagger players
     if (defeated(w_, player_)) return;
+    static const double profile = std::getenv("UAW_PROFILE") ? std::atof(std::getenv("UAW_PROFILE")) : 0;
+    using Clock = std::chrono::steady_clock;
+    const char* names[8];
+    Clock::time_point marks[9];
+    int nm = 0;
+    auto mark = [&](const char* n) { if (profile > 0) { names[nm] = n; marks[nm++] = Clock::now(); } };
+    mark("construction");
     manageConstruction();
+    mark("production");
     manageProduction();
+    mark("reapers");
     manageReapers();
+    mark("abilities");
     manageAbilities();
     if (tick_ % (kThinkEvery * 4) < kThinkEvery) { // every 2 s
+        mark("army");
         manageArmy();
+        mark("research");
         manageResearch();
+        mark("superweapons");
         manageSuperweapons();
+    }
+    mark("end");
+    if (profile > 0) {
+        const double total = std::chrono::duration<double, std::milli>(marks[nm - 1] - marks[0]).count();
+        if (total > profile) {
+            std::fprintf(stderr, "ai %d at tick %llu: %.1f ms:", player_, (unsigned long long)w_.tickCount(), total);
+            for (int k = 0; k + 1 < nm; ++k)
+                std::fprintf(stderr, " %s %.1f", names[k], std::chrono::duration<double, std::milli>(marks[k + 1] - marks[k]).count());
+            std::fprintf(stderr, "\n");
+        }
     }
 }
 

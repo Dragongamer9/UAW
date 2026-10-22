@@ -3,7 +3,11 @@
 #include <algorithm>
 #include <unordered_map>
 #include <cctype>
+#include <chrono>
+#include <map>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace alamo {
@@ -641,6 +645,11 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
     }
     std::vector<bool> taken(slots.size(), false);
     std::sort(group.begin(), group.end(), [&](Unit* a, Unit* b) { return dist2d(a->position, target) < dist2d(b->position, target); });
+    // Big groups: units starting close together share one long path to the target (then a short one
+    // to their slot) instead of each searching the whole map.
+    const bool share = group.size() > 4;
+    std::map<std::pair<int, int>, std::vector<Vec3>> shared;
+    const std::vector<Vec3>* noPath = nullptr;
     for (Unit* u : group) {
         size_t best = 0;
         float bestD = 1e30f;
@@ -653,8 +662,24 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
         u->attackOrder = 0;
         u->attackMove = false;
         u->goal = slots[best];
-        u->path = planPath(*u, slots[best]);
         u->harvest = Unit::Harvest::None;
+        if (!share || u->flying()) {
+            u->path = planPath(*u, slots[best]);
+            continue;
+        }
+        const std::pair<int, int> key{int(std::floor(u->position[0] / 64)), int(std::floor(u->position[1] / 64))};
+        auto it = shared.find(key);
+        if (it == shared.end()) it = shared.emplace(key, nav_.findPath(u->position, target)).first;
+        if (it->second.empty()) { // no way there from here
+            u->path.clear();
+            (void)noPath;
+            continue;
+        }
+        u->path = it->second;
+        if (dist2d(target, slots[best]) > 1) {
+            std::vector<Vec3> tail = nav_.findPath(u->path.back(), slots[best]);
+            if (!tail.empty()) u->path.insert(u->path.end(), tail.begin(), tail.end());
+        }
     }
 }
 
@@ -708,11 +733,12 @@ void World::updateTargeting(Unit& u) {
         } else {
             u.target = t->id;
             if (edgeDistance(*t) > range * 0.9f) {
-                // Chase: re-plan now and then, or when the target has moved off the goal.
-                if (--u.repathTicks <= 0 || dist2d(u.goal, t->position) > range * 0.5f) {
+                // Chase: re-plan when the target has moved well off the goal (checked twice a second),
+                // or when the path has run out.
+                if (--u.repathTicks <= 0 && (u.path.empty() || dist2d(u.goal, t->position) > std::max(range * 0.5f, 40.f))) {
                     u.goal = t->position;
                     u.path = planPath(u, t->position);
-                    u.repathTicks = kTicksPerSecond;
+                    u.repathTicks = kTicksPerSecond / 2;
                 }
             } else {
                 u.path.clear();
@@ -1233,22 +1259,49 @@ void World::updateFog() {
 }
 
 void World::tick() {
+    // UAW_PROFILE=MS: print the phases of any tick slower than MS milliseconds.
+    static const double profile = std::getenv("UAW_PROFILE") ? std::atof(std::getenv("UAW_PROFILE")) : 0;
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point marks[16];
+    int nm = 0;
+    auto mark = [&]() { if (profile > 0 && nm < 16) marks[nm++] = Clock::now(); };
+    mark();
     if (navDirty_) rebuildNav();
+    mark();
     updateFog();
+    mark();
     for (size_t i = 0; i < units_.size(); ++i) updateConstruction(units_[i]);
     for (size_t i = 0; i < units_.size(); ++i) updateProduction(units_[i]); // may spawn (index loop on purpose)
+    mark();
     updateEconomy();
     updateResearch();
+    mark();
     updateAbilities();
+    mark();
     updateSuperweapons();
     for (Unit& u : units_) updateTargeting(u);
+    mark();
     for (Unit& u : units_) moveUnit(u);
+    mark();
     updateGarrisons();
     separate();
+    mark();
     for (Unit& u : units_) fireWeapons(u);
     updateProjectiles();
+    mark();
     removeDead();
+    mark();
     ++ticks_;
+    if (profile > 0) {
+        const double total = std::chrono::duration<double, std::milli>(marks[nm - 1] - marks[0]).count();
+        if (total > profile) {
+            static const char* names[] = {"nav", "fog", "build/produce", "economy", "abilities", "targeting", "move", "separate", "fire", "deaths"};
+            std::fprintf(stderr, "tick %llu: %.1f ms (%zu units):", (unsigned long long)ticks_, total, units_.size());
+            for (int k = 1; k < nm; ++k)
+                std::fprintf(stderr, " %s %.1f", names[k - 1], std::chrono::duration<double, std::milli>(marks[k] - marks[k - 1]).count());
+            std::fprintf(stderr, "\n");
+        }
+    }
 }
 
 void World::apply(const Command& c) {
