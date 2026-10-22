@@ -692,6 +692,12 @@ int main(int argc, char** argv) {
             renderer.endFrame();
             static const bool noParticles = std::getenv("UAW_NO_PARTICLES") != nullptr;
             if (!noParticles) effects.draw(renderer, view);
+            {
+                float mx = -1, my = -1;
+                if (!headless) SDL_GetMouseState(&mx, &my);
+                else if (const char* m = std::getenv("UAW_MOUSE")) std::sscanf(m, "%f,%f", &mx, &my); // pictures of tooltips
+                hud.setMouse(mx, my);
+            }
             hud.draw(renderer, world, control, db, text, padConnected, &view);
             if (ls && !ls->problem().empty()) hud.centreText(renderer, ls->problem());
             else if (ls && waitingSince && SDL_GetTicks() - waitingSince > 600) hud.centreText(renderer, "Waiting for the other players...");

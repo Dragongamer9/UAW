@@ -455,6 +455,51 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             textSmall(key + it.label + (it.upgrade ? " (upgrade)" : ""), x, yy, c);
             const std::string cost = fmt("%.0f", it.cost) + "  " + fmt("%.0fs", it.seconds);
             if (small_) textSmall(cost, x + colW - small_->width(cost) - 4 * s, yy, kDim);
+            // Tooltip for the item under the mouse: the game's description and what it is good
+            // against / weak to, in a box above the panel.
+            if (small_ && mouseX_ >= x - 4 * s && mouseX_ <= x + colW && mouseY_ >= yy && mouseY_ <= yy + lhs)
+                if (const alamo::GameObjectType* t = db.find(it.type)) {
+                    std::vector<std::string> lines;
+                    const float tw = std::min(560 * s, W - 2 * pad);
+                    auto wrap = [&](const std::string& textIn) {
+                        std::string line, word;
+                        auto flush = [&]() {
+                            if (word.empty()) return;
+                            const std::string trial = line.empty() ? word : line + " " + word;
+                            if (small_->width(trial) > tw - 16 * s && !line.empty()) { lines.push_back(line); line = word; }
+                            else line = trial;
+                            word.clear();
+                        };
+                        for (char ch : textIn) { if (ch == ' ' || ch == '\n') flush(); else word += ch; }
+                        flush();
+                        if (!line.empty()) lines.push_back(line);
+                    };
+                    auto lookup = [&](const char* field) -> std::string {
+                        const std::string* v = t->find(field);
+                        if (!v) return {};
+                        std::string out;
+                        std::string id;
+                        for (char ch : *v + " ") {
+                            if (ch == ' ' || ch == '\t' || ch == ',') {
+                                if (!id.empty()) {
+                                    if (const std::string* str = text.get(id)) out += (out.empty() ? "" : ", ") + *str;
+                                    id.clear();
+                                }
+                            } else {
+                                id += ch;
+                            }
+                        }
+                        return out;
+                    };
+                    lines.push_back(it.label);
+                    if (const std::string d = lookup("Tooltip_Description_Text_ID"); !d.empty()) wrap(d);
+                    if (const std::string g = lookup("Tooltip_Good_Against"); !g.empty()) wrap("Good against: " + g);
+                    if (const std::string v = lookup("Tooltip_Vulnerable_To"); !v.empty()) wrap("Vulnerable to: " + v);
+                    const float th = float(lines.size()) * lhs + 12 * s, tx = std::min(x, W - tw - pad), ty = y0 - th - 6 * s;
+                    r.drawOverlayRect(tx, ty, tx + tw, ty + th, {0.05f, 0.07f, 0.1f, 0.88f});
+                    r.drawOverlayRect(tx, ty, tx + tw, ty + 2 * s, kEdge);
+                    for (size_t k = 0; k < lines.size(); ++k) textSmall(lines[k], tx + 8 * s, ty + 6 * s + float(k) * lhs, k == 0 ? kText : kDim);
+                }
         }
 
         // Production queue / construction progress on the right.

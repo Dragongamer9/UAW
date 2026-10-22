@@ -27,6 +27,8 @@ public:
     // Pixel rectangle of menu item i from the last draw (for mouse clicks), or false.
     bool menuItemAt(float x, float y, int& index) const;
     bool hasFont() const { return font_ != nullptr; }
+    // Where the mouse is (pixels), for tooltips on the build menu.
+    void setMouse(float x, float y) { mouseX_ = x, mouseY_ = y; }
     // The last place you were attacked (false if never).
     bool lastAlert(alamo::Vec3& where) const {
         where = alertPos_;
@@ -40,6 +42,7 @@ public:
     bool researchAt(float x, float y, std::string& path, int& index) const;
 
 private:
+    float mouseX_ = -1, mouseY_ = -1;
     int idleBuilders_ = -1;
     std::unique_ptr<Font> font_, small_;
     float scale_;
