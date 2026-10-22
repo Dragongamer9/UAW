@@ -216,6 +216,50 @@ bool Hud::researchAt(float x, float y, std::string& path, int& index) const {
     return false;
 }
 
+void Hud::drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVertex>& small) {
+    if (!font_ || !small_) return;
+    static const char* kKeys[][2] = {
+        {"Pan / rotate / tilt", "WASD or arrows / Q E / R F, right-drag"},
+        {"Zoom", "mouse wheel, + -"},
+        {"Select", "left click or drag; Shift adds; double click: that type"},
+        {"All your units / army", "Tab / ,"},
+        {"Control groups", "Ctrl+0-9 stores, 0-9 selects (twice: go there)"},
+        {"Move / attack", "right click (Shift: queue a move)"},
+        {"Attack-move", "G then right click, or A + right click"},
+        {"Stop / camera to selection", "X / Space"},
+        {"Abilities", "F1-F8 (targeted: then right click)"},
+        {"Build menu", "1-9 or click; Backspace cancels last"},
+        {"Place structure / cancel", "left click / right click"},
+        {"Rally point", "structure selected: right click"},
+        {"Research", "T"},
+        {"Superweapon", "V then right click"},
+        {"Unload a transport", "U"},
+        {"Sell structures", "Delete twice"},
+        {"Next idle builder / base", ". / H"},
+        {"Last attack", "Home"},
+        {"Minimap", "click to look, right click to order"},
+        {"Game speed / pause", "[ ] / Pause"},
+        {"Quick save / load", "F5 / F9"},
+        {"Sound", "M"},
+        {"Menu", "Esc"},
+    };
+    const size_t n = sizeof kKeys / sizeof kKeys[0];
+    const float W = float(r.width()), H = float(r.height()), s = scale_, pad = 14 * s;
+    const float lh = font_->lineHeight(), lhs = small_->lineHeight();
+    const float colA = 230 * s, panelW = std::min(W - 2 * pad, colA + 420 * s + 2 * pad);
+    const float panelH = lh + 8 * s + float(n) * lhs + 2 * pad + lhs;
+    const float x0 = (W - panelW) / 2, y0 = std::max(pad, (H - panelH) / 2);
+    r.drawOverlayRect(x0, y0, x0 + panelW, y0 + panelH, {0.03f, 0.05f, 0.07f, 0.92f});
+    r.drawOverlayRect(x0, y0, x0 + panelW, y0 + 2 * s, kEdge);
+    font_->append(big, "Keys", x0 + pad, y0 + pad, kEdge);
+    float y = y0 + pad + lh + 8 * s;
+    for (size_t i = 0; i < n; ++i, y += lhs) {
+        small_->append(small, kKeys[i][0], x0 + pad, y, kDim);
+        small_->append(small, kKeys[i][1], x0 + pad + colA, y, kText);
+    }
+    small_->append(small, "F10 or Esc closes", x0 + pad, y, kDim);
+}
+
 void Hud::drawResearch(Renderer& r, alamo::World& w, const UnitControl& control, const alamo::StringTable& text,
                        std::vector<GpuVertex>& big, std::vector<GpuVertex>& small) {
     suiteRects_.clear();
@@ -336,6 +380,10 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         }
         if (idleBuilders_ > 0) textSmall(std::to_string(idleBuilders_) + (idleBuilders_ == 1 ? " idle builder (.)" : " idle builders (.)"),
                                          x + 24 * s, pad / 2 + 4 * s, kWarn);
+    }
+    if (w.seconds() < 45 && !helpOpen && small_) { // a hint for new players
+        const std::string hint = "F10: keys";
+        textSmall(hint, W - pad - small_->width(hint) - 90 * s, pad / 2 + 4 * s, kDim);
     }
     const int secs = int(w.seconds());
     char clock[32];
@@ -626,6 +674,12 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
 
     if (font_) r.drawOverlayTriangles(big, font_->texture());
     if (small_) r.drawOverlayTriangles(small, small_->texture());
+    if (helpOpen) {
+        std::vector<GpuVertex> hb, hs;
+        drawHelp(r, hb, hs);
+        if (font_) r.drawOverlayTriangles(hb, font_->texture());
+        if (small_) r.drawOverlayTriangles(hs, small_->texture());
+    }
     if (researchOpen) {
         // On top of everything else (its own pass so the panel covers the text below it).
         std::vector<GpuVertex> rb, rs;

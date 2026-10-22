@@ -159,6 +159,7 @@ squad, or another with `--player N`.
 | Toggle stand-in boxes | P | Y |
 | Game speed / pause | `[` `]` / Pause | |
 | Quick save / load | F5 / F9 (also in the Esc menu) | |
+| All the keys on one panel | F10 (or ?) | |
 | Menu (resume, restart, setup, exit) | Esc | Start or Back |
 
 Particle effects can be checked one at a time: `uaw-viewer "<game>" M16_Sahara --no-units --camera 2500,2500,200,0,35

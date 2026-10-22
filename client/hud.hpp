@@ -37,6 +37,9 @@ public:
     // A short line in a dark box near the top centre ("Paused", game speed).
     void centreText(Renderer& r, const std::string& text, bool small = false);
 
+    // The keys (F10, or ? ): every control on one panel.
+    bool helpOpen = false;
+
     // Research panel (T): the faction's tree, click a suite to start it.
     bool researchOpen = false;
     bool researchAt(float x, float y, std::string& path, int& index) const;
@@ -64,6 +67,7 @@ private:
     void drawResearch(Renderer& r, alamo::World& w, const UnitControl& control, const alamo::StringTable& text,
                       std::vector<GpuVertex>& big, std::vector<GpuVertex>& small);
     void drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, const View* view, float top);
+    void drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVertex>& small);
 };
 
 } // namespace uaw

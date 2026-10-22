@@ -689,6 +689,7 @@ int main(int argc, char** argv) {
         bool paused = false;
         if (!lineupMode) hud.setMap(renderer, map, vfs);
         hud.researchOpen = opt.research;
+        hud.helpOpen = std::getenv("UAW_SHOW_KEYS") != nullptr; // pictures of the key panel
         bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
@@ -917,6 +918,7 @@ int main(int argc, char** argv) {
                             if (control.placing()) control.cancelPlacement();
                             else if (control.abilityArmed()) control.cancelAbility();
                             else if (hud.researchOpen) hud.researchOpen = false;
+                            else if (hud.helpOpen) hud.helpOpen = false;
                             else pause.open = true;
                         } else if (e.key.key == SDLK_F5 && ls) {
                             control.say("Network games can't be saved", world.seconds());
@@ -993,6 +995,8 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
                         else if (e.key.key == SDLK_V) superweaponArmed = true; // next right click fires the selected superweapon
                         else if (e.key.key == SDLK_T) hud.researchOpen = !hud.researchOpen;
+                        else if (e.key.key == SDLK_F10 || e.key.key == SDLK_QUESTION || (e.key.key == SDLK_SLASH && shift))
+                            hud.helpOpen = !hud.helpOpen;
                         else if (e.key.key == SDLK_SPACE && !control.selection().empty()) {
                             float sx = 0, sy = 0;
                             for (uint32_t id : control.selection())
