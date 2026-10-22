@@ -352,7 +352,19 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
                 y += lhs;
             }
             if (!first->weapons.empty()) {
-                textSmall("Weapon range " + fmt("%.0f", first->maxRange()), pad, y, kDim);
+                // What it can shoot at: aircraft only, ground only, or both.
+                static const std::vector<std::string> air{"FLYING", "MEDIUM"}, ground{"MEDIUM"};
+                bool hitsAir = false, hitsGround = false;
+                for (const alamo::Unit::WeaponState& ws : first->weapons) {
+                    const std::string* r = ws.spec.restrictions;
+                    hitsAir = hitsAir || !r || !alamo::hasAnyCategory(air, *r);
+                    hitsGround = hitsGround || !r || !alamo::hasAnyCategory(ground, *r);
+                }
+                const char* targets = hitsAir && hitsGround ? "" : hitsAir ? ", aircraft only" : ", ground only";
+                std::string line = "Weapon range " + fmt("%.0f", first->maxRange()) + targets;
+                if (first->deployNeed > 0)
+                    line += first->deployed >= first->deployNeed ? ", deployed" : ", sets up when it stops";
+                textSmall(line, pad, y, kDim);
                 y += lhs;
             }
             if (const alamo::GarrisonSpec* g = w.garrisonOf(*first->type)) {
