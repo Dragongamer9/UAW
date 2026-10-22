@@ -27,6 +27,11 @@ public:
     // Pixel rectangle of menu item i from the last draw (for mouse clicks), or false.
     bool menuItemAt(float x, float y, int& index) const;
     bool hasFont() const { return font_ != nullptr; }
+    // The last place you were attacked (false if never).
+    bool lastAlert(alamo::Vec3& where) const {
+        where = alertPos_;
+        return hasAlert_;
+    }
     // A short line in a dark box near the top centre ("Paused", game speed).
     void centreText(Renderer& r, const std::string& text, bool small = false);
 
@@ -42,7 +47,11 @@ private:
     const alamo::Map* map_ = nullptr;
     GLuint minimapTex_ = 0;
     GLuint fogTex_ = 0;
-    bool sawPlayer_ = false; // the viewing player has had units (else no victory/defeat banner)
+    bool sawPlayer_ = false;
+    // "Under attack" alerts: when, where (a ping on the minimap; Home jumps there).
+    float alertTime_ = -100;
+    alamo::Vec3 alertPos_{};
+    bool hasAlert_ = false; // the viewing player has had units (else no victory/defeat banner)
     uint64_t fogVersion_ = ~0ull;
     Rect minimap_{0, 0, 0, 0}; // last drawn
     void banner(Renderer& r, const std::string& text, const alamo::Vec4& color);

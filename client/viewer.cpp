@@ -45,7 +45,7 @@
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera,
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
-//             U unloads selected transports (right click your transport to get in), Delete twice sells,
+//             Home jumps to the last attack alert, U unloads selected transports (right click your transport to get in), Delete twice sells,
 //             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
 //             selects every unit of that type on screen
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
@@ -807,6 +807,10 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_U) control.unload(world);
+                        else if (e.key.key == SDLK_HOME) {
+                            Vec3 where;
+                            if (hud.lastAlert(where)) { cam.x = where[0]; cam.y = where[1]; }
+                        }
                         else if (e.key.key == SDLK_DELETE) {
                             // Twice within two seconds, so a stray key press doesn't sell the base.
                             const uint64_t nowMs = SDL_GetTicks();

@@ -129,6 +129,17 @@ void Hud::drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, 
         const float h = (u.structure ? 3.f : 1.6f) * s;
         quad(x - h, y - h, x + h, y + h, col);
     }
+    // Alert ping: a ring shrinking on the place you were attacked, for four seconds.
+    if (const float age = w.seconds() - alertTime_; hasAlert_ && age >= 0 && age < 4) {
+        float x, y;
+        toMap(alertPos_[0], alertPos_[1], x, y);
+        const float rr = (4 - std::fmod(age, 1.f) * 3) * 3 * s, t = 1.2f * s;
+        const Vec4 col{1, 0.25f, 0.2f, 1 - age / 4};
+        quad(x - rr, y - rr, x + rr, y - rr + t, col);
+        quad(x - rr, y + rr - t, x + rr, y + rr, col);
+        quad(x - rr, y - rr, x - rr + t, y + rr, col);
+        quad(x + rr - t, y - rr, x + rr, y + rr, col);
+    }
     // The camera's view of the ground.
     if (view) {
         const float sx[4] = {0, float(view->width), float(view->width), 0}, sy[4] = {0, 0, float(view->height), float(view->height)};
@@ -275,6 +286,17 @@ bool Hud::menuItemAt(float x, float y, int& index) const {
 
 void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::GameDatabase& db,
                const alamo::StringTable& text, bool gamepad, const View* view) {
+    // Under attack? (your units or structures hurt this tick; at most one alert every 15 seconds)
+    if (w.seconds() - alertTime_ > 15)
+        for (const alamo::Unit& u : w.units())
+            if (u.owner == control.player() && u.damagedThisTick && !u.inside) {
+                alertTime_ = w.seconds();
+                alertPos_ = u.position;
+                hasAlert_ = true;
+                control.say(u.structure ? "Your base is under attack (Home to look)" : "Your units are under attack (Home to look)", w.seconds());
+                break;
+            }
+
     itemRects_.clear();
     const float W = float(r.width()), H = float(r.height()), s = scale_, pad = 10 * s;
     std::vector<GpuVertex> big, small;

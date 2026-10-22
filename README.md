@@ -143,6 +143,7 @@ squad, or another with `--player N`.
 | Stop / jump to selection | X / Space | |
 | Load into / unload a transport | right click your transport / U | |
 | Sell selected structures | Delete twice | |
+| Jump to the last attack | Home (an alert also pings the minimap) | |
 | Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
 | Place structure / cancel | left click / right click | A / B |
 | Cancel last queued item | Backspace | left stick click |
