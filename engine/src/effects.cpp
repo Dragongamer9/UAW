@@ -331,6 +331,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.kind = AbilitySpec::Kind::Leap;
         } else if (iequals(r.kind, "Radiation_Weapon_Ability")) {
             s.kind = AbilitySpec::Kind::Weapon;
+        } else if (iequals(r.kind, "Tackle_Ability")) {
+            // The Brute's charge: a low, fast dash at the target, which takes the hit on arrival.
+            s.kind = AbilitySpec::Kind::Leap;
+            s.needsTarget = true;
+            s.maxRange = num(lookup(kv, "Tackle_Charge_Distance"), 200);
+            s.leapHeight = 4;
+            s.landingDamage = num(lookup(kv, "Damage_Amount"), 0);
+            if (const std::string* v = lookup(kv, "Damage_Type")) s.landingDamageType = trim(*v);
         } else if (iequals(r.kind, "Spray_Projectiles_Ability")) {
             if (const std::string* v = lookup(kv, "Projectile_Type")) s.projectile = db.find(trim(*v));
             if (s.projectile) {
@@ -381,7 +389,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
                 s.autonomous = false; // a button: ordered
             }
         }
-        if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst)
+        const bool tackle = s.kind == AbilitySpec::Kind::Leap && s.landingDamage > 0;
+        if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst && !tackle)
             s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator)
                          ? AbilitySpec::Kind::Generator
                          : AbilitySpec::Kind::Unsupported;
@@ -412,7 +421,7 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             if (const std::string* v = leapField("On_Landing_Effect_Generator_Name")) s.landingGenerator = trim(*v);
             if (const std::string* v = leapField("Self_Destruct_On_Landing")) s.selfDestructOnLanding = truthy(*v);
             if (const std::string* v = leapField("Self_Destruct_Damage_Type")) s.selfDestructDamageType = trim(*v);
-            s.leapHeight = num(leapField("Leap_Max_Height"), 60);
+            if (s.landingDamage <= 0) s.leapHeight = num(leapField("Leap_Max_Height"), 60);
             s.selfDestructDamage = num(leapField("Damage_Applied_On_Self_Destruct"), 0);
             s.selfDestructRadius = num(leapField("Radius_Affected_By_Self_Destruction"), 0);
             if (s.kind == AbilitySpec::Kind::Leap && s.maxRange <= 0) s.maxRange = 150;
@@ -427,6 +436,10 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         // An ATTACK_SUBSTITUTE that recharges like a weapon is an alternate fire mode (it replaces
         // the normal weapon while toggled on), not an extra attack.
         if (s.abilityType == "ATTACK_SUBSTITUTE" && s.rechargeTicks < 5 * 30) s.kind = AbilitySpec::Kind::Unsupported;
+        // Handled by other systems, or only meaningful in the campaign / global conquest.
+        if (s.kind == AbilitySpec::Kind::Unsupported &&
+            (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability")))
+            s.kind = AbilitySpec::Kind::Elsewhere;
         out.push_back(std::move(s));
     }
     for (const std::string& key : rawOrder) {

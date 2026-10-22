@@ -132,6 +132,7 @@ struct AbilitySpec {
         Weapon,         // Radiation_Weapon_Ability: a beam, simulated as the unit's weapon (combat.cpp)
         SpawnClones,    // SPAWN_CLONES: temporary copies appear around the unit (SpawnClonesBehaviorType)
         Burst,          // point-blank area attack over time: projectile sprays, the Dervish spin
+        Elsewhere,      // done by another system (construction) or campaign-only (retreat, hostile territory)
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name
@@ -160,6 +161,8 @@ struct AbilitySpec {
     float leapHeight = 60;              // Leap_Max_Height
     float selfDestructDamage = 0;       // Damage_Applied_On_Self_Destruct
     float selfDestructRadius = 0;       // Radius_Affected_By_Self_Destruction
+    float landingDamage = 0;            // Tackle_Ability: damage to the target when the charge lands
+    std::string landingDamageType;
     std::string selfDestructDamageType;
     // AI hints (Unit_Ability_AI_*).
     float aiRange = 0;

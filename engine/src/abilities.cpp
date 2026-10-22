@@ -943,6 +943,9 @@ void World::updateLeap(Unit& u) {
                 for (const GeneratorEntry& e : ta.generators[gi].entries) life = std::max(life, toTicks(e.baseDelay) + 2);
                 activateGenerator(u, gi, u.leapTarget, u.position, life);
             }
+    if (s->landingDamage > 0)
+        if (Unit* t = unit(u.leapTarget); t && t->alive() && distXY(t->position, u.position) <= t->radius + u.radius + 30)
+            applyDamage(*t, s->landingDamage * u.damageCast, s->landingDamageType);
     if (s->selfDestructOnLanding) selfDestruct(u, *s, u.leapTarget);
 }
 
