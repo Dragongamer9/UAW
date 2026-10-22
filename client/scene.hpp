@@ -29,7 +29,8 @@ public:
     // editor group or in no group (campaign mission groups are left out).
     Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, bool includeAllGroups);
 
-    void draw(Renderer& r, bool showPlaceholders) const;
+    // Placeholders: boxes for objects without a model; starts: the start-position markers.
+    void draw(Renderer& r, bool showPlaceholders, bool showStarts = true) const;
     void drawSky(Renderer& r) const { if (sky_) r.drawSky(*sky_); }
     void useEnvironmentSky(Renderer& r, const alamo::GameDatabase& db);
 

@@ -779,7 +779,8 @@ int main(int argc, char** argv) {
                                  {0.36f, 0.38f, 0.36f, 1});
             else {
                 scene.drawSky(renderer);
-                scene.draw(renderer, placeholders);
+                // Start markers only while browsing a map: in a game the bases stand there.
+                scene.draw(renderer, placeholders, placeholders && world.units().empty());
             }
             control.draw(renderer, world, world.seconds());
             if (!lineupMode) renderer.drawWater();

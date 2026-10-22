@@ -874,7 +874,8 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                 }
             }
         }
-        if (sel || u.health < u.maxHealth) {
+        // (A hair under full counts as full: construction and repair leave rounding behind.)
+        if (sel || u.health < u.maxHealth * 0.99f) {
             // Health bar above selected or damaged units.
             const float frac = std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f);
             const float barW = std::min(std::max(rad * 2.5f, 14.f), 110.f);

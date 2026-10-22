@@ -85,11 +85,11 @@ void Scene::useEnvironmentSky(Renderer& r, const alamo::GameDatabase& db) {
         if (const std::string* m = t->find("Land_Model_Name"); m && !alamo::trim(*m).empty()) sky_ = r.model(alamo::trim(*m));
 }
 
-void Scene::draw(Renderer& r, bool showPlaceholders) const {
+void Scene::draw(Renderer& r, bool showPlaceholders, bool showStarts) const {
     r.drawTerrain();
     for (const SceneObject& o : objects_) {
         if (o.kind == SceneObject::Kind::Start) {
-            r.drawBox(o.transform, o.color);
+            if (showStarts) r.drawBox(o.transform, o.color);
             continue;
         }
         if (o.model) {

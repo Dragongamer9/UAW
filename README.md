@@ -250,6 +250,7 @@ objdump "<game>" field Max_Garrison_Capacity   # every object with that field, a
 objdump "<game>" abilities Alien_Defiler   # its abilities, generators, effects and components
 objdump "<game>" research Alien       # the research tree: suites, costs, times, what they unlock
 objdump "<game>" scripts              # the Lua scripts: do they load, and the engine API they call
+objdump "<game>" scripts run Library  # run scripts (and what they `require`) without the engine API
 objdump "<game>" warnings
 ```
 
@@ -257,7 +258,8 @@ objdump "<game>" warnings
 all load) and lists what a scripting host would have to provide: 623 engine globals (`Find_Player`,
 `Create_Thread`, `GetCurrentTime`, ...) and 1,743 method names (`Set_Hidden`, `Get_Owner`,
 `Register_Event_Handler`, ...), each with the number of scripts using it. Of Lua's own library
-only `require` (the host's job) is missing from the VM.
+only `require` is missing from the VM itself; `ScriptLibrary` (engine/include/alamo/scripts.hpp)
+provides it from the game's script folders, and all 426 scripts run their top level that way.
 
 Object fields are flattened to paths, e.g.
 `BehaviorType[ProductionBehaviorType].Build_Cost_Credits`. Variants copy

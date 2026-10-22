@@ -40,6 +40,7 @@ add_library(alamo
     engine/src/luavm.cpp
     engine/src/luacompile.cpp
     engine/src/lualib.cpp
+    engine/src/scripts.cpp
     engine/src/research.cpp
     engine/src/ai.cpp
   engine/src/combat.cpp

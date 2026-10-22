@@ -8,6 +8,7 @@
 //   objdump <game-root> research [faction]    research trees (run from the compiled tree scripts)
 //   objdump <game-root> scripts [all]      the game's Lua scripts: how many load, and the engine API
 //                                           they call (globals and methods no script defines)
+//   objdump <game-root> scripts run NAME... run scripts (and what they require) with no engine API
 //   objdump <game-root> warnings
 // <game-root> is the folder containing Data/MegaFiles.xml.
 #include "common.hpp"
@@ -16,6 +17,7 @@
 #include "alamo/research.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/luavm.hpp"
+#include "alamo/scripts.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -140,6 +142,28 @@ int main(int argc, char** argv) {
     try {
         MegVfs vfs;
         auto missing = tools::mountWithMods(vfs, argv[1], modArg);
+        if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "run") {
+            ScriptLibrary lib(vfs);
+            int bad = 0;
+            std::vector<std::string> names(argv + 4, argv + argc);
+            if (names.size() == 1 && names[0] == "Library") { // every library script
+                names.clear();
+                for (const auto& [n, path] : lib.scripts())
+                    if (path.find("LIBRARY") != std::string::npos || path.find("Library") != std::string::npos) names.push_back(n);
+            }
+            for (const std::string& n : names) {
+                LuaVM vm;
+                lib.install(vm);
+                std::string err;
+                const bool ok = lib.load(vm, n, &err);
+                size_t functions = 0;
+                for (const auto& [k, v] : vm.globals().fields) functions += v.type == LuaValue::Type::Function;
+                std::printf("%-36s %s, %zu global functions%s%s\n", n.c_str(), ok ? "ran" : "FAILED", functions,
+                            err.empty() ? "" : ": ", err.c_str());
+                bad += !ok;
+            }
+            return bad ? 1 : 0;
+        }
         if (cmd == "scripts") return scriptApi(vfs, argc > 3 && std::string(argv[3]) == "all");
         GameDatabase db;
         db.load(vfs);
