@@ -854,10 +854,21 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             const float s = rad * 2.6f + 4, t = std::max(1.2f, s * 0.04f), z = u.position[2] + 0.6f;
             const Vec4 green{0.3f, 1.f, 0.4f, 1};
             const float cx = u.position[0], cy = u.position[1], h = s / 2;
-            r.drawBox(Mat4::translate(cx, cy + h, z) * Mat4::scale3(s, t, 0.6f), green);
-            r.drawBox(Mat4::translate(cx, cy - h, z) * Mat4::scale3(s, t, 0.6f), green);
-            r.drawBox(Mat4::translate(cx + h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
-            r.drawBox(Mat4::translate(cx - h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
+            if (u.structure) { // structures: a square around the footprint
+                r.drawBox(Mat4::translate(cx, cy + h, z) * Mat4::scale3(s, t, 0.6f), green);
+                r.drawBox(Mat4::translate(cx, cy - h, z) * Mat4::scale3(s, t, 0.6f), green);
+                r.drawBox(Mat4::translate(cx + h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
+                r.drawBox(Mat4::translate(cx - h, cy, z) * Mat4::scale3(t, s, 0.6f), green);
+            } else { // units: a ring
+                const int n = h > 40 ? 24 : 16;
+                const float seg = 2 * 3.14159265f * h / float(n) * 1.08f;
+                for (int k = 0; k < n; ++k) {
+                    const float a = 2 * 3.14159265f * (float(k) + 0.5f) / float(n);
+                    r.drawBox(Mat4::translate(cx + std::cos(a) * h, cy + std::sin(a) * h, z) * Mat4::rotateZ(a + 1.5707963f) *
+                                  Mat4::scale3(seg, t, 0.6f),
+                              green);
+                }
+            }
         }
         if (sel || u.health < u.maxHealth) {
             // Health bar above selected or damaged units.
