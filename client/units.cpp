@@ -796,11 +796,19 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                 // Muzzle flashes ("..._flash" proxies) once per shot, where the (posed) barrel is.
                 const bool shot = u.firedThisTick && flashTick_[u.id] != w.tickCount();
                 if (shot) flashTick_[u.id] = w.tickCount();
+                // A mode switch (the unit became another type in place): its light / dark flash.
+                int switched = 0;
+                if (auto [lt, fresh] = lastType_.try_emplace(u.id, u.type); !fresh && lt->second != u.type) {
+                    lt->second = u.type;
+                    std::string up = u.type->name;
+                    for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                    switched = up.find("FIRE") != std::string::npos ? 1 : up.find("ICE") != std::string::npos ? 2 : 0;
+                }
                 if (dx * dx + dy * dy < 2200.f * 2200.f)
                     for (size_t k = 0; k < model->proxies.size() && k < 32; ++k) {
                         const GpuModel::Proxy& px = model->proxies[k];
-                        if (px.muzzle) {
-                            if (!shot) continue;
+                        if (px.muzzle || (px.modeFlash && px.modeFlash == switched)) {
+                            if (px.muzzle && !shot) continue;
                             alamo::Vec3 p = px.position;
                             if (pose && px.bone < pose->size()) p = alamo::transformPoint((*pose)[px.bone], p);
                             const alamo::Vec3 wp{xf.at(0, 0) * p[0] + xf.at(0, 1) * p[1] + xf.at(0, 2) * p[2] + xf.at(0, 3),
@@ -809,6 +817,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                             effects->spawn(px.name, wp, scale);
                             continue;
                         }
+                        if (px.modeFlash) continue;
                         if (px.hidden || (px.alt >= 0 && px.alt != alt)) continue; // fires of a damage state only then
                         const alamo::Vec3& p = px.position;
                         const alamo::Vec3 wp{xf.at(0, 0) * p[0] + xf.at(0, 1) * p[1] + xf.at(0, 2) * p[2] + xf.at(0, 3),

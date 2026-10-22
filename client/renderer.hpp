@@ -65,6 +65,7 @@ struct GpuModel {
         int alt = -1;         // shown only at that damage state
         bool muzzle = false;  // a weapon's flash: played each time the unit fires
         uint32_t bone = 0;
+        int modeFlash = 0;    // Masari: 1 played on turning to light (fire), 2 to dark (ice)
     };
     std::vector<Proxy> proxies;
     alamo::Vec3 boundsMin{}, boundsMax{};

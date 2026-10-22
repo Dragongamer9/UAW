@@ -579,7 +579,8 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                                    up.find("BLACK_FLASH") != std::string::npos;
             gm->proxies.push_back({px.name, alamo::transformPoint(bw, {0, 0, 0}),
                                    oneShot || px.hidden || (px.bone < m.bones.size() && !m.bones[px.bone].visible), alt,
-                                   oneShot && !modeFlash, px.bone});
+                                   oneShot && !modeFlash, px.bone,
+                                   up.find("LIGHT_FLASH") != std::string::npos ? 1 : modeFlash ? 2 : 0});
         }
         gm->skeleton.bones = m.bones;
         gm->restInverse.reserve(m.bones.size());
