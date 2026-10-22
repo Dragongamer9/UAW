@@ -41,6 +41,8 @@ public:
 
     // The keys (F10, or ? ): every control on one panel.
     bool helpOpen = false;
+    // Watching (spectating or a replay): every player's credits and forces under the top bar.
+    bool spectator = false;
 
     // Research panel (T): the faction's tree, click a suite to start it.
     bool researchOpen = false;

@@ -400,6 +400,25 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
     std::snprintf(clock, sizeof clock, "%d:%02d", secs / 60, secs % 60);
     if (font_) textBig(clock, W - pad - font_->width(clock), pad / 2, kDim);
     drawMinimap(r, w, control, view, lh + pad);
+    if (spectator && small_) {
+        float y = lh + pad + 4 * s;
+        int rows = 0;
+        for (int p = 0; p < 8 && w.player(p); ++p) rows += w.player(p)->faction != "Neutral";
+        r.drawOverlayRect(pad / 2, y - 2 * s, pad + 300 * s, y + float(rows) * lhs + 4 * s, {0.03f, 0.05f, 0.07f, 0.75f});
+        for (int p = 0; p < 8 && w.player(p); ++p) {
+            const alamo::Player& pl = *w.player(p);
+            if (pl.faction == "Neutral") continue;
+            int units = 0, structures = 0;
+            for (const alamo::Unit& u : w.units())
+                if (u.owner == p) (u.structure ? structures : units)++;
+            const bool out = alamo::defeated(w, p);
+            r.drawOverlayRect(pad, y + 3 * s, pad + 10 * s, y + lhs - 3 * s, playerColor(p));
+            textSmall(pl.faction + (out ? "  (out)" : ""), pad + 16 * s, y, out ? kDim : kText);
+            textSmall(fmt("%.0f", pl.credits) + " credits   " + std::to_string(units) + " units   " + std::to_string(structures) + " structures",
+                      pad + 110 * s, y, kDim);
+            y += lhs;
+        }
+    }
 
     // --- bottom panel: selection and build menu
     const auto& sel = control.selection();

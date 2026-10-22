@@ -733,6 +733,7 @@ int main(int argc, char** argv) {
         bool paused = false;
         if (!lineupMode) hud.setMap(renderer, map, vfs);
         hud.researchOpen = opt.research;
+        hud.spectator = opt.spectate || replaying;
         hud.helpOpen = std::getenv("UAW_SHOW_KEYS") != nullptr; // pictures of the key panel
         bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
