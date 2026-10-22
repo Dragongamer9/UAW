@@ -540,7 +540,21 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             qy += lh;
             for (size_t i = 0; i < owner->queue.size() && qy + lhs < H - pad; ++i) {
                 const alamo::GameObjectType* t = owner->queue[i];
-                textSmall(text.displayName(*t), qx, qy, i == 0 ? kText : kDim);
+                float tx = qx;
+                if (const std::string* icon = t->find("Icon_Name"); icon && !alamo::trim(*icon).empty())
+                    if (const GLuint tex = r.textureNamed(alamo::trim(*icon))) {
+                        const float sz = lhs - 4 * s, iy = qy + 1 * s;
+                        auto v = [&](float px, float py, float u, float vv) {
+                            GpuVertex g{};
+                            g.px = px, g.py = py, g.u = u, g.v = vv, g.r = g.g = g.b = g.a = 1;
+                            return g;
+                        };
+                        r.drawOverlayTriangles({v(qx, iy, 0, 0), v(qx + sz, iy, 1, 0), v(qx + sz, iy + sz, 1, 1), v(qx, iy, 0, 0),
+                                                v(qx + sz, iy + sz, 1, 1), v(qx, iy + sz, 0, 1)},
+                                               tex);
+                        tx = qx + sz + 4 * s;
+                    }
+                textSmall(text.displayName(*t), tx, qy, i == 0 ? kText : kDim);
                 if (i == 0) {
                     const float total = float(alamo::buildInfo(*t, db).ticks);
                     const float f = std::clamp(float(owner->queueTicks) / std::max(total, 1.f), 0.f, 1.f);
