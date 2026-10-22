@@ -81,5 +81,3 @@ before the Remix Material Center's units (Hailfire, Armored Assault Tank, Provid
   method names. The VM side is done (metatables, coroutines, a source compiler, the standard library
   but `require`).
 - The campaign (story maps, Global Conquest).
-- GitHub Actions stopped running on 2026-10-22 (the account's billing / spending limit); builds resume
-  once that is sorted.
