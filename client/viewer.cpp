@@ -777,7 +777,23 @@ int main(int argc, char** argv) {
         pause.musicOn = audio && audio->musicVolume > 0;
         pause.fullGraphics = renderer.detail();
         bool paused = false;
+        pause.describeSlots = [] {
+            std::vector<std::string> out;
+            for (int i = 0; i < PauseMenu::kSlots; ++i) out.push_back(describeSave(slotPath(i)));
+            return out;
+        };
         if (!lineupMode) hud.setMap(renderer, map, vfs);
+        if (const char* page = std::getenv("UAW_TEST_PAUSE_PAGE")) { // screenshot test: the Save (1) or Load (2) page
+            pause.open = true;
+            SDL_Event e{};
+            e.type = SDL_EVENT_KEY_DOWN;
+            for (int i = 0; i < std::atoi(page); ++i) {
+                e.key.key = SDLK_DOWN;
+                pause.handle(e);
+            }
+            e.key.key = SDLK_RETURN;
+            pause.handle(e);
+        }
         hud.researchOpen = opt.research;
         hud.spectator = opt.spectate || replaying;
         hud.helpOpen = std::getenv("UAW_SHOW_KEYS") != nullptr; // pictures of the key panel
@@ -1019,16 +1035,18 @@ int main(int argc, char** argv) {
                         case PauseMenu::Result::ToMenu: end = End::ToMenu; running = false; break;
                         case PauseMenu::Result::Quit: end = End::Quit; running = false; break;
                         case PauseMenu::Result::Save:
-                            control.say(saveTo(saveFolder() + "quicksave.uawsave") ? "Game saved" : "Could not save the game", world.seconds());
+                        case PauseMenu::Result::SaveSlot:
+                            control.say(saveTo(slotPath(pause.slot)) ? "Game saved" : "Could not save the game", world.seconds());
                             pause.open = false;
                             break;
                         case PauseMenu::Result::Load:
+                        case PauseMenu::Result::LoadSlot:
                             if (ls) {
                                 control.say("Loading would leave the network game", world.seconds());
                                 pause.open = false;
                                 break;
                             }
-                            loadPath = saveFolder() + "quicksave.uawsave";
+                            loadPath = slotPath(pause.slot);
                             opt.replay = false;
                             end = End::Load;
                             running = false;
@@ -1468,7 +1486,7 @@ int main(int argc, char** argv) {
                 }
                 if (menu->empty()) throw std::runtime_error("no skirmish maps found");
                 bool done = false, quit = false, loadGame = false;
-                menu->quickSave = saveFolder() + "quicksave.uawsave";
+                menu->quickSave = newestSave(); // the most recent of the save slots
                 // LAN games: host or join (from the command line, or the buttons on the screen).
                 auto startHost = [&]() {
                     std::string err;

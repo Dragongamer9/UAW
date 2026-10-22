@@ -488,7 +488,7 @@ void SkirmishMenu::draw(Renderer& r) {
     if (lobby == Lobby::None && !quickSave.empty() && std::ifstream(quickSave).good()) {
         // In the info column, under the game options.
         const float x2 = W - pad - bw * 1.2f, y2 = 300 * s + 3 * (bh + 8 * s) + 16 * s;
-        paint_.button(r, kLoad, "Load saved game", x2, y2, W - pad, y2 + bh, false, mouseX_, mouseY_);
+        paint_.button(r, kLoad, "Load latest save", x2, y2, W - pad, y2 + bh, false, mouseX_, mouseY_);
         paint_.button(r, kReplay, "Watch it as a replay", x2, y2 + bh + 8 * s, W - pad, y2 + bh * 2 + 8 * s, false, mouseX_, mouseY_);
     }
     {
@@ -514,24 +514,49 @@ void SkirmishMenu::draw(Renderer& r) {
 // ---------------------------------------------------------------- pause menu
 
 namespace {
-const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Sound", "Music", "Graphics", "Keys (F10)", "Restart", "Quit to setup", "Exit game"};
-constexpr int kPauseCount = 10;
+const char* kPauseItems[] = {"Resume", "Save game", "Load game", "Sound", "Music", "Graphics", "Keys (F10)", "Restart", "Quit to setup", "Exit game"};
+}
+
+PauseMenu::Result PauseMenu::pick(int id) {
+    if (page_ != Page::Main) {
+        if (id >= kSlots) { // Back
+            page_ = Page::Main;
+            highlight_ = 0;
+            return Result::None;
+        }
+        if (page_ == Page::Load && (id >= int(slotText_.size()) || slotText_[size_t(id)].empty())) return Result::None; // empty
+        slot = id;
+        const Result r = page_ == Page::Save ? Result::SaveSlot : Result::LoadSlot;
+        page_ = Page::Main;
+        return r;
+    }
+    switch (id) {
+    case 0: return Result::Resume;
+    case 1:
+    case 2:
+        page_ = id == 1 ? Page::Save : Page::Load;
+        slotText_ = describeSlots ? describeSlots() : std::vector<std::string>{};
+        slotText_.resize(kSlots);
+        highlight_ = 0;
+        return Result::None;
+    case 3: return Result::Sound;
+    case 4: return Result::Music;
+    case 5: return Result::Graphics;
+    case 6: return Result::Keys;
+    case 7: return Result::Restart;
+    case 8: return Result::ToMenu;
+    default: return Result::Quit;
+    }
 }
 
 PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
-    auto result = [](int i) {
-        switch (i) {
-        case 0: return Result::Resume;
-        case 1: return Result::Save;
-        case 2: return Result::Load;
-        case 3: return Result::Sound;
-        case 4: return Result::Music;
-        case 5: return Result::Graphics;
-        case 6: return Result::Keys;
-        case 7: return Result::Restart;
-        case 8: return Result::ToMenu;
-        default: return Result::Quit;
-        }
+    if (!open) page_ = Page::Main;
+    const int n = count();
+    auto back = [&]() {
+        if (page_ == Page::Main) return Result::Resume;
+        page_ = Page::Main;
+        highlight_ = 0;
+        return Result::None;
     };
     switch (e.type) {
     case SDL_EVENT_MOUSE_MOTION:
@@ -540,19 +565,21 @@ PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (e.button.button == SDL_BUTTON_LEFT)
-            if (const int id = paint_.buttonAt(e.button.x, e.button.y); id >= 0) return result(id);
+            if (const int id = paint_.buttonAt(e.button.x, e.button.y); id >= 0) return pick(id);
+        if (e.button.button == SDL_BUTTON_RIGHT) return back();
         break;
     case SDL_EVENT_KEY_DOWN:
-        if (e.key.key == SDLK_ESCAPE) return Result::Resume;
-        if (e.key.key == SDLK_DOWN) highlight_ = (highlight_ + 1) % kPauseCount;
-        if (e.key.key == SDLK_UP) highlight_ = (highlight_ + kPauseCount - 1) % kPauseCount;
-        if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) return result(highlight_);
+        if (e.key.key == SDLK_ESCAPE) return back();
+        if (e.key.key == SDLK_DOWN) highlight_ = (highlight_ + 1) % n;
+        if (e.key.key == SDLK_UP) highlight_ = (highlight_ + n - 1) % n;
+        if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) return pick(highlight_);
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START || e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) return Result::Resume;
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) highlight_ = (highlight_ + 1) % kPauseCount;
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) highlight_ = (highlight_ + kPauseCount - 1) % kPauseCount;
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) return result(highlight_);
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) return Result::Resume;
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) return back();
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) highlight_ = (highlight_ + 1) % n;
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) highlight_ = (highlight_ + n - 1) % n;
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) return pick(highlight_);
         break;
     default: break;
     }
@@ -564,12 +591,20 @@ void PauseMenu::draw(Renderer& r) {
     const float lh = paint_.lineHeight();
     paint_.begin();
     r.drawOverlayRect(0, 0, W, H, {0, 0, 0, 0.55f});
-    const float bw = 300 * s, bh = lh + 18 * s, gap = 12 * s;
-    const float x0 = W / 2 - bw / 2, y0 = H / 2 - (kPauseCount * bh + (kPauseCount - 1) * gap) / 2;
-    r.drawOverlayRect(x0 - 24 * s, y0 - lh - 40 * s, x0 + bw + 24 * s, y0 + kPauseCount * bh + (kPauseCount - 1) * gap + 24 * s, kPanel);
-    paint_.text("Paused", W / 2 - paint_.textWidth("Paused") / 2, y0 - lh - 24 * s, kHot);
-    for (int i = 0; i < kPauseCount; ++i) {
+    const int n = count();
+    const float bw = (page_ == Page::Main ? 300 : 560) * s, bh = lh + 18 * s, gap = 12 * s;
+    const float x0 = W / 2 - bw / 2, y0 = H / 2 - (float(n) * bh + float(n - 1) * gap) / 2;
+    r.drawOverlayRect(x0 - 24 * s, y0 - lh - 40 * s, x0 + bw + 24 * s, y0 + float(n) * bh + float(n - 1) * gap + 24 * s, kPanel);
+    const char* title = page_ == Page::Save ? "Save game" : page_ == Page::Load ? "Load game" : "Paused";
+    paint_.text(title, W / 2 - paint_.textWidth(title) / 2, y0 - lh - 24 * s, kHot);
+    for (int i = 0; i < n; ++i) {
         const float y = y0 + float(i) * (bh + gap);
+        if (page_ != Page::Main) {
+            std::string label = i >= kSlots ? "Back" : (i == 0 ? "Quick save: " : "Slot " + std::to_string(i) + ": ");
+            if (i < kSlots) label += slotText_[size_t(i)].empty() ? "empty" : slotText_[size_t(i)];
+            if (paint_.button(r, i, label, x0, y, x0 + bw, y + bh, i == highlight_, mouseX_, mouseY_)) highlight_ = i;
+            continue;
+        }
         std::string label = kPauseItems[i];
         if (i == 3) label = soundOn ? "Sound: on" : "Sound: off";
         if (i == 4) label = musicOn ? "Music: on" : "Music: off";

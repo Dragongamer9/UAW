@@ -1,5 +1,9 @@
 #include "savegame.hpp"
 
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <filesystem>
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -212,6 +216,40 @@ bool readSave(const std::string& path, SaveGame& s, std::string* error) {
     if (!ended) return fail("the file is cut short");
     if (s.setup.map.empty() || s.setup.slots.size() < 2) return fail("no map or players");
     return true;
+}
+
+std::string slotPath(int slot) {
+    return saveFolder() + (slot <= 0 ? std::string("quicksave.uawsave") : "save" + std::to_string(slot) + ".uawsave");
+}
+
+std::string describeSave(const std::string& path) {
+    SaveGame sg;
+    if (!readSave(path, sg)) return "";
+    const uint64_t secs = sg.tick / 30;
+    char clock[32];
+    std::snprintf(clock, sizeof clock, "%llu:%02llu", (unsigned long long)(secs / 60), (unsigned long long)(secs % 60));
+    std::string when;
+    std::error_code ec;
+    const auto mtime = std::filesystem::last_write_time(path, ec);
+    if (!ec) {
+        const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(mtime);
+        const std::time_t t = std::chrono::system_clock::to_time_t(sys);
+        char buf[64];
+        if (std::strftime(buf, sizeof buf, "%b %d %H:%M", std::localtime(&t))) when = std::string(" - saved ") + buf;
+    }
+    return sg.setup.map + ", " + clock + when;
+}
+
+std::string newestSave() {
+    std::string best;
+    std::filesystem::file_time_type bestTime{};
+    for (int i = 0; i < 6; ++i) {
+        std::error_code ec;
+        const std::string p = slotPath(i);
+        const auto t = std::filesystem::last_write_time(p, ec);
+        if (!ec && (best.empty() || t > bestTime)) best = p, bestTime = t;
+    }
+    return best;
 }
 
 } // namespace uaw

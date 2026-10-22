@@ -124,9 +124,11 @@ still; tested: a client pausing for 15 s of a 60 s game, both machines end on th
 player's army strength over the game (sampled every ten seconds). Spectators and replays see each player's
 credits and forces under the top bar.
 
-**Saved games.** F5 (or *Save game* in the Esc menu) writes a quick save to the user's preferences folder
-(`%APPDATA%\Dragongamer9\uaw-native\quicksave.uawsave` on Windows); F9, the Esc menu or *Load saved game* on
-the setup screen loads it, and `--load FILE` starts from any save. The simulation is deterministic, so a save
+**Saved games.** F5 writes a quick save to the user's preferences folder
+(`%APPDATA%\Dragongamer9\uaw-native\quicksave.uawsave` on Windows) and F9 loads it; *Save game* and *Load game*
+in the Esc menu offer the quick save and five more slots (`save1..5.uawsave`), each shown with its map, game
+time and when it was saved. *Load latest save* on the setup screen loads the newest, and `--load FILE` starts
+from any save. The simulation is deterministic, so a save
 is just the setup and the orders you gave with their times: loading plays the game again up to that moment
 (a 30-minute game takes a few seconds). `--replay FILE` instead watches a save from the start, its orders given
 again as it plays (with no fog; you can't give orders), so every save is also a replay. A save made with other mods loaded may play out differently. `[` and `]` change the game

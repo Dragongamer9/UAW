@@ -34,6 +34,12 @@ bool readSave(const std::string& path, SaveGame& s, std::string* error = nullptr
 
 // Where quick saves go (the user's preferences folder for the game), with a trailing separator.
 std::string saveFolder();
+// Save slots: 0 is the quick save (F5 / F9), 1.. are numbered.
+std::string slotPath(int slot);
+// "Map, game time - when saved" for a save file, or "" when there is none.
+std::string describeSave(const std::string& path);
+// The newest save file among the slots ("" if none).
+std::string newestSave();
 
 // Settings kept between runs (settings.txt in the save folder): sound and music volume, graphics detail.
 struct Settings {

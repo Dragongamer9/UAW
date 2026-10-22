@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -124,8 +125,13 @@ private:
 class PauseMenu {
 public:
     explicit PauseMenu(alamo::MegVfs& vfs, float scale) : paint_(vfs, scale) {}
-    enum class Result { None, Resume, Save, Load, Restart, ToMenu, Quit, Sound, Music, Graphics, Keys };
+    enum class Result { None, Resume, Save, Load, Restart, ToMenu, Quit, Sound, Music, Graphics, Keys, SaveSlot, LoadSlot };
     bool open = false;
+    // Save / Load open a page of slots (slot 0 is the quick save, F5 / F9). The game describes each
+    // slot ("" = empty); picking one returns SaveSlot / LoadSlot with its number in `slot`.
+    std::function<std::vector<std::string>()> describeSlots;
+    static constexpr int kSlots = 6;
+    int slot = 0;
     bool soundOn = true, musicOn = true; // shown on the Sound / Music items
     bool fullGraphics = true;            // shadows and normal maps (off: faster on slow graphics cards)
     Result handle(const SDL_Event& e);
@@ -136,6 +142,10 @@ private:
     MenuPainter paint_;
     float mouseX_ = 0, mouseY_ = 0;
     int highlight_ = 0;
+    enum class Page { Main, Save, Load } page_ = Page::Main;
+    std::vector<std::string> slotText_;
+    Result pick(int id); // a button on the current page
+    int count() const { return page_ == Page::Main ? 10 : kSlots + 1; }
 };
 
 } // namespace uaw
