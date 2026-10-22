@@ -145,6 +145,15 @@ public:
     bool aimTurret(const GpuModel& m, const Mat4& xf, const alamo::GameObjectType& t, const alamo::Vec3* target, uint64_t key,
                    float time, Pose& pose) const;
     mutable std::unordered_map<uint64_t, std::pair<float, float>> turrets_; // key -> (angle, last time)
+    // What a dead unit leaves to watch: its death clone's (or its own) model and death animation.
+    struct Fallen {
+        const GpuModel* model = nullptr;
+        const alamo::Animation* anim = nullptr;
+        float scale = 1, persist = 2, height = 0;
+        bool wreck = false;
+    };
+    mutable std::unordered_map<uint64_t, Fallen> fallen_;
+    const Fallen& fallenOf(Renderer& r, const alamo::GameObjectType& t, uint32_t id) const;
     mutable alamo::World* world_ = nullptr;
     mutable float turretTime_ = 0;
     void drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo::GameObjectType& type, const GpuModel& model,

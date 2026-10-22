@@ -474,6 +474,47 @@ alamo::Mat34 mul34(const alamo::Mat34& a, const alamo::Mat34& b) {
 
 } // namespace
 
+const UnitControl::Fallen& UnitControl::fallenOf(Renderer& r, const alamo::GameObjectType& t, uint32_t id) const {
+    // Per type and death-animation variant (the id picks one of _DIE_00.._DIE_03 that exist).
+    const uint64_t key = uint64_t(reinterpret_cast<uintptr_t>(&t)) * 4 + id % 4;
+    if (auto it = fallen_.find(key); it != fallen_.end()) return it->second;
+    Fallen f;
+    const alamo::GameObjectType* shown = &t;
+    if (db_) {
+        // Every "Damage_X, Clone_Type" pair (the tag repeats): the Damage_Default one, else the first.
+        const alamo::GameObjectType* first = nullptr, *byDefault = nullptr;
+        for (const alamo::ObjectField& fld : t.fields()) {
+            if (fld.path.size() < 11 || !alamo::iequals(std::string_view(fld.path).substr(fld.path.size() - 11), "Death_Clone")) continue;
+            for (const std::string& v : fld.values) {
+                const size_t comma = v.find(',');
+                if (comma == std::string::npos) continue;
+                const std::string damage = alamo::trim(v.substr(0, comma)), clone = alamo::trim(v.substr(comma + 1));
+                const alamo::GameObjectType* c = db_->find(clone);
+                if (!c || !c->find("Land_Model_Name")) continue;
+                if (!first) first = c;
+                if (!byDefault && alamo::iequals(damage, "Damage_Default")) byDefault = c;
+            }
+        }
+        if (byDefault || first) shown = byDefault ? byDefault : first;
+    }
+    if (const std::string* name = shown->find("Land_Model_Name"); name && !alamo::trim(*name).empty()) {
+        f.model = r.model(alamo::trim(*name));
+        std::string stem = alamo::trim(*name);
+        if (const size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
+        int variants = 0;
+        const alamo::Animation* found[4] = {nullptr, nullptr, nullptr, nullptr};
+        for (int v = 0; v < 4; ++v)
+            if (const alamo::Animation* a = r.animation(stem + "_DIE_0" + std::to_string(v) + ".ALA"); a && a->frameCount)
+                found[variants++] = a;
+        if (variants) f.anim = found[id % uint32_t(variants)];
+        f.scale = float(shown->number("Scale_Factor").value_or(t.number("Scale_Factor").value_or(1.0)));
+        if (f.model) f.height = (f.model->boundsMax[2] - f.model->boundsMin[2]) * f.scale;
+    }
+    f.persist = std::clamp(float(t.number("Death_Persistence_Duration").value_or(2.0)), 2.f, 12.f);
+    f.wreck = shown != &t; // a separate wreck model is shown even when it has no animation
+    return fallen_.emplace(key, f).first->second;
+}
+
 Vec4 playerColor(int player) {
     // The game's multiplayer colours (GameConstants.xml MP_Color_*): blue, red, green, orange, cyan,
     // purple, yellow, grey.
@@ -511,6 +552,7 @@ bool UnitControl::aimTurret(const GpuModel& m, const Mat4& xf, const alamo::Game
     const float extent = float(t.number("Turret_Rotate_Extent_Degrees").value_or(360.0)) * 3.14159265f / 180.f;
     if (extent < 6.2f) want = std::clamp(want, -extent, extent);
     // Turned at Turret_Rotate_Speed (degrees per 1/30 s), from where it was last frame.
+    if (turrets_.size() > 20000) turrets_.clear(); // dead units' turrets: start afresh now and then
     auto [it, fresh] = turrets_.try_emplace(key, want, time);
     float& angle = it->second.first;
     if (!fresh) {
@@ -855,33 +897,30 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
         const float sz = p.blastDamage > 0 ? 6.f : 3.5f;
         r.drawBox(Mat4::translate(p.position[0], p.position[1], p.position[2] - sz / 2) * Mat4::scale(sz), shot[std::clamp(p.owner, 0, 3)]);
     }
-    // The fallen: units with a death animation (<model>_DIE_00) play it where they died, hold the last
-    // frame and sink into the ground over three seconds.
+    // The fallen: the type's death clone (DeathFXBehaviorType Death_Clone, e.g. a structure's
+    // collapsing NB_..._DC model) or else the unit itself, playing its death animation
+    // (<model>_DIE_0N) where it died; the last frame holds for Death_Persistence_Duration (at least
+    // two seconds) and then sinks into the ground.
     const uint64_t now = w.tickCount();
     if (animate)
         for (auto it = w.deaths().rbegin(); it != w.deaths().rend(); ++it) {
             const alamo::DeathEvent& d = *it;
             const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
-            if (age > 3.5f) break; // deaths are in time order
-            if (d.sold || !d.type || d.type == nullptr) continue;
+            if (age > 16.f) break; // deaths are in time order
+            if (d.sold || !d.type) continue;
             if (fog && w.fogOfWar() && player_ >= 0 && !w.visibleTo(player_, d.position)) continue;
-            const std::string* name = d.type->find("Land_Model_Name");
-            if (!name || alamo::trim(*name).empty()) continue;
-            const GpuModel* model = r.model(alamo::trim(*name));
-            if (!model) continue;
-            std::string stem = alamo::trim(*name);
-            if (const size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
-            const alamo::Animation* anim = r.animation(stem + "_DIE_00.ALA");
-            if (!anim || anim->frameCount == 0) continue;
-            const float last = float(anim->frameCount - 1) / std::max(anim->fps, 1.f);
-            const Pose pose = r.pose(*model, *anim, std::min(age, last));
-            const float sink = age > 2.5f ? (age - 2.5f) * 12 : 0;
-            const float scale = float(d.type->number("Scale_Factor").value_or(1.0));
+            const Fallen& f = fallenOf(r, *d.type, d.id);
+            if (!f.model || (!f.anim && !f.wreck)) continue;
+            const float animLen = f.anim ? float(f.anim->frameCount - 1) / std::max(f.anim->fps, 1.f) : 0.f;
+            const float hold = std::max(animLen, f.persist), gone = hold + 2.5f;
+            if (age > gone) continue;
+            const Pose pose = f.anim ? r.pose(*f.model, *f.anim, std::min(age, animLen)) : Pose{};
+            const float sink = age > hold ? (age - hold) * std::max(12.f, f.height / 2.5f) : 0;
             r.setTeamColor(playerColor(d.owner));
-            r.drawModel(*model,
+            r.drawModel(*f.model,
                         Mat4::translate(d.position[0], d.position[1], d.position[2] - sink) * Mat4::rotateZ(d.facing) *
-                            Mat4::rotateZ(1.5707963f) * Mat4::scale(scale),
-                        {1, 1, 1, 1}, &pose);
+                            Mat4::rotateZ(1.5707963f) * Mat4::scale(f.scale),
+                        {1, 1, 1, 1}, f.anim ? &pose : nullptr);
         }
     r.setTeamColor({1, 1, 1, 1});
     // Wrecks: a dark scorch plate for a few seconds, only when there are no particle effects to show
