@@ -25,8 +25,9 @@ redistributed.
 | 1 | Mods: every mod in `Game\Mods` is layered on top of the base game by default and merged entry by entry (objects, tech tree, factions, damage table, strings, skirmish starts) | done: Community Patch 4 + Human Resurgence 1.02 + Universe at Remix 2.8 load together (3,746 objects, 235 buildable entries) |
 | 3 | Military (human) faction in skirmish via the mods: Bunker + Build Bot start, base building | done |
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
-| 3 | Enemy AI (skirmish) | next |
-| 3 | Abilities, melee, hardpoint destruction, shields, veterancy | planned |
+| 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
+| 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
+| 3 | Abilities, melee, shields, veterancy, research trees | next |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -80,7 +81,8 @@ uaw-viewer "<game>" M25_Grand_Canyon --spawn Novus_Power_Router --spawn Novus_In
 uaw-viewer "<game>" M16_Sahara --no-mods     # the original game only
 ```
 
-Scrap piles are drawn as gold heaps that shrink as they are mined; collectors show their load as a crate.
+The opponent is played by the skirmish AI (`--no-ai` to switch it off, `--spectate` to let an AI play your
+side too). Scrap piles are drawn as gold heaps that shrink as they are mined; collectors show their load as a crate.
 The top bar shows credits, the Masari bank cap and passive income per second.
 
 On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
@@ -175,6 +177,30 @@ when `Textures.meg` is available, otherwise a guess from the texture name), and
 mark structures, units, resources, the playable area and numbered start positions.
 
 ## simtool
+
+```sh
+simtool "<game>" M25_Grand_Canyon start                  # every playable faction's starting forces and menus
+simtool "<game>" M25_Grand_Canyon opening Novus          # one faction builds everything for 8 minutes
+simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someone is defeated
+```
+
+AI vs AI on Grand Canyon (25 minutes, AI first version): Novus beats the Hierarchy and the Masari, the Masari
+beat the Hierarchy in one ordering and time out in the other; with the mods, the Military loses to Novus and
+the Hierarchy and times out against the Masari. Novus' strength follows its fast collector economy (see Resources).
+A match takes about a second to simulate.
+
+### AI
+
+`SkirmishAI` (engine/src/ai.cpp) knows nothing faction-specific. It classifies everything by data: economy
+(depots, Matter Engines, refineries, Reapers), power (Novus generators/transmitters), production (anything,
+structure or walker, that is a `Tactical_Builder` of a unit with weapons), defence (structures with weapons)
+and tech. Builders get economy first, power when a receiver is unpowered, one of each production building,
+then defences, tech and extra production when credits pile up. Production keeps queues full of affordable
+combat units (deeper when rich) plus up to two builders. The army gathers at a rally point, defends structures
+under attack, and attacks the nearest enemy structure once its value passes 2,000 + 600 per minute (not before
+minute 4, or at the population cap), regrouping when a wave drops below a third. Only units with
+`Is_Tactical_Base_Builder` construct.
+
 
 ```sh
 simtool "<game>" M25_Grand_Canyon start            # skirmish start for each faction and what it can build

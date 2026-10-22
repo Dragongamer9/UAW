@@ -66,6 +66,21 @@ struct Unit {
     };
     std::vector<WeaponState> weapons;
     float maxRange() const;
+
+    // Hardpoints with their own health (Attached_Hard_Points). When the body itself is
+    // invulnerable (Hierarchy walkers: Tactical_Health 999999) damage goes to the leg
+    // sockets first, then to the hardpoint whose loss destroys the parent (the core);
+    // `health`/`maxHealth` then track what is left of those.
+    struct HardPoint {
+        const GameObjectType* type = nullptr;
+        float health = 0, maxHealth = 0;
+        std::string armorType;
+        bool leg = false;            // CategoryMask LegSocketHP
+        bool destroysParent = false; // HP_Single_Destruction_Destroys_Parent
+        bool alive() const { return health > 0; }
+    };
+    std::vector<HardPoint> hardpoints;
+    bool shieldedByHardpoints = false;
     bool alive() const { return health > 0; }
 
     // Structures and production.
@@ -230,6 +245,7 @@ public:
 
     const NavGrid& nav() const { return nav_; }
     const GameDatabase& db() const { return db_; }
+    const TechTree* tech() const { return tech_; }
     const Map& map() const { return map_; }
 
     // Unit ids within `radius` of a ground point, nearest first.
@@ -259,6 +275,8 @@ private:
     void rebuildNav();
     Vec3 exitPoint(const Unit& structure, const Unit& unit);
     std::vector<Vec3> planPath(const Unit& u, Vec3 to) const;
+    bool isBaseBuilder(const GameObjectType& t) const;
+    bool anyBaseBuilder() const;
     void loadMapResources();
     void updateEconomy();
     void updateDepot(Unit& depot);
@@ -282,6 +300,7 @@ private:
     std::vector<ResourceNode> resources_;
     const GameDatabase* effects_ = nullptr;
     mutable std::unordered_map<const GameObjectType*, EconomySpec> economyCache_;
+    mutable int anyBaseBuilder_ = -1;
     uint32_t nextId_ = 1;
     uint64_t ticks_ = 0;
     uint64_t rng_;

@@ -30,6 +30,7 @@ add_library(alamo
   engine/src/nav.cpp
   engine/src/sim.cpp
     engine/src/economy.cpp
+    engine/src/ai.cpp
   engine/src/combat.cpp
   engine/src/techtree.cpp
   engine/src/strings.cpp

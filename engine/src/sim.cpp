@@ -117,6 +117,20 @@ bool World::owns(int owner, const std::string& typeName) const {
     return false;
 }
 
+bool World::isBaseBuilder(const GameObjectType& t) const {
+    const std::string* f = t.find("Is_Tactical_Base_Builder");
+    return f && (iequals(trim(*f), "yes") || iequals(trim(*f), "true"));
+}
+
+bool World::anyBaseBuilder() const {
+    if (anyBaseBuilder_ < 0) {
+        anyBaseBuilder_ = 0;
+        for (const auto& o : db_.objects())
+            if (isBaseBuilder(o)) { anyBaseBuilder_ = 1; break; }
+    }
+    return anyBaseBuilder_ == 1;
+}
+
 bool isStructureType(const GameObjectType& t) {
     const std::string* mc = t.find("MovementClass");
     return (mc && iequals(trim(*mc), "Building")) || t.category.find("Structure") != std::string::npos;
@@ -145,6 +159,9 @@ std::vector<std::string> World::constructible(uint32_t id) const {
     for (const Unit& u : units_)
         if (u.id == id) b = &u;
     if (!b || !tech_ || b->structure) return {}; // structures only appear as prerequisites
+    // Only real base builders construct (Is_Tactical_Base_Builder). The flag tells them apart
+    // from units that are merely required, e.g. the Reaper listed for Hierarchy walkers.
+    if (!isBaseBuilder(*b->type) && anyBaseBuilder()) return {};
     const int owner = b->owner;
     const auto has = [&](const std::string& t) { return owns(owner, t); };
     auto out = tech_->constructibleBy(b->type->name, has);
@@ -238,7 +255,8 @@ OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeN
     b->attackOrder = 0;
     b->attackMove = false;
     b->goal = site;
-    b->path = planPath(*b, nav_.nearestPassable({site[0] - s->footprintX - b->radius - 10, site[1], 0}));
+    const float approach = std::max(s->footprintX, s->radius) + b->radius + 10;
+    b->path = planPath(*b, nav_.nearestPassable({site[0] - approach, site[1], 0}));
     return OrderResult::Ok;
 }
 
@@ -291,11 +309,21 @@ void World::updateProduction(Unit& s) {
 
 void World::updateConstruction(Unit& s) {
     if (!s.underConstruction) return;
+    // Builders that stopped short (path blocked, pushed aside) head for the site again.
+    if (ticks_ % 15 == 0)
+        for (Unit& b : units_)
+            if (b.constructing == s.id && b.path.empty() &&
+                dist2d(b.position, s.position) > std::max({s.footprintX, s.footprintY, s.radius}) + b.radius + 40) {
+                const float approach = std::max({s.footprintX, s.footprintY, s.radius}) + b.radius + 10;
+                const float a = std::atan2(b.position[1] - s.position[1], b.position[0] - s.position[0]);
+                b.path = planPath(b, nav_.nearestPassable({s.position[0] + std::cos(a) * approach, s.position[1] + std::sin(a) * approach, 0}));
+                if (b.path.empty()) b.constructing = 0; // unreachable: give up so the AI/player can reassign
+            }
     // Progress only while one of the owner's builders assigned to it is close.
     bool working = s.buildProgress * float(s.buildTicks) >= float(s.builderTicks); // past the builder phase
     for (const Unit& b : units_)
         if (b.constructing == s.id && b.owner == s.owner &&
-            dist2d(b.position, s.position) <= std::max(s.footprintX, s.footprintY) + b.radius + 40)
+            dist2d(b.position, s.position) <= std::max({s.footprintX, s.footprintY, s.radius}) + b.radius + 40)
             working = true;
     if (!working) return;
     if (s.buildProgress * float(s.buildTicks) + 1 >= float(s.builderTicks))
@@ -356,6 +384,39 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
         navDirty_ = true;
     }
     for (const WeaponSpec& w : weaponsFor(*t, db_)) u.weapons.push_back({w, 0, 0, 0});
+    if (const std::string* hps = t->find("Attached_Hard_Points")) {
+        // "HP_Type, bone" pairs.
+        std::vector<std::string> items;
+        std::string cur;
+        for (char c : *hps + ",") {
+            if (c == ',' || c == ' ' || c == '\t' || c == '\n' || c == '\r') { if (!cur.empty()) items.push_back(cur); cur.clear(); }
+            else cur += c;
+        }
+        for (size_t i = 0; i < items.size(); i += 2) {
+            const GameObjectType* ht = db_.find(items[i]);
+            if (!ht) continue;
+            const float hpHealth = float(ht->number("Tactical_Health").value_or(0));
+            if (hpHealth <= 0) continue;
+            Unit::HardPoint hp;
+            hp.type = ht;
+            hp.health = hp.maxHealth = hpHealth;
+            if (const std::string* a = ht->find("Armor_Type")) hp.armorType = trim(*a);
+            const std::string* cat = ht->find("CategoryMask");
+            hp.leg = cat && cat->find("LegSocketHP") != std::string::npos;
+            const std::string* dp = ht->find("HP_Single_Destruction_Destroys_Parent");
+            hp.destroysParent = dp && (iequals(trim(*dp), "yes") || iequals(trim(*dp), "true"));
+            u.hardpoints.push_back(std::move(hp));
+        }
+        if (u.maxHealth >= 99999 && !u.hardpoints.empty()) {
+            u.shieldedByHardpoints = true;
+            float total = 0;
+            bool anyCore = false;
+            for (const auto& hp : u.hardpoints) anyCore = anyCore || hp.destroysParent;
+            for (const auto& hp : u.hardpoints)
+                if (hp.leg || hp.destroysParent || !anyCore) total += hp.maxHealth;
+            u.maxHealth = u.health = std::max(total, 1.f);
+        }
+    }
     units_.push_back(std::move(u));
     return units_.back().id;
 }
@@ -647,8 +708,34 @@ void World::fireWeapons(Unit& u) {
 }
 
 void World::applyDamage(Unit& victim, float amount, const std::string& damageType) {
-    const float mod = damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f;
-    victim.health -= amount * mod;
+    if (!victim.shieldedByHardpoints) {
+        const float mod = damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f;
+        victim.health -= amount * mod;
+        return;
+    }
+    // Legs first, then the core; other hardpoints (weapon crowns) only fall with the body.
+    Unit::HardPoint* hp = nullptr;
+    bool anyCore = false;
+    for (auto& h : victim.hardpoints) anyCore = anyCore || h.destroysParent;
+    for (auto& h : victim.hardpoints)
+        if (h.alive() && h.leg && (!hp || h.health < hp->health)) hp = &h;
+    if (!hp)
+        for (auto& h : victim.hardpoints)
+            if (h.alive() && (h.destroysParent || !anyCore)) { hp = &h; break; }
+    if (!hp) { victim.health = 0; return; }
+    const float mod = damage_ ? damage_->modifier(damageType, hp->armorType.empty() ? victim.armorType : hp->armorType) : 1.f;
+    const float dealt = std::min(hp->health, amount * mod);
+    hp->health -= dealt;
+    victim.health -= dealt;
+    if (!hp->alive()) {
+        // Its weapons go with it.
+        const GameObjectType* gone = hp->type;
+        victim.weapons.erase(std::remove_if(victim.weapons.begin(), victim.weapons.end(),
+                                            [&](const Unit::WeaponState& w) { return w.spec.source == gone; }),
+                             victim.weapons.end());
+        if (hp->destroysParent) victim.health = 0;
+    }
+    if (victim.health <= 0.01f) victim.health = 0;
 }
 
 void World::updateProjectiles() {

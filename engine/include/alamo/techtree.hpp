@@ -42,6 +42,7 @@ public:
     std::vector<std::string> constructibleBy(const std::string& builder, const Has& has) const;
 
     size_t size() const { return byObject_.size(); }
+    const std::vector<std::string>& objects() const { return order_; } // every buildable object
 
 private:
     std::unordered_map<std::string, std::vector<BuildOption>> byObject_; // uppercase key

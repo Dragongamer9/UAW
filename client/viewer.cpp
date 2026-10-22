@@ -11,6 +11,8 @@
 //     --enemy F           opponent's faction (default Alien)
 //     --squads            instead of a skirmish start, give every start position a mixed test squad
 //     --no-units          no units at all
+//     --no-ai             the opponent doesn't play (skirmish start only)
+//     --spectate          an AI plays your side too
 //     --demo              (with --screenshot) start a construction and a production order first
 //     --spawn TYPE        place a finished TYPE for you near your base (repeatable), e.g. Novus_Input_Station
 //     --battle            Novus and Hierarchy squads face off mid-map (with --run: prints the battle)
@@ -39,6 +41,7 @@
 #include "hud.hpp"
 #include "units.hpp"
 
+#include "alamo/ai.hpp"
 #include "alamo/assets.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/dds.hpp"
@@ -69,7 +72,7 @@ struct Options {
     bool noMods = false;
     int width = 1600, height = 900, player = 1;
     bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
-    bool squads = false, demo = false;
+    bool squads = false, demo = false, ai = true, spectate = false;
     std::vector<std::string> spawns;
     std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
@@ -109,6 +112,8 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--all-groups") o.allGroups = true;
         else if (a == "--player") o.player = std::max(1, std::atoi(next()));
         else if (a == "--no-units") o.units = false;
+        else if (a == "--no-ai") o.ai = false;
+        else if (a == "--spectate") o.spectate = true;
         else if (a == "--squads") o.squads = true;
         else if (a == "--faction") o.faction = next();
         else if (a == "--mods" || a == "--mod") o.mods = next();
@@ -282,6 +287,15 @@ int main(int argc, char** argv) {
                 std::printf("spawn: %s %s\n", name.c_str(), placed ? "placed" : "no room");
             }
         }
+        // Computer opponents (and your side with --spectate) for a skirmish start.
+        std::vector<SkirmishAI> ais;
+        if (opt.units && !opt.squads && !opt.battle && opt.ai)
+            for (const Player& p : world.players())
+                if (p.faction != "Neutral" && (p.id != opt.player - 1 || opt.spectate)) ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
+        auto stepWorld = [&]() {
+            for (auto& ai : ais) ai.update();
+            world.tick();
+        };
         if (world.players().empty())
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
@@ -363,7 +377,7 @@ int main(int argc, char** argv) {
             };
             if (opt.battle) census();
             for (int t = 1; t <= ticks; ++t) {
-                world.tick();
+                stepWorld();
                 if (opt.battle && t % (5 * kTicksPerSecond) == 0) census();
             }
             if (opt.haveOrder) {
@@ -542,7 +556,7 @@ int main(int argc, char** argv) {
                 simAccumulator += dt;
                 int steps = 0;
                 while (simAccumulator >= 1.0 / kTicksPerSecond && steps < 8) {
-                    world.tick();
+                    stepWorld();
                     simAccumulator -= 1.0 / kTicksPerSecond;
                     ++steps;
                 }

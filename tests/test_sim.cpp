@@ -2,6 +2,7 @@
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/nav.hpp"
+#include "alamo/ai.hpp"
 #include "alamo/sim.hpp"
 #include "alamo/techtree.hpp"
 
@@ -430,6 +431,48 @@ static void testResources(const GameDatabase& db) {
     }
 }
 
+// Two AIs on an open map with a tiny tech tree: they build, produce, fight, and the
+// whole match replays exactly.
+static void testAI(const GameDatabase& db) {
+    Map m = openMap();
+    DamageTable dmg;
+    TechTree tech;
+    tech.add("Builder", {{"HQ"}, {}});
+    tech.add("Barracks", {{}, {"Builder"}});
+    tech.add("Refinery", {{}, {"Builder"}});
+    tech.add("Gunner", {{"Barracks"}, {}});
+    auto run = [&](uint64_t seed, std::string& summary) {
+        World w(m, db, &dmg, seed, &tech);
+        const int a = w.addPlayer("Novus", 3000, 40), b = w.addPlayer("Alien", 3000, 40);
+        w.spawn("HQ", a, {150, 150, 0});
+        w.spawn("Builder", a, {250, 150, 0});
+        w.spawn("HQ", b, {830, 830, 0});
+        w.spawn("Builder", b, {730, 830, 0});
+        SkirmishAI A(w, a, seed), B(w, b, seed + 1);
+        bool builtBarracks = false, producedGunner = false, fought = false;
+        int t = 0;
+        for (; t < 20 * 60 * 30 && !defeated(w, a) && !defeated(w, b); ++t) {
+            A.update();
+            B.update();
+            w.tick();
+            for (const Unit& u : w.units()) {
+                builtBarracks = builtBarracks || (u.type->name == "Barracks" && !u.underConstruction);
+                producedGunner = producedGunner || u.type->name == "Gunner";
+            }
+            fought = fought || !w.projectiles().empty();
+        }
+        CHECK(builtBarracks && producedGunner && fought);
+        summary = std::to_string(t) + ":" + std::to_string(w.units().size()) + ":" + std::to_string(int(w.player(a)->credits)) + ":" +
+                  std::to_string(int(w.player(b)->credits)) + ":" + std::to_string(defeated(w, a)) + std::to_string(defeated(w, b));
+        for (const Unit& u : w.units()) summary += ":" + std::to_string(int(u.position[0])) + "," + std::to_string(int(u.position[1]));
+    };
+    std::string s1, s2;
+    run(5, s1);
+    run(5, s2);
+    CHECK(s1 == s2);
+    std::printf("ai match: %s\n", s1.substr(0, 40).c_str());
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -439,6 +482,7 @@ int main() {
     testCombat(db);
     testEconomy(db);
     testResources(db);
+    testAI(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

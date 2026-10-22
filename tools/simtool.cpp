@@ -2,6 +2,7 @@
 //   simtool <game-root> <MAP> start            skirmish start for Novus/Hierarchy/Masari: what each can build
 //   simtool <game-root> <MAP> opening FACTION  scripted build order (construct, produce) with a timeline
 #include "common.hpp"
+#include "alamo/ai.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/sim.hpp"
@@ -9,6 +10,7 @@
 #include "alamo/ted.hpp"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <iostream>
 #include <string>
@@ -63,7 +65,7 @@ static std::string upper(std::string s) {
 int main(int argc, char** argv) {
     const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 4) {
-        std::cerr << "usage: simtool <game-root> <MAP> start | opening <Novus|Alien|Masari|Military> [--mods A,B | --no-mods]\n";
+        std::cerr << "usage: simtool <game-root> <MAP> start | opening <Novus|Alien|Masari|Military> | match <F1> <F2> [minutes] [seed]  [--mods A,B | --no-mods]\n";
         return 2;
     }
     try {
@@ -177,6 +179,46 @@ int main(int argc, char** argv) {
                                         s->buildProgress * 100);
                 }
             }
+            return 0;
+        }
+        if (cmd == "match" && argc > 5) {
+            // AI vs AI on the first two start positions until one is defeated or time runs out.
+            const float minutes = argc > 6 ? float(std::atof(argv[6])) : 20.f;
+            const uint64_t seed = argc > 7 ? std::strtoull(argv[7], nullptr, 10) : 1;
+            World w(map, db, &dmg, seed, &tech);
+            w.setEffects(&effects);
+            const int a = addSkirmishPlayer(w, db, argv[4], st[0], &forces);
+            const int b = addSkirmishPlayer(w, db, argv[5], st[1], &forces);
+            std::vector<SkirmishAI> ais{SkirmishAI(w, a, seed), SkirmishAI(w, b, seed + 7)};
+            std::vector<std::string> last(2);
+            const bool verbose = std::getenv("UAW_AI_LOG") != nullptr;
+            const int end = int(minutes * 60 * kTicksPerSecond);
+            for (int t = 0; t <= end; ++t) {
+                for (auto& ai : ais) ai.update();
+                w.tick();
+                for (size_t i = 0; i < ais.size(); ++i)
+                    if (ais[i].lastAction() != last[i] && (verbose || ais[i].lastAction().rfind("attack", 0) == 0 ||
+                                                            ais[i].lastAction() == "retreat" || ais[i].lastAction() == "defend")) {
+                        last[i] = ais[i].lastAction();
+                        std::printf("%6.1fs  %-8s %s\n", w.seconds(), w.player(ais[i].player())->faction.c_str(), last[i].c_str());
+                    }
+                if (t % (60 * kTicksPerSecond) == 0) {
+                    for (const auto& ai : ais) {
+                        const Player* p = w.player(ai.player());
+                        int structures = 0, units = 0;
+                        for (const Unit& u : w.units())
+                            if (u.owner == p->id) (u.structure ? structures : units)++;
+                        std::printf("--- %2d:00 %-8s credits %6.0f earned %7.0f  structures %2d units %3d %s\n", t / (60 * kTicksPerSecond),
+                                    p->faction.c_str(), p->credits, p->earned, structures, units, ai.attacking() ? "ATTACKING" : "");
+                    }
+                }
+                const bool da = defeated(w, a), db2 = defeated(w, b);
+                if (da || db2) {
+                    std::printf("%6.1fs  %s wins\n", w.seconds(), da && db2 ? "nobody" : w.player(da ? b : a)->faction.c_str());
+                    return 0;
+                }
+            }
+            std::printf("time up, no winner\n");
             return 0;
         }
         std::cerr << "unknown command\n";
