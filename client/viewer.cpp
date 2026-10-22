@@ -1141,6 +1141,15 @@ int main(int argc, char** argv) {
                     default: break;
                     }
                 }
+                // The pointer says what the next right click does: a crosshair for attack-move, patrol,
+                // superweapons and targeted abilities.
+                if (!headless) {
+                    static SDL_Cursor* arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+                    static SDL_Cursor* cross = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+                    const bool armed = attackMoveArmed || patrolArmed || superweaponArmed || control.abilityArmed();
+                    SDL_Cursor* want = armed && !pause.open ? cross : arrow;
+                    if (want && SDL_GetCursor() != want) SDL_SetCursor(want);
+                }
                 const uint64_t now = SDL_GetTicksNS();
                 const float dt = std::min(float(now - last) * 1e-9f, 0.1f);
                 last = now;
