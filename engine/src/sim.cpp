@@ -1435,6 +1435,16 @@ void World::tick() {
     mark();
     removeDead();
     mark();
+    if (ticks_ % (10 * kTicksPerSecond) == 0) { // every player's army strength, every ten seconds
+        std::array<float, 8> v{};
+        for (const Unit& u : units_) {
+            if (u.structure || u.owner < 0 || u.owner >= 8 || u.inside) continue;
+            float dps = 0;
+            for (const auto& ws : u.weapons) dps += ws.spec.damagePerSecond();
+            v[size_t(u.owner)] += std::sqrt(std::max(0.f, u.health) * dps);
+        }
+        armyHistory_.push_back(v);
+    }
     ++ticks_;
     if (profile > 0) {
         const double total = std::chrono::duration<double, std::milli>(marks[nm - 1] - marks[0]).count();

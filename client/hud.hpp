@@ -59,6 +59,7 @@ private:
     GLuint minimapTex_ = 0;
     GLuint fogTex_ = 0;
     bool sawPlayer_ = false;
+
     // "Under attack" alerts: when, where (a ping on the minimap; Home jumps there).
     float alertTime_ = -100;
     alamo::Vec3 alertPos_{};

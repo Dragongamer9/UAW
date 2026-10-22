@@ -111,6 +111,10 @@ orders travel: an order runs 0.2-0.3 s after it is given, on every machine at th
 reports a checksum of the game state every turn, and the host announces it if the games ever differ. All
 players need the same game files and mods. Network games run at normal speed and can't be paused or saved.
 
+**End of the game.** Victory or defeat shows what each side built, lost and earned, and a graph of every
+player's army strength over the game (sampled every ten seconds). Spectators and replays see each player's
+credits and forces under the top bar.
+
 **Saved games.** F5 (or *Save game* in the Esc menu) writes a quick save to the user's preferences folder
 (`%APPDATA%\Dragongamer9\uaw-native\quicksave.uawsave` on Windows); F9, the Esc menu or *Load saved game* on
 the setup screen loads it, and `--load FILE` starts from any save. The simulation is deterministic, so a save

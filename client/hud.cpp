@@ -649,6 +649,35 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         for (const alamo::Unit& u : w.units())
             if (u.owner == control.player() && u.structure) { sawPlayer_ = true; break; }
     // Under the banner: what each side built, lost and earned.
+    auto armyGraph = [&](float x0, float y0, float gw, float gh) {
+        const auto& armyHistory_ = w.armyHistory();
+        if (armyHistory_.size() < 2) return;
+        float top = 1;
+        for (const auto& v : armyHistory_)
+            for (float f : v) top = std::max(top, f);
+        r.drawOverlayRect(x0, y0, x0 + gw, y0 + gh, {0, 0, 0, 0.55f});
+        std::vector<GpuVertex> lines;
+        const float th = 1.6f * s;
+        for (int p = 0; p < 8 && w.player(p); ++p) {
+            if (w.player(p)->faction == "Neutral") continue;
+            const Vec4 c = playerColor(p);
+            for (size_t i = 1; i < armyHistory_.size(); ++i) {
+                const float ax = x0 + gw * float(i - 1) / float(armyHistory_.size() - 1), bx = x0 + gw * float(i) / float(armyHistory_.size() - 1);
+                const float ay = y0 + gh - gh * armyHistory_[i - 1][size_t(p)] / top, by = y0 + gh - gh * armyHistory_[i][size_t(p)] / top;
+                const float dx = bx - ax, dy = by - ay, len = std::max(1e-3f, std::sqrt(dx * dx + dy * dy));
+                const float nx = -dy / len * th, ny = dx / len * th;
+                auto v = [&](float px, float py) {
+                    GpuVertex g{};
+                    g.px = px, g.py = py, g.r = c[0], g.g = c[1], g.b = c[2], g.a = 1;
+                    return g;
+                };
+                lines.insert(lines.end(), {v(ax + nx, ay + ny), v(bx + nx, by + ny), v(bx - nx, by - ny), v(ax + nx, ay + ny), v(bx - nx, by - ny),
+                                           v(ax - nx, ay - ny)});
+            }
+        }
+        r.drawOverlayTriangles(lines, 0);
+        textSmall("Army strength", x0 + 6 * s, y0 + 4 * s, kDim);
+    };
     auto matchStats = [&]() {
         if (!small_) return;
         const float W = float(r.width()), lhs2 = small_->lineHeight();
@@ -672,6 +701,7 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             textSmall(fmt("%.0f", pl.earned), cols[3], y, c);
             y += lhs2;
         }
+        armyGraph(cols[0] - 16 * s, y + 16 * s, 720 * s, 150 * s);
     };
     if (!sawPlayer_) {
     } else if (alamo::defeated(w, control.player())) {
