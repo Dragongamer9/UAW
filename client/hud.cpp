@@ -460,7 +460,29 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             itemRects_.push_back({x - 4 * s, yy, x + colW, yy + lhs});
             const Vec4 c = !it.affordable ? kWarn : it.upgrade ? Vec4{0.8f, 0.75f, 1.f, 1} : kText;
             const std::string key = i < 9 ? std::to_string(i + 1) + "  " : "    ";
-            textSmall(key + it.label + (it.upgrade ? " (upgrade)" : ""), x, yy, c);
+            // The item's icon (Icon_Name) after its key, dimmed when it can't be afforded.
+            float labelX = x;
+            if (const alamo::GameObjectType* t = db.find(it.type))
+                if (const std::string* icon = t->find("Icon_Name"); icon && !alamo::trim(*icon).empty())
+                    if (const GLuint tex = r.textureNamed(alamo::trim(*icon))) {
+                        const float sz = lhs - 2 * s, ix = x + (small_ ? small_->width("8  ") : 18 * s), iy = yy + 1 * s;
+                        const float k = it.affordable ? 1.f : 0.45f;
+                        auto v = [&](float px, float py, float u, float vv) {
+                            GpuVertex g{};
+                            g.px = px, g.py = py, g.u = u, g.v = vv, g.r = g.g = g.b = k, g.a = 1;
+                            return g;
+                        };
+                        r.drawOverlayTriangles({v(ix, iy, 0, 0), v(ix + sz, iy, 1, 0), v(ix + sz, iy + sz, 1, 1), v(ix, iy, 0, 0),
+                                                v(ix + sz, iy + sz, 1, 1), v(ix, iy + sz, 0, 1)},
+                                               tex);
+                        labelX = ix + sz + 4 * s;
+                    }
+            if (labelX > x) {
+                textSmall(i < 9 ? std::to_string(i + 1) : "", x, yy, c);
+                textSmall(it.label + (it.upgrade ? " (upgrade)" : ""), labelX, yy, c);
+            } else {
+                textSmall(key + it.label + (it.upgrade ? " (upgrade)" : ""), x, yy, c);
+            }
             const std::string cost = fmt("%.0f", it.cost) + "  " + fmt("%.0fs", it.seconds);
             if (small_) textSmall(cost, x + colW - small_->width(cost) - 4 * s, yy, kDim);
             // Tooltip for the item under the mouse: the game's description and what it is good
