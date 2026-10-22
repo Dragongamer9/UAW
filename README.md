@@ -190,21 +190,26 @@ untextured grey, and translucent layers without their texture are skipped.
 weapons (including hardpoints), damage per second and armor modifiers against the
 named victims.
 
-Turrets (`Turret_Bone_Name`, on units and their hardpoints) turn towards the unit's target at
-`Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`, and back when it has none.
+**Rendering.**
 
-Damage states: a model's `_ALTn` meshes are shown by health (`Land_Damage_Thresholds` /
-`Land_Damage_Alternates`), so structures look whole when healthy and scorched and burning as they are hurt
-(before this, all states were drawn on top of each other).
-
-Units wear their player's colour (the game's multiplayer colours: blue, red, green, orange, cyan, purple,
-yellow, grey) where their `*Colorize` shaders' texture alpha marks it.
-
-Lighting follows the map's own sun, ambient light, haze and sky. Units, structures, props, trees and
-hills cast sun shadows (a 2048² depth map around the camera, filtered at the edges); `UAW_NO_SHADOWS=1`
-switches them off on a slow graphics card (as does *Graphics: fast* in the Esc menu). Water ripples with the map's water bump map, drifting and catching
-the sun; textures with a `UVScrollRate` scroll. Models with a `NormalTexture` are normal-mapped, with sun highlights from the material's `Specular` and `Shininess` where the gloss mask allows (the
-tangents stored in the model; `UAW_NO_BUMPS=1` switches it off).
+- Lighting follows the map's own sun, ambient light, haze and sky dome. Units, structures, props, trees and
+  hills cast sun shadows (a 2048² depth map around the camera, faded at its edges).
+- Models with a `NormalTexture` are normal-mapped with the tangents stored in the model, and catch sun
+  highlights from their material's `Specular` and `Shininess` where the gloss mask allows.
+- Units wear their player's colour (the game's multiplayer colours: blue, red, green, orange, cyan, purple,
+  yellow, grey) where their `*Colorize` shaders' texture alpha marks it.
+- Damage states: a model's `_ALTn` meshes and effects are shown by health (`Land_Damage_Thresholds` /
+  `Land_Damage_Alternates`), so structures look whole when healthy and scorched and burning as they are
+  hurt; only the most detailed level of detail (`_LOD0`) is drawn.
+- Turrets (`Turret_Bone_Name`, on units and their hardpoints) turn towards the unit's target at
+  `Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`; muzzle flashes (`..._flash` proxies) play at
+  the barrel with each shot, and Masari light/dark flashes when they change mode.
+- The dead leave their death clone (`Death_Clone`): collapsing buildings, burnt-out hulls and corpses
+  playing their death animations, for `Death_Persistence_Duration`, then sinking.
+- Water ripples with the map's water bump map, drifting and catching the sun; textures with a
+  `UVScrollRate` scroll.
+- `UAW_NO_SHADOWS=1` / `UAW_NO_BUMPS=1` switch shadows / normal maps off, as does *Graphics: fast* in the
+  Esc menu for a slow graphics card. Models off screen are culled.
 
 Objects whose model isn't available are drawn as boxes: grey props, structures
 and units in their owner's colour, cyan scrap piles, and a tall pole at each start position.
