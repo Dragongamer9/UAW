@@ -308,6 +308,15 @@ int main(int argc, char** argv) {
         musicLibrary.load(vfs);
         std::unique_ptr<Audio> audio;
         if (!headless) audio = std::make_unique<Audio>(vfs, sfxLibrary);
+        Settings settings = headless ? Settings{} : loadSettings();
+        if (audio) audio->volume = settings.sound, audio->musicVolume = settings.music;
+        if (!settings.fullGraphics) renderer.setDetail(false);
+        auto keepSettings = [&]() {
+            if (headless) return;
+            if (audio) settings.sound = audio->volume, settings.music = audio->musicVolume;
+            settings.fullGraphics = renderer.detail();
+            saveSettings(settings);
+        };
         std::printf("sound: %zu SFX events%s\n", sfxLibrary.size(), audio && audio->ok() ? "" : " (no audio device)");
         const float uiScale = std::max(0.75f, float(opt.height) / 900.f);
         enum class End { Quit, ToMenu, Restart, Load };
@@ -898,14 +907,17 @@ int main(int argc, char** argv) {
                         case PauseMenu::Result::Sound:
                             if (audio) audio->volume = audio->volume > 0 ? 0.f : 0.8f;
                             pause.soundOn = audio && audio->volume > 0;
+                            keepSettings();
                             break;
                         case PauseMenu::Result::Music:
                             if (audio) audio->musicVolume = audio->musicVolume > 0 ? 0.f : 0.6f;
                             pause.musicOn = audio && audio->musicVolume > 0;
+                            keepSettings();
                             break;
                         case PauseMenu::Result::Graphics:
                             renderer.setDetail(!renderer.detail());
                             pause.fullGraphics = renderer.detail();
+                            keepSettings();
                             break;
                         case PauseMenu::Result::None: break;
                         }
@@ -977,6 +989,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_M && audio) { // sound on / off
                             audio->volume = audio->volume > 0 ? 0.f : 0.8f;
                             control.say(audio->volume > 0 ? "Sound on" : "Sound off", world.seconds());
+                            keepSettings();
                             pause.soundOn = audio->volume > 0;
                         }
                         else if (e.key.key == SDLK_X) control.stop(world);

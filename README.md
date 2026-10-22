@@ -117,7 +117,7 @@ the setup screen loads it, and `--load FILE` starts from any save. The simulatio
 is just the setup and the orders you gave with their times: loading plays the game again up to that moment
 (a 30-minute game takes a few seconds). `--replay FILE` instead watches a save from the start, its orders given
 again as it plays (with no fog; you can't give orders), so every save is also a replay. A save made with other mods loaded may play out differently. `[` and `]` change the game
-speed (x0.5 to x4), Pause stops the clock.
+speed (x0.5 to x4), Pause stops the clock. Sound, music and graphics detail (Esc menu, M) are remembered in `settings.txt` in the same folder.
 
 The opponent is played by the skirmish AI (`--no-ai` to switch it off, `--spectate` to let an AI play your
 side too). Scrap piles are drawn as gold heaps that shrink as they are mined; collectors show their load as a crate.

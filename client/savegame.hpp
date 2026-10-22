@@ -35,4 +35,12 @@ bool readSave(const std::string& path, SaveGame& s, std::string* error = nullptr
 // Where quick saves go (the user's preferences folder for the game), with a trailing separator.
 std::string saveFolder();
 
+// Settings kept between runs (settings.txt in the save folder): sound and music volume, graphics detail.
+struct Settings {
+    float sound = 0.8f, music = 0.6f;
+    bool fullGraphics = true;
+};
+Settings loadSettings();
+void saveSettings(const Settings& s);
+
 } // namespace uaw

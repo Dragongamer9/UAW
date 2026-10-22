@@ -42,6 +42,24 @@ std::string saveFolder() {
     return "./";
 }
 
+Settings loadSettings() {
+    Settings s;
+    std::ifstream in(saveFolder() + "settings.txt");
+    std::string key;
+    float v = 0;
+    while (in >> key >> v) {
+        if (key == "sound") s.sound = std::clamp(v, 0.f, 1.f);
+        else if (key == "music") s.music = std::clamp(v, 0.f, 1.f);
+        else if (key == "graphics") s.fullGraphics = v != 0;
+    }
+    return s;
+}
+
+void saveSettings(const Settings& s) {
+    std::ofstream out(saveFolder() + "settings.txt");
+    out << "sound " << s.sound << "\nmusic " << s.music << "\ngraphics " << (s.fullGraphics ? 1 : 0) << "\n";
+}
+
 std::string encodeCommand(const alamo::Command& c) {
     std::ostringstream out;
     out << std::setprecision(9) << c.tick << " " << kindName(c.kind) << " " << c.target << " " << c.owner << " " << c.index << " "
