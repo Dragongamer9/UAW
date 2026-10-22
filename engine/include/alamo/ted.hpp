@@ -70,6 +70,15 @@ struct MapEnvironment {
     float fogStart = 500, fogEnd = 3000;
 };
 
+// Water (terrain header): 0x16 on, 0x15 level (world height), 0x1A colour (RGBA), 0x1D bump
+// texture, 0x1E texture to use without shaders.
+struct MapWater {
+    bool on = false;
+    float level = 0;
+    std::array<float, 4> color{1, 1, 1, 1};
+    std::string texture, bump;
+};
+
 struct Map {
     std::string nameTextId;   // e.g. TEXT_REGION_16
     uint32_t width = 0, height = 0;   // vertices
@@ -83,6 +92,7 @@ struct Map {
     std::vector<MapObject> objects;
     std::vector<MapGroup> groups;
     MapEnvironment environment;
+    MapWater water;
     std::vector<std::string> warnings;
 
     float sizeX() const { return float(width - 1) * spacing; }

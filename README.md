@@ -538,6 +538,12 @@ optional `0x1007` visibility bitfield. `0x1009` holds int16 quaternions
 A posed bone's local transform is T × R relative to its parent, replacing the
 rest transform. Skinned vertices are posed with posed(bone) × inverse(rest(bone)).
 
+### Water (terrain header, chunk `0x0101` -> `0x00`)
+
+Mini-chunks `0x16` water on, `0x15` water level (world height), `0x1A` water colour (RGBA; swampy green on
+Amazon Basin, white elsewhere), `0x1D` bump texture, `0x1E` the texture used without shaders. The viewer
+draws a translucent sheet at that level (Amazon Basin's river, Gulf Coast's sea).
+
 ### Map environment (chunk `0x0100`)
 
 Chunk `0x04` holds lighting presets (`0x06` each, the first is the one in use) as mini-chunks: `0x00` sun

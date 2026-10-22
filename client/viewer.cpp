@@ -322,6 +322,7 @@ int main(int argc, char** argv) {
         Scene scene(renderer, db, map, opt.allGroups);
         scene.useEnvironmentSky(renderer, db);
         renderer.setEnvironment(map.environment); // the map's sun, ambient and haze
+        renderer.setWater(map.water, map.sizeX(), map.sizeY());
         const SceneStats& st = scene.stats();
         std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
                     opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
@@ -701,6 +702,7 @@ int main(int argc, char** argv) {
                 scene.draw(renderer, placeholders);
             }
             control.draw(renderer, world, world.seconds());
+            if (!lineupMode) renderer.drawWater();
             sounds(cam.target(map), cam.yaw);
             effects.watch(world, control);
             effects.update(std::clamp(world.seconds() - lastFrameTime, 0.f, 0.25f));

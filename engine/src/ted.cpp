@@ -83,9 +83,20 @@ void readTerrain(std::span<const uint8_t> body, Map& m) {
     auto cs = children(body);
     const Chunk* hdr = child(cs, 0x00);
     if (!hdr) throw AloError("map: terrain has no header");
+    auto text = [](std::span<const uint8_t> b) {
+        std::string s(reinterpret_cast<const char*>(b.data()), b.size());
+        if (const size_t z = s.find('\0'); z != std::string::npos) s.resize(z);
+        return s;
+    };
     for (const auto& mc : minis(hdr->body)) {
         if (mc.id == 0x00) m.width = rd<uint32_t>(mc.body);
         else if (mc.id == 0x01) m.height = rd<uint32_t>(mc.body);
+        else if (mc.id == 0x15 && mc.body.size() == 4) m.water.level = rd<float>(mc.body);
+        else if (mc.id == 0x16 && mc.body.size() == 4) m.water.on = rd<uint32_t>(mc.body) != 0;
+        else if (mc.id == 0x1A && mc.body.size() == 16)
+            for (int k = 0; k < 4; ++k) m.water.color[size_t(k)] = rd<float>(mc.body, size_t(k) * 4);
+        else if (mc.id == 0x1D) m.water.bump = text(mc.body);
+        else if (mc.id == 0x1E) m.water.texture = text(mc.body);
     }
     if (m.width < 2 || m.height < 2 || m.width > 4096 || m.height > 4096) throw AloError("map: bad terrain size");
     const size_t n = size_t(m.width) * m.height;

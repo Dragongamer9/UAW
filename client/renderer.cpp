@@ -773,6 +773,38 @@ void Renderer::setEnvironment(const alamo::MapEnvironment& e) {
     sunDirection_ = e.sunDirection;
 }
 
+void Renderer::setWater(const alamo::MapWater& w, float sizeX, float sizeY) {
+    if (hasWater_) water_.release();
+    hasWater_ = w.on;
+    if (!w.on) return;
+    // A sheet reaching well past the map's edges, texture tiled every 250 units.
+    const float m = 4000, z = w.level;
+    const alamo::Vec3 n{0, 0, 1};
+    const alamo::Vec4 c{1, 1, 1, 1};
+    auto at = [&](float x, float y) { return vtx({x, y, z}, n, x / 250.f, y / 250.f, c); };
+    std::vector<GpuVertex> v{at(-m, -m), at(sizeX + m, -m), at(sizeX + m, sizeY + m), at(-m, sizeY + m)};
+    const uint16_t idx[6] = {0, 1, 2, 0, 2, 3};
+    water_.upload(v, idx, 6, false);
+    waterTexture_ = w.texture.empty() ? 0 : texture(w.texture);
+    // Murky blue-green, tinted by the map's water colour.
+    const alamo::Vec4 base{0.32f, 0.44f, 0.5f, 0.72f};
+    for (int k = 0; k < 3; ++k) waterTint_[k] = base[k] * std::clamp(w.color[size_t(k)], 0.2f, 1.f) * (waterTexture_ ? 1.6f : 1.f);
+    waterTint_[3] = base[3];
+}
+
+void Renderer::drawWater() {
+    if (!hasWater_) return;
+    glUseProgram(program_);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE_);
+    setUniforms(Mat4::translate(0, 0, 0), waterTint_, waterTexture_);
+    glUniform1i(uSkinned_, 0);
+    water_.draw();
+    glDepthMask(GL_TRUE_);
+    glDisable(GL_BLEND);
+}
+
 void Renderer::drawSky(const GpuModel& m) {
     glUseProgram(program_);
     // The haze in the distance takes the sky's colour (the dome's textures, averaged), so far terrain
