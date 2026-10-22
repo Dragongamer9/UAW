@@ -8,6 +8,7 @@
 #include "common.hpp"
 #include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
+#include "alamo/particles.hpp"
 #include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
@@ -116,7 +117,13 @@ int main(int argc, char** argv) {
                 if (p.size() < 4 || p.compare(p.size() - 4, 4, ".ALO") != 0) continue;
                 try {
                     Model m = loadAlo(vfs.read(p));
-                    if (m.kind == Model::Kind::ParticleSystem) { ++particles; continue; }
+                    if (m.kind == Model::Kind::ParticleSystem) {
+                        ++particles;
+                        const auto bytes = vfs.read(p);
+                        const ParticleSystemDef ps = parseParticleSystem(bytes);
+                        if (ps.emitters.empty()) std::printf("warning: %s: particle system without emitters\n", p.c_str());
+                        continue;
+                    }
                     ++meshes;
                     for (const auto& me : m.meshes)
                         for (const auto& sm : me.subMeshes) { ++formats[sm.vertexFormat]; tris += sm.indices.size() / 3; }
@@ -138,7 +145,24 @@ int main(int argc, char** argv) {
         if (cmd == "info" && argc > 3) {
             const std::string path = modelPath(argv[3]);
             Model m = loadAlo(vfs.read(path));
-            if (m.kind == Model::Kind::ParticleSystem) { std::printf("%s: particle system\n", path.c_str()); return 0; }
+            if (m.kind == Model::Kind::ParticleSystem) {
+                const auto bytes = vfs.read(path);
+                const ParticleSystemDef ps = parseParticleSystem(bytes);
+                std::printf("%s: particle system %s, %zu emitters, lasts %.2fs\n", path.c_str(), ps.name.c_str(), ps.emitters.size(), ps.length());
+                for (const ParticleEmitterDef& e : ps.emitters) {
+                    std::printf("  %-20s spawner %#x renderer %#x%s: %g every %gs for %gs (delay %g), life %gs +-%g%%\n", e.name.c_str(),
+                                e.spawnerType, e.rendererType, e.gpu ? " (dx10)" : "", e.burst, e.interval, e.duration, e.delay, e.lifetime,
+                                e.lifetimeVariance);
+                    std::printf("      position shape %d r %g v (%g %g %g); velocity shape %d r %g v (%g %g %g) z %g..%g; accel (%g %g %g)\n",
+                                e.position.type, e.position.radius, e.position.vector[0], e.position.vector[1], e.position.vector[2],
+                                e.velocity.type, e.velocity.radius, e.velocity.vector[0], e.velocity.vector[1], e.velocity.vector[2],
+                                e.velocity.zMin, e.velocity.zMax, e.acceleration[0], e.acceleration[1], e.acceleration[2]);
+                    std::printf("      %s %s%s uv (%g %g %g %g)%s, %zu size keys, %zu colour keys\n", e.texture.c_str(), e.shader.c_str(),
+                                e.stretched ? " stretched" : "", e.uv[0], e.uv[1], e.uv[2], e.uv[3], e.uvChoices.empty() ? "" : " (random)",
+                                e.size.size(), e.color.size());
+                }
+                return 0;
+            }
             std::printf("%s\nbones: %zu\n", path.c_str(), m.bones.size());
             for (size_t i = 0; i < m.bones.size(); ++i) {
                 const auto& b = m.bones[i];

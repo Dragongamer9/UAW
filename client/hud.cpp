@@ -411,8 +411,12 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         }
     }
 
-    // --- end of the match
-    if (alamo::defeated(w, control.player())) {
+    // --- end of the match (once you have had a base to lose)
+    if (!sawPlayer_)
+        for (const alamo::Unit& u : w.units())
+            if (u.owner == control.player() && u.structure) { sawPlayer_ = true; break; }
+    if (!sawPlayer_) {
+    } else if (alamo::defeated(w, control.player())) {
         banner(r, "Defeat", {1.f, 0.4f, 0.35f, 1});
     } else {
         bool anyEnemy = false, enemyAlive = false;

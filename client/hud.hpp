@@ -42,6 +42,7 @@ private:
     const alamo::Map* map_ = nullptr;
     GLuint minimapTex_ = 0;
     GLuint fogTex_ = 0;
+    bool sawPlayer_ = false; // the viewing player has had units (else no victory/defeat banner)
     uint64_t fogVersion_ = ~0ull;
     Rect minimap_{0, 0, 0, 0}; // last drawn
     void banner(Renderer& r, const std::string& text, const alamo::Vec4& color);

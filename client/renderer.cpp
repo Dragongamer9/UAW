@@ -56,12 +56,14 @@ uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange; // x = start, y = end
 uniform int uUnlit;
+uniform int uAlphaTest;
 uniform sampler2D uFow;
 uniform vec4 uFowParams; // xy = 1 / map size, z = 1 when fog of war is on
 out vec4 fragColor;
 void main() {
     vec4 base = vColor * uTint;
     if (uHasTex != 0) base *= texture(uTex, vUv);
+    if (uAlphaTest != 0 && base.a < 0.5) discard;
     if (uUnlit != 0) { fragColor = base; return; }
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
@@ -264,6 +266,7 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uFogColor_ = glGetUniformLocation(program_, "uFogColor");
     uFogRange_ = glGetUniformLocation(program_, "uFogRange");
     uUnlit_ = glGetUniformLocation(program_, "uUnlit");
+    uAlphaTest_ = glGetUniformLocation(program_, "uAlphaTest");
     uSkin_ = glGetUniformLocation(program_, "uSkin");
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
 
@@ -385,6 +388,8 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                     gpu.blend = GpuMesh::Blend::Additive;
                 else if (shader.find("Alpha") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Alpha;
+                for (const char* cut : {"Grass", "Leaves", "Bush", "Foliage", "Alpha_Test", "AlphaTest", "Billboard"})
+                    if (shader.find(cut) != std::string::npos) gpu.alphaTest = true;
                 if (auto it = sm.material.params.find("Diffuse"); it != sm.material.params.end())
                     if (auto* d = std::get_if<alamo::Vec4>(&it->second)) gpu.tint = {(*d)[0], (*d)[1], (*d)[2], 1};
                 if (gpu.tint[0] + gpu.tint[1] + gpu.tint[2] < 0.05f) gpu.tint = {1, 1, 1, 1};
@@ -522,6 +527,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform4fv(uFogRange_, 1, fogRange);
     glUniform1i(uTex_, 0);
     glUniform1i(uUnlit_, 0);
+    glUniform1i(uAlphaTest_, 0);
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
     glActiveTexture(GL_TEXTURE2);
@@ -611,7 +617,9 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
         }
         setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture);
         setSkin(mesh, pose);
+        if (mesh.alphaTest) glUniform1i(uAlphaTest_, 1);
         mesh.draw();
+        if (mesh.alphaTest) glUniform1i(uAlphaTest_, 0);
     }
     glUniform1i(uSkinned_, 0);
 }
@@ -673,7 +681,6 @@ void Renderer::endFrame() {
 }
 
 void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint texture) {
-    if (v.empty()) return;
     if (!overlayVao_) {
         glGenVertexArrays(1, &overlayVao_);
         glBindVertexArray(overlayVao_);
@@ -689,6 +696,7 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, r)));
     }
+    if (v.empty()) return;
     glBindVertexArray(overlayVao_);
     glBindBuffer(GL_ARRAY_BUFFER, overlayVbo_);
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v.size() * sizeof(GpuVertex)), v.data(), GL_DYNAMIC_DRAW);
@@ -711,6 +719,27 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
     glEnable(GL_DEPTH_TEST);
     glUniform1i(uUnlit_, 0);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+}
+
+void Renderer::drawParticles(const std::vector<GpuVertex>& v, GLuint texture, bool additive) {
+    if (v.empty()) return;
+    drawOverlayTriangles({}, 0); // makes sure the dynamic buffer exists
+    if (!overlayVao_) return;
+    glBindVertexArray(overlayVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, overlayVbo_);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v.size() * sizeof(GpuVertex)), v.data(), GL_DYNAMIC_DRAW);
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+    glUniform1i(uUnlit_, 1);
+    glUniform1i(uSkinned_, 0);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE_);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, additive ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+    setUniforms(Mat4{}, {1, 1, 1, 1}, texture);
+    glDrawArrays(GL_TRIANGLES, 0, GLsizei(v.size()));
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE_);
+    glUniform1i(uUnlit_, 0);
 }
 
 void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& c) {

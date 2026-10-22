@@ -270,6 +270,7 @@ enum class OrderResult { Ok, NotAllowed, NotEnoughCredits, PopulationCap, Blocke
 const char* toString(OrderResult r);
 
 struct Projectile {
+    uint32_t id = 0;           // set when it first moves (for visuals that follow it)
     int owner = 0;
     uint32_t shooter = 0;
     uint32_t target = 0;
@@ -296,6 +297,14 @@ struct SuperweaponSpec {
     // LIGHTNING_BALL_EFFECT's Spawn_Object_On_Death and TornadoBehaviorType lifetime
     const GameObjectType* spawnOnEnd = nullptr;
     float lifetime = 20;              // seconds the weapon object lasts
+};
+
+// Where a projectile landed (for impact visuals).
+struct ImpactEvent {
+    const GameObjectType* type; // the projectile
+    Vec3 position;
+    bool hitUnit;
+    uint64_t tick;
 };
 
 struct DeathEvent {
@@ -349,6 +358,7 @@ public:
 
     const std::vector<Projectile>& projectiles() const { return projectiles_; }
     const std::vector<DeathEvent>& deaths() const { return deaths_; } // everything that has died
+    const std::vector<ImpactEvent>& impacts() const { return impacts_; } // recent projectile landings (the last few thousand)
     bool enemies(int ownerA, int ownerB) const {
         if (ownerA == ownerB) return false;
         if (ownerA < 0 || ownerB < 0 || ownerA >= int(players_.size()) || ownerB >= int(players_.size())) return true;
@@ -528,6 +538,8 @@ private:
     std::vector<Player> players_;
     std::vector<Unit> units_;
     std::vector<Projectile> projectiles_;
+    std::vector<ImpactEvent> impacts_;
+    uint32_t nextProjectileId_ = 1;
     std::vector<DeathEvent> deaths_;
     std::vector<ResourceNode> resources_;
     const GameDatabase* effects_ = nullptr;

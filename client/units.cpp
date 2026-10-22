@@ -1,4 +1,5 @@
 #include "units.hpp"
+#include "particles.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -451,19 +452,32 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     static const Vec4 shot[] = {{0.5f, 0.85f, 1.f, 1}, {1.f, 0.55f, 0.25f, 1}, {0.6f, 1.f, 0.5f, 1}, {1.f, 0.9f, 0.4f, 1}};
     for (const alamo::Projectile& p : w.projectiles()) {
         if (fog && w.fogOfWar() && player_ >= 0 && !w.visibleTo(player_, p.position)) continue;
+        if (p.type)
+            if (const std::string* m = p.type->find("Land_Model_Name"); m && !alamo::trim(*m).empty()) {
+                if (effects && effects->system(alamo::trim(*m))) continue; // its trail is the picture
+                if (const GpuModel* gm = r.model(alamo::trim(*m))) {      // a rocket or shell: the model, nose first
+                    const float yaw = std::atan2(p.velocity[1], p.velocity[0]);
+                    const float scale = float(p.type->number("Scale_Factor").value_or(1.0));
+                    r.drawModel(*gm, Mat4::translate(p.position[0], p.position[1], p.position[2]) * Mat4::rotateZ(yaw + 1.5707963f) *
+                                         Mat4::scale(scale));
+                    continue;
+                }
+            }
         const float sz = p.blastDamage > 0 ? 6.f : 3.5f;
         r.drawBox(Mat4::translate(p.position[0], p.position[1], p.position[2] - sz / 2) * Mat4::scale(sz), shot[std::clamp(p.owner, 0, 3)]);
     }
-    // Wrecks: dark scorch plates that fade over 20 seconds.
+    // Wrecks: a dark scorch plate for a few seconds, only when there are no particle effects to show
+    // the explosion (they replace it).
     const uint64_t now = w.tickCount();
-    for (const alamo::DeathEvent& d : w.deaths()) {
-        const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
-        if (age > 20 || (fog && w.fogOfWar() && player_ >= 0 && w.visibility(player_, d.position[0], d.position[1]) == 0)) continue;
-        const float k = 1 - age / 20;
-        const float s = 12 + 10 * std::min(age * 3, 1.f);
-        r.drawBox(Mat4::translate(d.position[0], d.position[1], d.position[2] + 0.4f) * Mat4::scale3(s, s, 1.5f * k + 0.3f),
-                  {0.12f + 0.5f * k * (age < 0.5f), 0.1f, 0.08f, 1});
-    }
+    if (!effects)
+        for (const alamo::DeathEvent& d : w.deaths()) {
+            const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
+            if (age > 6 || (fog && w.fogOfWar() && player_ >= 0 && w.visibility(player_, d.position[0], d.position[1]) == 0)) continue;
+            const float k = 1 - age / 6;
+            const float s = 10 + 6 * std::min(age * 3, 1.f);
+            r.drawBox(Mat4::translate(d.position[0], d.position[1], d.position[2] + 0.4f) * Mat4::scale3(s, s, 1.0f * k + 0.2f),
+                      {0.12f + 0.5f * k * (age < 0.5f), 0.1f, 0.08f, 1});
+        }
     // Order marker: shrinking plate for one second (red for attack orders).
     const float age = time - lastOrderTime_;
     if (age >= 0 && age < 1) {

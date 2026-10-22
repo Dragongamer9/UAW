@@ -949,7 +949,9 @@ void World::applyDamage(Unit& victim, float amount, const std::string& damageTyp
 void World::updateProjectiles() {
     std::vector<Projectile> keep;
     keep.reserve(projectiles_.size());
+    if (impacts_.size() > 4096) impacts_.erase(impacts_.begin(), impacts_.begin() + 2048);
     for (Projectile& p : projectiles_) {
+        if (!p.id) p.id = nextProjectileId_++;
         const float speed = std::sqrt(p.velocity[0] * p.velocity[0] + p.velocity[1] * p.velocity[1] + p.velocity[2] * p.velocity[2]);
         const float step = std::min(speed, p.distance - p.travelled);
         const float k = speed > 0 ? step / speed : 0;
@@ -967,6 +969,7 @@ void World::updateProjectiles() {
             for (Unit& o : units_)
                 if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
         if (hit && p.damage > 0) applyDamage(*hit, p.damage, p.damageType);
+        impacts_.push_back({p.type, p.position, hit != nullptr, ticks_});
         projectileImpact(p, hit);
         if (p.blastDamage > 0 && p.blastRange > 0)
             for (Unit& o : units_)

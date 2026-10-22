@@ -34,7 +34,8 @@ redistributed.
 | 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
 | 2 | Animated units in the viewer: GPU skinning (rigid, skinned and 4-bone weighted meshes), idle/move/attack `.ALA` per unit | done (first version) |
 | 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
-| 2 | Particle systems (`0x1500` .ALO) | planned |
+| 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
+| 2 | Foliage: alpha-tested grass, leaves and bushes | done |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI still sees everything |
@@ -132,6 +133,10 @@ squad, or another with `--player N`.
 | Toggle stand-in boxes | P | Y |
 | Game speed / pause | `[` `]` / Pause | |
 | Menu (resume, restart, setup, exit) | Esc | Start or Back |
+
+Particle effects can be checked one at a time: `uaw-viewer "<game>" M16_Sahara --no-units --camera 2500,2500,200,0,35
+--effect Novus_Large_Explosion_Vent@0.4 --screenshot fx.png` (a Particles.xml name or an .alo file, pictured 0.4 s
+after it starts); `alotool "<game>" info pp_novus_explosion_vent.alo` lists a system's emitters.
 
 Headless check of a move order: `uaw-viewer "<game>" M16_Sahara --order 1900,3000 --run 12 --screenshot out.png`.
 Scripted battle (prints both sides' units and health every 5 seconds):

@@ -35,6 +35,7 @@ struct GpuMesh {
     GLuint texture = 0;
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
+    bool alphaTest = false; // foliage (grass, leaves, bushes): cut out where the texture is transparent
     std::vector<uint32_t> palette; // skeleton bone per vertex bone slot (empty: never posed)
 
     void upload(const std::vector<GpuVertex>& verts, const void* indices, size_t count, bool wide);
@@ -81,6 +82,11 @@ public:
     // 2D overlay in pixels (top-left origin), alpha-blended over everything, unlit.
     void drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color);
     void drawOverlayTriangles(const std::vector<GpuVertex>& vertices, GLuint texture); // x/y in pixels
+    // World-space triangles (camera-facing particle quads), unlit, blended, no depth writes.
+    void drawParticles(const std::vector<GpuVertex>& vertices, GLuint texture, bool additive);
+    // A game texture by name (cached; 0 if missing).
+    GLuint textureNamed(const std::string& name) { return texture(name); }
+    const alamo::Vec3& cameraPosition() const { return camPos_; }
     int width() const { return width_; }
     int height() const { return height_; }
 
@@ -108,7 +114,7 @@ private:
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1;
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
     int width_ = 1, height_ = 1;

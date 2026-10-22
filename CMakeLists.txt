@@ -33,6 +33,7 @@ add_library(alamo
     engine/src/effects.cpp
     engine/src/abilities.cpp
     engine/src/superweapons.cpp
+    engine/src/particles.cpp
     engine/src/luavm.cpp
     engine/src/research.cpp
     engine/src/ai.cpp
@@ -119,6 +120,7 @@ if(UAW_BUILD_CLIENT)
     client/units.cpp
     client/hud.cpp
     client/menu.cpp
+    client/particles.cpp
     client/font.cpp
     client/gl.cpp)
   target_link_libraries(uaw-viewer PRIVATE alamo SDL3::SDL3)

@@ -12,6 +12,8 @@
 
 namespace uaw {
 
+class ParticleEffects;
+
 // Screen <-> world helpers for the current frame.
 struct View {
     alamo::Vec3 eye, target;
@@ -63,6 +65,7 @@ public:
     int player() const { return player_; }
     bool showResources = true; // scrap piles (off in the model gallery)
     bool animate = true;       // play the units' .ALA animations
+    ParticleEffects* effects = nullptr; // projectiles drawn as their particle systems (trails) when set
     bool fog = true;           // hide enemies your side can't see (when the world has fog of war)
     // Drawn for this player: own and allied units, enemies in sight, enemy structures seen before.
     bool shown(const alamo::World& w, const alamo::Unit& u) const;

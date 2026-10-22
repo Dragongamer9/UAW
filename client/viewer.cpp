@@ -30,6 +30,8 @@
 //     --research          open the research panel
 //     --menu              (with --screenshot) picture of the setup screen for MAP
 //     --no-fog            no fog of war
+//     --effect NAME[@S]   (with --screenshot) a particle effect (Particles.xml name or .alo) at the
+//                         camera target, pictured S seconds after it starts (default 0.3)
 //     --slots LIST        every start position in order: you|ai|open[:FACTION[:TEAM]], e.g.
 //                         you:Novus:1,ai:Masari:1,ai:Alien:2,ai:Military:2 (2 v 2)
 //
@@ -54,6 +56,7 @@
 #include "hud.hpp"
 #include "units.hpp"
 #include "menu.hpp"
+#include "particles.hpp"
 
 #include "alamo/ai.hpp"
 #include "alamo/alo.hpp"
@@ -97,6 +100,7 @@ struct Options {
     float order[2] = {0, 0};
     float runSeconds = 0;
     bool fog = true;       // fog of war (--no-fog)
+    std::string effect;    // --effect NAME[@SECONDS]: (screenshots) a particle effect at the camera target
     std::string slots;     // --slots you:Novus:1,ai:Alien:2,open,...
     bool menu = false;     // start at the skirmish setup screen (no map on the command line)
     float speed = 1;       // game speed multiplier
@@ -160,6 +164,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--menu") o.menu = true;
         else if (a == "--slots") o.slots = next();
         else if (a == "--no-fog") o.fog = false;
+        else if (a == "--effect") o.effect = next();
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -441,6 +446,9 @@ int main(int argc, char** argv) {
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
         UnitControl control(opt.player - 1);
+        ParticleEffects effects(vfs, db);
+        control.effects = &effects;
+        float lastFrameTime = world.seconds();
         control.showResources = !lineupMode;
         control.fog = !opt.spectate; // spectators see everything
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
@@ -480,7 +488,12 @@ int main(int argc, char** argv) {
             else
                 scene.draw(renderer, placeholders);
             control.draw(renderer, world, world.seconds());
+            effects.watch(world, control);
+            effects.update(std::clamp(world.seconds() - lastFrameTime, 0.f, 0.25f));
+            lastFrameTime = world.seconds();
             renderer.endFrame();
+            static const bool noParticles = std::getenv("UAW_NO_PARTICLES") != nullptr;
+            if (!noParticles) effects.draw(renderer, view);
             hud.draw(renderer, world, control, db, text, padConnected, &view);
             if (paused && !pause.open) hud.centreText(renderer, "Paused");
             else if (opt.speed != 1) hud.centreText(renderer, opt.speed > 1 ? "Speed x" + std::to_string(int(opt.speed)) : "Speed x0.5", true);
@@ -535,6 +548,10 @@ int main(int argc, char** argv) {
             if (opt.battle) census();
             for (int t = 1; t <= ticks; ++t) {
                 stepWorld();
+                if (ticks - t < 30 * 20) { // particles for the last 20 s, so the picture shows effects in flight
+                    effects.watch(world, control);
+                    effects.update(1.f / kTicksPerSecond);
+                }
                 if (opt.battle && t % (5 * kTicksPerSecond) == 0) census();
             }
             if (opt.haveOrder) {
@@ -566,7 +583,17 @@ int main(int argc, char** argv) {
             }
             int w, h;
             SDL_GetWindowSizeInPixels(window, &w, &h);
+            if (!opt.effect.empty()) {
+                const size_t at = opt.effect.find('@');
+                const std::string name = opt.effect.substr(0, at);
+                const float age = at == std::string::npos ? 0.3f : float(std::atof(opt.effect.c_str() + at + 1));
+                const Vec3 t = cam.target(map);
+                std::printf("effect %s: %s\n", name.c_str(), effects.spawn(name, t) ? "started" : "not found");
+                for (float tt = 0; tt < age; tt += 1.f / 30) effects.update(1.f / 30);
+            }
+            lastFrameTime = world.seconds();
             drawFrame(w, h);
+            std::printf("particles: %zu in %zu systems\n", effects.particleCount(), effects.systemCount());
             Image img;
             img.width = uint32_t(w);
             img.height = uint32_t(h);
