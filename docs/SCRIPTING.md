@@ -86,7 +86,9 @@ place so events still arrive). Threads from `Create_Thread` are coroutines resum
 Engine side provided: `GetEvent` (with `Params`, `Reset`), `ThreadValue` (per coroutine, with
 `Set`, `Reset`), `Thread.Is_Pumping_Thread`, `GetThreadID`, `Create_Thread` (with `Kill`),
 `GetCurrentTime`, `GameRandom` (deterministic per object), `Math`, `Script`, `Find_Object_Type`,
-`Create_Generic_Object`, the script message hooks. Objects: `Get_ID`, `Is_Valid`, `Get_Owner`,
+`Create_Generic_Object`, `Create_Position`, `Find_Player`, `Find_All_Objects_Of_Type`, `Find_First_Object`,
+`Get_Game_Text` (with the string table), `Get_Game_Mode`, `Is_Campaign_Game`, `Create_Wide_String`, the
+script message hooks. Objects: `Get_ID`, `Is_Valid`, `Get_Owner`,
 `Get_Type`, `Get_Position`, `Get_Distance`, `Get_Health`, `Can_Move`, `Despawn`, `Is_Category`,
 `Is_Powered`, `Event_Object_In_Range` / `Cancel_...`, `Register_Signal_Handler` / `Unregister_...`
 (`OBJECT_OWNER_CHANGED` is raised). Players: `Get_ID`, `Is_Human`, `Is_AI_Player`, `Give_Money`,
@@ -99,9 +101,9 @@ calls `Set_Depot` / `Set_Drone_Search_Radius` on them (not there yet). `AlienRea
 
 Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player.lua` in its own state
 (`Player` bound, `Base_Definitions()` and `Definitions()`, then its threads), and `Call_Function(name,
-...)` / `Get_Variable(name)` reach into it. `Novus_Player.lua` loads and runs its definitions; it asks
-for much more of the engine (research and scoring: `Get_Game_Mode`, `Find_All_Objects_Of_Type`,
-`Create_Position`, `GameScoringManager`, `Get_Game_Text`, ...).
+...)` / `Get_Variable(name)` reach into it. The player scripts load and run their definitions and threads; they ask for much more of
+the engine (scoring: `GameScoringManager`, `Register_Game_Scoring_Commands`; game events:
+`Raise_Game_Event`; the GUI: `Set_Object_Context_ID`, comms portraits created as `*_PIP_Only` objects).
 
 Next: the drone and player-script API those need, then a switch to run scripts in real games in place
 of the native copies.

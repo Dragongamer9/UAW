@@ -449,6 +449,56 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
     vm.setFunction("Find_Object_Type", [&w, &I](const Values& a) {
         return Values{a.empty() ? LuaValue() : I.type(w.db().find(a[0].str()))};
     });
+    // ---- common engine globals
+    vm.setFunction("Is_Campaign_Game", [](const Values&) { return Values{LuaValue::boolean(false)}; });
+    vm.setFunction("Get_Game_Mode", [](const Values&) { return Values{LuaValue::string("Land")}; });
+    vm.setFunction("Create_Wide_String", [](const Values& a) { return Values{LuaValue::string(a.empty() ? "" : a[0].str())}; });
+    vm.setFunction("Get_Game_Text", [this](const Values& a) {
+        const std::string key = a.empty() ? "" : a[0].str();
+        const std::string* t = text ? text->get(key) : nullptr;
+        return Values{LuaValue::string(t ? *t : key)};
+    });
+    vm.setFunction("Create_Position", [position](const Values& a) {
+        return Values{position({float(num(a, 0)), float(num(a, 1)), float(num(a, 2))})};
+    });
+    vm.setFunction("Find_Player", [&w, &I, this](const Values& a) {
+        const std::string want = a.empty() ? "" : upper(a[0].str());
+        for (const Player& p : w.players())
+            if ((want == "LOCAL" && isHuman(p.id)) || upper(p.faction) == want) return Values{I.player(p.id)};
+        return Values{};
+    });
+    // Objects of a type (handle or name) or with a category, optionally only one player's.
+    auto findAll = [&w, &I](const Values& a, bool first) {
+        LuaValue list = table();
+        if (a.empty()) return list;
+        std::string want;
+        if (a[0].isTable()) want = a[0].t->get(LuaValue::string("__type")).str();
+        else want = a[0].str();
+        int owner = -1;
+        if (a.size() > 1 && a[1].isTable())
+            if (const LuaValue gid = a[1].t->get(LuaValue::string("Get_ID")); gid.type == LuaValue::Type::Native) {
+                const Values r = (*gid.native)({});
+                owner = r.empty() ? -1 : int(r[0].n);
+            }
+        const std::string wantUp = upper(want);
+        double n = 0;
+        for (const Unit& u : w.units()) {
+            if (!u.alive() || (owner >= 0 && u.owner != owner)) continue;
+            bool match = upper(u.type->name) == wantUp;
+            if (!match && !a[0].isTable())
+                if (const std::string* mask = u.type->find("CategoryMask")) match = upper(*mask).find(wantUp) != std::string::npos;
+            if (!match) continue;
+            list.t->set(LuaValue::number(++n), I.object(u.id));
+            if (first) break;
+        }
+        return list;
+    };
+    vm.setFunction("Find_All_Objects_Of_Type", [findAll](const Values& a) { return Values{findAll(a, false)}; });
+    vm.setFunction("Find_First_Object", [findAll](const Values& a) {
+        const LuaValue l = findAll(a, true);
+        return Values{l.t->get(LuaValue::number(1))};
+    });
+
     // Create_Generic_Object(type, position, player): a new object, as its handle.
     vm.setFunction("Create_Generic_Object", [&w, &I, whereOf, say](const Values& a) {
         if (a.size() < 3 || !a[0].isTable()) return Values{};

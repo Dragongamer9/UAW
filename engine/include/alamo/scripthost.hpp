@@ -9,6 +9,7 @@
 #include "alamo/luavm.hpp"
 #include "alamo/scripts.hpp"
 #include "alamo/sim.hpp"
+#include "alamo/strings.hpp"
 
 #include <functional>
 #include <map>
@@ -34,6 +35,8 @@ public:
     size_t running() const;
     // Which players are people (Player.Is_Human); by default player 0.
     std::function<bool(int player)> isHuman = [](int p) { return p == 0; };
+    // The game's strings, for Get_Game_Text (keys are returned as they are without it).
+    const StringTable* text = nullptr;
     // Script messages and unknown engine calls, for debugging (none by default).
     std::function<void(const std::string&)> log;
 
