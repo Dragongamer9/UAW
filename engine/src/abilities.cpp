@@ -143,6 +143,110 @@ bool World::hasEffectClass(const Unit& u, std::string_view cls) const {
     return false;
 }
 
+// ---------------------------------------------------------------- created objects
+
+uint32_t World::createObject(const GameObjectType& ot, int owner, Vec3 position, float facing, int lifeTicks) {
+    const TypeAbilities& ota = abilitiesOf(ot);
+    bool gameplay = false;
+    for (const GeneratorDef& g : ota.generators)
+        for (const GeneratorEntry& e : g.entries)
+            if (const EffectDef* d = effectLib_ ? effectLib_->find(e.effect) : nullptr; d && d->hasGameplay()) gameplay = true;
+    // Anything with health that can fight or move is a unit; health-less objects are effects.
+    const bool fights = !weaponsFor(ot, db_).empty() || !ota.abilities.empty() || !squadMembers(ot, db_).empty();
+    const bool realUnit = ot.number("Tactical_Health").value_or(0) > 0 && (fights || ot.find("Max_Speed"));
+    if (realUnit) {
+        pendingSpawns_.push_back({ot.name, owner, position});
+        return 0;
+    }
+    if (!gameplay) return 0; // visual props
+    Unit o;
+    o.id = nextId_++;
+    o.type = &ot;
+    o.owner = o.originalOwner = owner;
+    o.position = position;
+    o.facing = facing;
+    o.maxSpeed = 0;
+    o.maxHealth = o.health = std::max(1.f, float(ot.number("Tactical_Health").value_or(1)));
+    o.radius = 1;
+    // Particle objects (radiation fields) last as long as their particle effect.
+    const float frames = float(ot.number("Particle_Lifetime_Frames").value_or(0));
+    o.lifeTicks = frames > 0 ? int(frames) : lifeTicks;
+    initAbilities(o);
+    const uint32_t id = o.id;
+    pendingObjects_.push_back(std::move(o));
+    return id;
+}
+
+void World::deathSpawn(const Unit& u) {
+    const std::string* spawnType = u.type->find("On_Death_Spawn_Object_Type");
+    if (!spawnType || trim(*spawnType).empty()) return;
+    if (const std::string* dis = u.type->find("Disable_Death_Spawn_Object_Attribute"); dis && u.attribute(*dis) != 0) return;
+    if (const GameObjectType* ot = db_.find(trim(*spawnType))) createObject(*ot, u.owner, u.position, u.facing, 10 * kTicksPerSecond);
+}
+
+// ---------------------------------------------------------------- defences
+
+float World::dmaMax(const Unit& u) const {
+    static const std::string kMax = "DMA_MAX";
+    return std::max(0.f, u.attributeUpper(kMax));
+}
+
+void World::initDefenses(Unit& u) {
+    u.shieldMax = u.shield = float(u.type->number("Shield_Points").value_or(0));
+    u.shieldRegen = float(u.type->number("Shield_Refresh_Rate").value_or(0));
+    if (const std::string* a = u.type->find("Shield_Armor_Type")) u.shieldArmor = trim(*a);
+    u.ammoMax = float(u.type->number("Energy_Ammo_Capacity").value_or(0));
+    u.dma = dmaMax(u);
+}
+
+// ---------------------------------------------------------------- type switching
+
+void World::switchType(Unit& u, const GameObjectType& to) {
+    if (u.type == &to) return;
+    for (auto& g : u.generators)
+        if (g.active) deactivateGenerator(u, g);
+    Unit n = makeUnit(&to, u.owner, u.position, u.facing);
+    const float frac = u.maxHealth > 0 ? u.health / u.maxHealth : 1;
+    n.health = std::max(1.f, frac * n.maxHealth);
+    n.shield = u.shieldMax > 0 ? n.shieldMax * (u.shield / u.shieldMax) : n.shieldMax;
+    n.dma = std::min(u.dma, dmaMax(n));
+    n.ammo = std::min(u.ammo, n.ammoMax);
+    n.id = u.id;
+    n.originalOwner = u.originalOwner;
+    n.position = u.position;
+    n.speed = u.speed;
+    n.path = std::move(u.path);
+    n.goal = u.goal;
+    n.attackOrder = u.attackOrder;
+    n.attackMove = u.attackMove;
+    n.target = u.target;
+    n.effects = std::move(u.effects);
+    n.queue = std::move(u.queue);
+    n.queueTicks = u.queueTicks;
+    n.rally = u.rally;
+    n.hasRally = u.hasRally;
+    n.constructing = u.constructing;
+    n.underConstruction = u.underConstruction;
+    n.buildProgress = u.buildProgress;
+    n.buildTicks = u.buildTicks;
+    n.builderTicks = u.builderTicks;
+    n.upgrades = std::move(u.upgrades);
+    n.harvest = u.harvest;
+    n.harvestNode = u.harvestNode;
+    n.depot = u.depot;
+    n.carried = u.carried;
+    n.powered = u.powered;
+    // Recharges carry over to the same ability in the new mode.
+    const TypeAbilities& oldTa = abilitiesOf(*u.type);
+    const TypeAbilities& newTa = abilitiesOf(to);
+    for (const auto& oa : u.abilities)
+        for (auto& na : n.abilities)
+            if (iequals(oldTa.abilities[oa.index].name, newTa.abilities[na.index].name)) na.cooldown = oa.cooldown;
+    if (n.structure && (n.footprintX != u.footprintX || n.footprintY != u.footprintY)) navDirty_ = true;
+    u = std::move(n);
+    recomputeModifiers(u);
+}
+
 // ---------------------------------------------------------------- applying effects
 
 void World::applyEffect(Unit& t, const EffectDef& def, const Unit* source, int sourceOwner, int duration, uint64_t genKey) {
@@ -153,6 +257,13 @@ void World::applyEffect(Unit& t, const EffectDef& def, const Unit* source, int s
             for (const EffectComponent& c : e.def->components)
                 if (c.op == EffectOp::BlockEffect)
                     if (const std::string* b = c.get("Block_Effect_Class"); b && iequals(*b, def.effectClass)) return;
+    // Memoryless attributes change once per application (dark-matter armor level).
+    for (const EffectComponent& c : def.components) {
+        if (c.op != EffectOp::AttributeModifier || c.attribute != "CURRENT_DMA_LEVEL") continue;
+        if (c.reset) { t.dma = 0; continue; }
+        const float delta = c.modifierAttribute.empty() ? c.value : t.attributeUpper(c.modifierAttribute);
+        t.dma = std::clamp(t.dma + delta, 0.f, dmaMax(t));
+    }
     const uint32_t sourceId = source ? (source->actsFor ? source->actsFor : source->id) : 0;
     for (auto& e : t.effects) {
         if (e.def != &def) continue;
@@ -207,35 +318,10 @@ void World::applyEffect(Unit& t, const EffectDef& def, const Unit* source, int s
             if (!ot) continue;
             const int owner = c.flag("Use_Source_Player_ID", true) && sourceOwner >= 0 ? sourceOwner : t.owner;
             const int count = std::max(1, int(c.number("Number_To_Create", 1)));
-            const TypeAbilities& ota = abilitiesOf(*ot);
-            bool gameplay = false;
-            for (const GeneratorDef& g : ota.generators)
-                for (const GeneratorEntry& e : g.entries)
-                    if (const EffectDef* d = effectLib_ ? effectLib_->find(e.effect) : nullptr; d && d->hasGameplay()) gameplay = true;
-            const bool realUnit = !weaponsFor(*ot, db_).empty() && ot->number("Tactical_Health").value_or(0) > 0;
-            if (!gameplay && !realUnit) continue; // visual props
-            for (int n = 0; n < count; ++n) {
-                Unit o;
-                o.id = nextId_++;
-                o.type = ot;
-                o.owner = owner;
-                o.originalOwner = owner;
-                o.position = t.position;
-                o.facing = t.facing;
-                o.maxSpeed = 0;
-                o.maxHealth = o.health = std::max(1.f, float(ot->number("Tactical_Health").value_or(1)));
-                o.radius = 1;
-                // Particle objects (radiation fields) last as long as their particle effect.
-                const float frames = float(ot->number("Particle_Lifetime_Frames").value_or(0));
-                o.lifeTicks = frames > 0 ? int(frames) : c.flag("Destroy_On_Remove") ? -1 : 60 * kTicksPerSecond;
-                if (c.flag("Destroy_On_Remove")) ae.created.push_back(o.id);
-                if (realUnit) {
-                    pendingSpawns_.push_back({ot->name, owner, t.position});
-                    continue;
-                }
-                initAbilities(o);
-                pendingObjects_.push_back(std::move(o));
-            }
+            const bool tied = c.flag("Destroy_On_Remove");
+            for (int n = 0; n < count; ++n)
+                if (const uint32_t id = createObject(*ot, owner, t.position, t.facing, tied ? -1 : 60 * kTicksPerSecond); id && tied)
+                    ae.created.push_back(id);
         } else if (c.op == EffectOp::ApplyGenerator || c.op == EffectOp::ActivateGenerator) {
             const std::string* gname = c.get("Effect_Generator_Name");
             if (!gname) continue;
@@ -294,6 +380,18 @@ void World::updateEffects(Unit& u) {
             if (c.op == EffectOp::DamageOverTime) {
                 const float a = c.number("Amount_Per_Second") + c.number("Percentage_Per_Second") * u.maxHealth;
                 if (a > 0) applyDamage(u, a / kTicksPerSecond, c.get("Damage_Type") ? *c.get("Damage_Type") : std::string());
+            } else if (c.op == EffectOp::Transfer) {
+                // Drains: only health damage is simulated here (resource transfers are the economy's).
+                const std::string* te = c.get("Target_Effect");
+                if (te && iequals(trim(*te), "HealthDamage")) {
+                    const float a = c.number("Amount_Per_Second") / kTicksPerSecond;
+                    // Feeding the source's ammo (Orlok's crush): stops once it is full.
+                    const std::string* se = c.get("Source_Effect");
+                    Unit* src = se && iequals(trim(*se), "AmmoUnits") ? anyUnit(e.source) : nullptr;
+                    if (src && src->ammoMax > 0 && src->ammo >= src->ammoMax) continue;
+                    if (a > 0) applyDamage(u, a, c.get("Target_Damage") ? *c.get("Target_Damage") : std::string());
+                    if (src && src->ammoMax > 0) src->ammo = std::min(src->ammoMax, src->ammo + a * c.number("Transfer_Multiplicative", 1));
+                }
             } else if (c.op == EffectOp::HealOverTime) {
                 const float a = c.number("Amount_Per_Second") + c.number("Percentage_Per_Second") * u.maxHealth;
                 if (a > 0 && u.alive()) u.health = std::min(u.maxHealth, u.health + a / kTicksPerSecond);
@@ -320,7 +418,7 @@ void World::recomputeModifiers(Unit& u) {
     for (const auto& e : u.effects)
         for (const EffectComponent& c : e.def->components) {
             if (c.op == EffectOp::AttributeModifier) {
-                if (!c.attribute.empty()) u.attributes[c.attribute] += c.value;
+                if (!c.attribute.empty() && c.attribute != "CURRENT_DMA_LEVEL") u.attributes[c.attribute] += c.value;
             } else if (c.op == EffectOp::DisableBehavior) {
                 const std::string b = c.get("Behaviors") ? upperS(*c.get("Behaviors")) : "";
                 if (b.find("LOCOMOTOR") != std::string::npos) u.immobile = true;
@@ -373,6 +471,7 @@ bool World::filterPasses(std::string_view f, const Unit& s, int so, const Unit& 
     if (n == "IN_ICE_MODE") return endsWith("_ICE");
     if (n == "IN_FIRE_MODE") return endsWith("_FIRE");
     if (n == "IS_FACTION_MASARI") return so >= 0 && so < int(players_.size()) && iequals(players_[size_t(so)].faction, "Masari");
+    if (n == "REGEN_DMA") return t.dma < dmaMax(t) - 0.01f;
     if (n == "IS_SOURCE_FACTION_ALIEN") return so >= 0 && so < int(players_.size()) && iequals(players_[size_t(so)].faction, "Alien");
     return false; // unknown filter: don't apply
 }
@@ -516,6 +615,7 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
     const TypeAbilities& ta = abilitiesOf(*u.type);
     const AbilitySpec& s = ta.abilities[u.abilities[i].index];
     if (abilityLocked(u, s)) return false;
+    if (s.needsAmmoRoom && u.ammoMax > 0 && u.ammo >= u.ammoMax) return false;
     auto categoriesOk = [&](const Unit& t) {
         const auto& cats = abilitiesOf(*t.type).categories;
         if (!s.applicable.empty() && !hasAnyCategory(cats, s.applicable)) return false;
@@ -539,6 +639,27 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
             const float d = distXY(u.position, o.position);
             if (d < best) { best = d; target = o.id; }
         }
+        return target != 0;
+    }
+    if (s.kind == AbilitySpec::Kind::Switch) return true; // always possible; callers decide when
+    if (s.kind == AbilitySpec::Kind::SelfDestruct) {
+        const float r = std::max(s.selfDestructRadius, 10.f) + 20;
+        for (const Unit& o : units_)
+            if (o.alive() && enemies(u.owner, o.owner) && distXY(u.position, o.position) - o.radius <= r) { target = o.id; return true; }
+        return false;
+    }
+    if (s.kind == AbilitySpec::Kind::Leap) {
+        if (u.leaping || u.flying()) return false;
+        // Onto (or next to) an enemy, far enough that a leap beats walking.
+        const float maxR = s.maxRange > 0 ? s.maxRange : 150;
+        auto ok = [&](const Unit& o) {
+            const float d = distXY(u.position, o.position);
+            return o.alive() && enemies(u.owner, o.owner) && !o.flying() && categoriesOk(o) && d <= maxR && d >= (s.needsTarget ? 0.f : 60.f);
+        };
+        if (const Unit* t = u.target ? w.unit(u.target) : nullptr; t && ok(*t)) { target = t->id; return true; }
+        float best = 1e30f;
+        for (const Unit& o : units_)
+            if (ok(o) && distXY(u.position, o.position) < best) { best = distXY(u.position, o.position); target = o.id; }
         return target != 0;
     }
     if (s.kind != AbilitySpec::Kind::Generator || !effectLib_) return false;
@@ -599,6 +720,49 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
     static const bool log = std::getenv("UAW_ABILITY_LOG") != nullptr;
     if (log) std::fprintf(stderr, "%7.1fs %-28s %-40s -> %s\n", seconds(), u.type->name.c_str(), s.name.c_str(),
                           unit(target) ? unit(target)->type->name.c_str() : "-");
+    if (s.kind == AbilitySpec::Kind::Switch) {
+        // Toggle to the next mode in the list (inactive <-> active, fire <-> ice).
+        size_t cur = 0;
+        for (size_t k = 0; k < s.switchTypes.size(); ++k)
+            if (iequals(s.switchTypes[k], u.type->name)) cur = k;
+        const GameObjectType* to = db_.find(s.switchTypes[(cur + 1) % s.switchTypes.size()]);
+        if (!to) return;
+        const std::string gen = s.generator;
+        switchType(u, *to);
+        // The switch generator (Masari: cleanse, fill dark-matter armor in ice mode) runs on the new type.
+        const TypeAbilities& nta = abilitiesOf(*u.type);
+        for (size_t gi = 0; gi < nta.generators.size(); ++gi)
+            if (!gen.empty() && iequals(nta.generators[gi].name, gen)) {
+                int life = 2;
+                for (const GeneratorEntry& e : nta.generators[gi].entries) life = std::max(life, toTicks(e.baseDelay) + 2);
+                activateGenerator(u, gi, 0, u.position, life);
+            }
+        return;
+    }
+    if (s.kind == AbilitySpec::Kind::SelfDestruct) {
+        selfDestruct(u, s, target);
+        return;
+    }
+    if (s.kind == AbilitySpec::Kind::Leap) {
+        const Unit* t = unit(target);
+        Vec3 to = t ? t->position : point;
+        if (!t) to = nav_.nearestPassable(to);
+        else if (!s.selfDestructOnLanding) { // land beside the target, not on it
+            const float dx = to[0] - u.position[0], dy = to[1] - u.position[1], d = std::max(1.f, std::hypot(dx, dy));
+            const float back = t->radius + u.radius + 4;
+            to = nav_.nearestPassable({to[0] - dx / d * back, to[1] - dy / d * back, 0});
+        }
+        u.leaping = true;
+        u.leapFrom = u.position;
+        u.leapTo = {to[0], to[1], map_.heightAt(to[0], to[1])};
+        u.leapTick = 0;
+        u.leapTicks = std::max(12, int(distXY(u.position, to) / 6) + 10);
+        u.leapAbility = a.index;
+        u.leapTarget = target;
+        u.path.clear();
+        u.speed = 0;
+        return;
+    }
     if (s.kind == AbilitySpec::Kind::Attack) {
         Unit* t = unit(target);
         if (!t) return;
@@ -650,7 +814,9 @@ OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
     const AbilitySpec& s = abilitiesOf(*u->type).abilities[u->abilities[i].index];
     if (s.kind == AbilitySpec::Kind::Unsupported || abilityLocked(*u, s)) return OrderResult::NotAllowed;
-    if (s.needsTarget) {
+    if (s.kind == AbilitySpec::Kind::Leap && !target) {
+        if (distXY(u->position, point) > (s.maxRange > 0 ? s.maxRange : 150) || u->leaping) return OrderResult::NotAllowed;
+    } else if (s.needsTarget || (s.kind == AbilitySpec::Kind::Leap && target)) {
         const Unit* t = unit(target);
         if (!t) return OrderResult::InvalidUnit;
         const float maxR = s.maxRange > 0 ? s.maxRange : (s.aiRange > 0 ? s.aiRange : 200);
@@ -669,9 +835,52 @@ void World::autonomousAbilities(Unit& u) {
         if (a.cooldown > 0) a.cooldown = std::max(0.f, a.cooldown - u.abilityRate);
         if (a.cooldown > 0 || u.silenced || u.underConstruction || !ta.abilities[a.index].autonomous) continue;
         if (abilityLocked(u, ta.abilities[a.index])) continue;
+        const AbilitySpec& spec = ta.abilities[a.index];
+        if (spec.kind == AbilitySpec::Kind::Generator) { // still channelling the last one
+            bool running = false;
+            for (const auto& g : u.generators)
+                running = running || (g.active && !ta.generators[g.index].startsActive && iequals(ta.generators[g.index].name, spec.generator));
+            if (running) continue;
+        }
         uint32_t target = 0;
         if (abilityTarget(u, i, target)) executeAbility(u, a, target, u.position);
     }
+}
+
+void World::updateLeap(Unit& u) {
+    ++u.leapTick;
+    const float t = std::min(1.f, float(u.leapTick) / float(std::max(1, u.leapTicks)));
+    const TypeAbilities& ta = abilitiesOf(*u.type);
+    const AbilitySpec* s = u.leapAbility < ta.abilities.size() ? &ta.abilities[u.leapAbility] : nullptr;
+    const float h = s ? s->leapHeight : 60;
+    u.position = {u.leapFrom[0] + (u.leapTo[0] - u.leapFrom[0]) * t, u.leapFrom[1] + (u.leapTo[1] - u.leapFrom[1]) * t, 0};
+    u.position[2] = map_.heightAt(u.position[0], u.position[1]) + 4 * h * t * (1 - t);
+    u.facing = std::atan2(u.leapTo[1] - u.leapFrom[1], u.leapTo[0] - u.leapFrom[0]);
+    if (t < 1) return;
+    u.leaping = false;
+    u.position = u.leapTo;
+    if (!s) return;
+    if (!s->landingGenerator.empty())
+        for (size_t gi = 0; gi < ta.generators.size(); ++gi)
+            if (iequals(ta.generators[gi].name, s->landingGenerator)) {
+                int life = 2;
+                for (const GeneratorEntry& e : ta.generators[gi].entries) life = std::max(life, toTicks(e.baseDelay) + 2);
+                activateGenerator(u, gi, u.leapTarget, u.position, life);
+            }
+    if (s->selfDestructOnLanding) selfDestruct(u, *s, u.leapTarget);
+}
+
+void World::selfDestruct(Unit& u, const AbilitySpec& s, uint32_t target) {
+    // Damage_Applied_On_Self_Destruct to the target and to enemies within the radius.
+    const float r = std::max(s.selfDestructRadius, 0.f);
+    const std::string type = s.selfDestructDamageType;
+    std::vector<uint32_t> hit;
+    if (unit(target)) hit.push_back(target);
+    for (const Unit& o : units_)
+        if (o.alive() && o.id != target && enemies(u.owner, o.owner) && distXY(o.position, u.position) <= r + o.radius) hit.push_back(o.id);
+    for (uint32_t id : hit)
+        if (Unit* o = unit(id)) applyDamage(*o, s.selfDestructDamage * u.damageCast, type);
+    u.health = 0;
 }
 
 void World::projectileImpact(const Projectile& p, const Unit* hit) {
@@ -718,7 +927,12 @@ void World::projectileImpact(const Projectile& p, const Unit* hit) {
 void World::updateAbilities() {
     for (Unit& u : units_) updateEffects(u);
     for (Unit& o : effectObjects_) updateEffects(o);
-    for (Unit& u : units_) recomputeModifiers(u);
+    for (Unit& u : units_) {
+        recomputeModifiers(u);
+        if (u.shieldMax > 0 && u.shield < u.shieldMax) u.shield = std::min(u.shieldMax, u.shield + u.shieldRegen / kTicksPerSecond);
+        u.dma = std::min(u.dma, dmaMax(u));
+        if (u.leaping) updateLeap(u);
+    }
     for (Unit& o : effectObjects_) recomputeModifiers(o);
     for (size_t i = 0; i < units_.size(); ++i) updateGenerators(units_[i]);
     for (size_t i = 0; i < effectObjects_.size(); ++i) updateGenerators(effectObjects_[i]);

@@ -115,7 +115,7 @@ EffectOp effectOpFromName(std::string_view t) {
         {"ModifyArmor", EffectOp::ModifyArmor},             {"Destroy", EffectOp::Destroy},
         {"MaxHealth", EffectOp::MaxHealth},                 {"ApplyEffectOnRemove", EffectOp::ApplyEffectOnRemove},
         {"ApplyGenerator", EffectOp::ApplyGenerator},       {"ActivateGenerator", EffectOp::ActivateGenerator},
-        {"CreateObject", EffectOp::CreateObject},
+        {"CreateObject", EffectOp::CreateObject},           {"Transfer", EffectOp::Transfer},
     };
     for (const auto& [n, op] : kOps)
         if (iequals(t, n)) return op;
@@ -162,6 +162,8 @@ void EffectLibrary::parse(std::string_view xml) {
                             comp.value = comp.get("Modifier_Value") ? comp.number("Modifier_Value") : comp.number("Modifier_Integer_Value");
                         else
                             comp.attribute.clear(); // bitwise / replacement: not a number to sum
+                        if (const std::string* ma = comp.get("Modifier_Attribute")) comp.modifierAttribute = up(trim(*ma));
+                        comp.reset = comp.flag("Reset_Memoryless_Attribute");
                     }
                     def.components.push_back(std::move(comp));
                 }
@@ -318,6 +320,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             if (s.damage <= 0 && s.damagePercent <= 0 && !s.projectile) s.kind = AbilitySpec::Kind::Unsupported;
         } else if (iequals(r.kind, "Effect_Generator_Ability")) {
             s.kind = s.generator.empty() ? AbilitySpec::Kind::Unsupported : AbilitySpec::Kind::Generator;
+        } else if (iequals(r.kind, "Crush_Attack_Ability")) {
+            // Orlok's crush: a channelled generator on one target in front of him.
+            s.kind = s.generator.empty() ? AbilitySpec::Kind::Unsupported : AbilitySpec::Kind::Generator;
+            s.rechargeTicks = std::max(s.rechargeTicks, int(num(lookup(kv, "Cooldown_Time_Secs"), 1) * 30));
+            if (const std::string* v = lookup(kv, "Can_Target_Allies")) s.targetsAllies = truthy(*v);
+            if (const std::string* v = lookup(kv, "Check_Ammo_Full")) s.needsAmmoRoom = truthy(*v);
+        } else if (iequals(r.kind, "Leap_Activation_Ability")) {
+            s.kind = AbilitySpec::Kind::Leap;
         }
     };
 
@@ -352,6 +362,31 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator)
                          ? AbilitySpec::Kind::Generator
                          : AbilitySpec::Kind::Unsupported;
+        if (s.abilityType == "SWITCH_TYPE") {
+            const std::string* a = lookup(kv, "Active_Type_Class");
+            const std::string* in = lookup(kv, "Inactive_Type_Class");
+            if (a && in && db.find(trim(*a)) && db.find(trim(*in))) {
+                s.kind = AbilitySpec::Kind::Switch;
+                s.switchTypes = {trim(*in), trim(*a)};
+                s.needsTarget = false;
+            }
+        } else if (s.abilityType == "LEAP") {
+            s.kind = AbilitySpec::Kind::Leap;
+        } else if (s.abilityType == "SELF_DESTRUCT") {
+            s.kind = AbilitySpec::Kind::SelfDestruct;
+            s.needsTarget = false;
+        }
+        if (s.kind == AbilitySpec::Kind::Leap || s.kind == AbilitySpec::Kind::SelfDestruct) {
+            auto leapField = [&](const char* leaf) { return type.find(leaf); };
+            if (const std::string* v = leapField("On_Landing_Effect_Generator_Name")) s.landingGenerator = trim(*v);
+            if (const std::string* v = leapField("Self_Destruct_On_Landing")) s.selfDestructOnLanding = truthy(*v);
+            if (const std::string* v = leapField("Self_Destruct_Damage_Type")) s.selfDestructDamageType = trim(*v);
+            s.leapHeight = num(leapField("Leap_Max_Height"), 60);
+            s.selfDestructDamage = num(leapField("Damage_Applied_On_Self_Destruct"), 0);
+            s.selfDestructRadius = num(leapField("Radius_Affected_By_Self_Destruction"), 0);
+            if (s.kind == AbilitySpec::Kind::Leap && s.maxRange <= 0) s.maxRange = 150;
+            if (const std::string* v = lookup(kv, "Targeting_Type")) s.needsTarget = up(*v).find("OBJECT") != std::string::npos;
+        }
         if (s.kind == AbilitySpec::Kind::Generator) {
             bool target = false, ally = false;
             generatorTargets(s.generator, target, ally);
@@ -383,6 +418,29 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.targetsAllies = s.targetsAllies || ally;
         }
         out.push_back(std::move(s));
+    }
+    // Masari elemental modes: every unit with two or more Elemental_Object_Types can switch.
+    {
+        AbilitySpec e;
+        for (const ObjectField& f : type.fields()) {
+            if (up(f.path).find("ELEMENTAL_OBJECT_TYPES") == std::string::npos) continue;
+            for (const std::string& v : f.values) {
+                const size_t comma = v.find(',');
+                if (comma == std::string::npos) continue;
+                const std::string t = trim(v.substr(comma + 1));
+                if (db.find(t) && std::find(e.switchTypes.begin(), e.switchTypes.end(), t) == e.switchTypes.end())
+                    e.switchTypes.push_back(t);
+            }
+        }
+        if (e.switchTypes.size() >= 2) {
+            e.kind = AbilitySpec::Kind::Switch;
+            e.elemental = true;
+            e.name = "Elemental_Mode";
+            e.abilityType = "ELEMENTAL_MODE";
+            e.rechargeTicks = 5 * 30;
+            if (const std::string* g = type.find("Switch_Effect_Generator_Name")) e.generator = trim(*g);
+            out.push_back(std::move(e));
+        }
     }
     std::stable_sort(out.begin(), out.end(), [](const AbilitySpec& a, const AbilitySpec& b) { return a.autonomous > b.autonomous; });
     return out;

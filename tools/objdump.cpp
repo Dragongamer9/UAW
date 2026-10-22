@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 locks.abilities.insert(l.abilities.begin(), l.abilities.end());
                 locks.effects.insert(l.effects.begin(), l.effects.end());
             }
-            static const char* kKind[] = {"generator", "attack", "unsupported"};
+            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct"};
             if (argc > 3) {
                 const GameObjectType* o = db.find(argv[3]);
                 if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }
@@ -155,6 +155,7 @@ int main(int argc, char** argv) {
                                 kKind[int(a.kind)], a.autonomous ? "auto " : "ordered ", a.needsTarget ? "targeted " : "",
                                 a.targetsAllies ? "allies " : "", a.minRange, a.maxRange, a.rechargeTicks / 30.0);
                     if (!a.generator.empty()) std::printf(", generator %s", a.generator.c_str());
+                    for (size_t k = 0; k < a.switchTypes.size(); ++k) std::printf("%s%s", k ? " / " : ", modes ", a.switchTypes[k].c_str());
                     if (a.kind == AbilitySpec::Kind::Attack)
                         std::printf(", %g dmg %s%s%s", a.damage, a.damageType.c_str(), a.projectile ? " via " : "",
                                     a.projectile ? a.projectile->name.c_str() : "");

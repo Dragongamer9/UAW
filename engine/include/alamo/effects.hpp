@@ -34,7 +34,7 @@ namespace alamo {
 enum class EffectOp : uint8_t {
     Other, AttributeModifier, Damage, DamageOverTime, Heal, HealOverTime, DisableBehavior, DisableAbility,
     RemoveEffect, BlockEffect, SwitchFaction, ModifyArmor, Destroy, MaxHealth, ApplyEffectOnRemove,
-    ApplyGenerator, ActivateGenerator, CreateObject,
+    ApplyGenerator, ActivateGenerator, CreateObject, Transfer,
 };
 EffectOp effectOpFromName(std::string_view type);
 
@@ -43,6 +43,8 @@ struct EffectComponent {
     EffectOp op = EffectOp::Other;
     std::string attribute;                                    // AttributeModifier: upper-case attribute
     float value = 0;                                          // AttributeModifier: Modifier_Value (0 if not additive)
+    std::string modifierAttribute;                            // AttributeModifier: Modifier_Attribute (value read from the unit)
+    bool reset = false;                                       // AttributeModifier: Reset_Memoryless_Attribute
     std::vector<std::pair<std::string, std::string>> fields;  // child tag -> trimmed text
     const std::string* get(std::string_view key) const;
     float number(std::string_view key, float fallback = 0) const;
@@ -119,7 +121,10 @@ struct AbilitySpec {
     enum class Kind : uint8_t {
         Generator,      // switch on an effect generator (on a target, or around the unit)
         Attack,         // Generic_Attack_Ability: direct damage (melee) or a projectile
-        Unsupported,    // LEAP, SELF_DESTRUCT, SWITCH_TYPE, ... (listed, not simulated yet)
+        Unsupported,    // listed, not simulated yet (garrisons, retreat, clones, ...)
+        Switch,         // SWITCH_TYPE / Masari elemental mode: become another type
+        Leap,           // LEAP: jump to a target or location (LeapBehaviorType)
+        SelfDestruct,   // SELF_DESTRUCT: blow up, damaging what is around
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name
@@ -138,11 +143,23 @@ struct AbilitySpec {
     const GameObjectType* projectile = nullptr;
     int projectileCount = 1;
     std::string applicable, excluded;   // Applicable_/Excluded_Unit_Categories
+    // Switch: the two types toggled between (SWITCH_TYPE Active/Inactive_Type_Class), or the
+    // elemental modes (Elemental_Object_Types), cycled in order.
+    std::vector<std::string> switchTypes;
+    bool elemental = false;
+    // Leap / self-destruct (the unit's LeapBehaviorType).
+    std::string landingGenerator;       // On_Landing_Effect_Generator_Name
+    bool selfDestructOnLanding = false;
+    float leapHeight = 60;              // Leap_Max_Height
+    float selfDestructDamage = 0;       // Damage_Applied_On_Self_Destruct
+    float selfDestructRadius = 0;       // Radius_Affected_By_Self_Destruction
+    std::string selfDestructDamageType;
     // AI hints (Unit_Ability_AI_*).
     float aiRange = 0;
     float aiHealthBelow = 0;            // only when the user is below this health fraction
     std::string aiCategories;
     bool aiNoAutofire = false;
+    bool needsAmmoRoom = false;         // Check_Ammo_Full: only while the unit's ammo isn't full
 };
 
 // Effect generators defined on an object type.

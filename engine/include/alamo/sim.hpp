@@ -154,6 +154,22 @@ struct Unit {
     bool damagedThisTick = false, firedThisTick = false;
     int originalOwner = -1;
     int lifeTicks = -1;                // effect objects: removed at 0
+    // Defences that soak damage before health. Shields (ShieldBehaviorType): Shield_Points,
+    // regenerating Shield_Refresh_Rate per second, hit with Shield_Armor_Type modifiers.
+    // Masari dark-matter armor: up to the DMA_Max attribute, set by Current_DMA_Level effects
+    // (regeneration, reset in fire mode, filled on switching to ice).
+    float shield = 0, shieldMax = 0, shieldRegen = 0;
+    std::string shieldArmor;
+    float dma = 0;
+    // Energy ammo (Orlok): Energy_Ammo_Capacity cartridges, filled by Transfer effects whose
+    // Source_Effect is AmmoUnits (his crush), spent by mode abilities.
+    float ammo = 0, ammoMax = 0;
+    // Leaping (LEAP abilities): flying from leapFrom to leapTo, then landing effects.
+    bool leaping = false;
+    Vec3 leapFrom{}, leapTo{};
+    int leapTick = 0, leapTicks = 0;
+    uint16_t leapAbility = 0;
+    uint32_t leapTarget = 0;
     uint32_t actsFor = 0;              // impact objects: the shooter, as the source of their effects
     float weaponRange(const WeaponState& w) const { return w.spec.maxRange * rangeScale + rangeAdd; }
 };
@@ -378,6 +394,11 @@ public:
     void applyEffect(Unit& target, const EffectDef& def, const Unit* source, int sourceOwner, int durationTicks,
                      uint64_t genKey = 0);
     bool hasEffectClass(const Unit& u, std::string_view effectClass) const;
+    // Turns a unit into another type in place (mode switches): keeps id, owner, position,
+    // orders and effects, scales health to the same fraction; weapons, abilities and
+    // generators become the new type's.
+    void switchType(Unit& u, const GameObjectType& to);
+    float dmaMax(const Unit& u) const;
     // Invisible objects effects create (radiation fields, mines...): they run generators but
     // are not units for targeting, population or victory.
     const std::vector<Unit>& effectObjects() const { return effectObjects_; }
@@ -406,6 +427,8 @@ private:
     void deposit(int owner, float amount);
     void updatePower();
     ResourceNode* resourceMut(uint32_t id);
+    Unit makeUnit(const GameObjectType* t, int owner, Vec3 position, float facing); // no id, not added
+    void initDefenses(Unit& u);        // shields and dark-matter armor
     void initAbilities(Unit& u);
     void updateResearch();
     void updateAbilities();
@@ -423,6 +446,13 @@ private:
     std::vector<Unit*> gather(Unit& source, const GeneratorEntry& e, const Unit::GeneratorState& g);
     Unit* anyUnit(uint32_t id); // units and effect objects
     void projectileImpact(const Projectile& p, const Unit* hit); // Impact_Effect_Generator_Name
+    void updateLeap(Unit& u);
+    void selfDestruct(Unit& u, const AbilitySpec& s, uint32_t target);
+    void deathSpawn(const Unit& u);    // On_Death_Spawn_Object_Type
+    // Creates an object an effect or a death spawns: a real unit if it is armed, else an invisible
+    // effect object when it has gameplay generators (radiation fields, explosions); visuals are
+    // skipped. Returns the effect object's id (0 for units and skipped objects).
+    uint32_t createObject(const GameObjectType& t, int owner, Vec3 position, float facing, int lifeTicks);
 
     const Map& map_;
     const GameDatabase& db_;

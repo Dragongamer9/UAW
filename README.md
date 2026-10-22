@@ -27,10 +27,10 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks; AI uses abilities | done (first version): 494 of 776 ability entries simulated; leap, crush, self-destruct, elemental mode switching and weapon-mode toggles still to come |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 745 of 936 ability entries simulated; garrisons, retreat, clones and teleports still to come |
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
-| 3 | Shields, veterancy, Masari elemental modes and dark-matter armor | next |
+| 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -272,8 +272,25 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   their user, and leaves alternate-fire toggles alone.
 * **Projectiles** with `Impact_Effect_Generator_Name` run that generator where they land (radiated
   shots, Masari fire, crippling shots), on behalf of the shooter.
-* **Created objects** (`CreateObject`): units become real units; invisible effect objects with
-  generators (the Defiler's radiation field) run their generators for `Particle_Lifetime_Frames`.
+* **Created objects** (`CreateObject`, `On_Death_Spawn_Object_Type`): units become real units;
+  invisible effect objects with generators (the Defiler's radiation field, volatile-reactor explosions)
+  run their generators for `Particle_Lifetime_Frames`.
+* **Mode switches**: `SWITCH_TYPE` abilities toggle `Inactive_Type_Class` and `Active_Type_Class`;
+  Masari units switch between their `Elemental_Object_Types` (fire/ice). The unit becomes the other type
+  in place: same id, orders and effects, health scaled to the same fraction, the new type's weapons,
+  abilities and generators, then the `Switch_Effect_Generator_Name` generator runs. The AI puts Masari
+  units into ice (dark) mode when they are hurt in a fight and back to fire when they have recovered.
+* **Leaps** (`LEAP`, `LeapBehaviorType`): an arc to a target or location within range, then
+  `On_Landing_Effect_Generator_Name`, and for Novus robotic infantry `Self_Destruct_On_Landing`
+  (`Damage_Applied_On_Self_Destruct` within `Radius_Affected_By_Self_Destruction`). The AI only blows
+  units up when the data's `Unit_Ability_AI_Only_At_Health_Lower` hint says so.
+* **Defences**: shields soak damage first (with `Shield_Armor_Type` modifiers) and regenerate
+  `Shield_Refresh_Rate` per second; Masari dark-matter armor (`Current_DMA_Level`, a "memoryless"
+  attribute the DMA effects add to, reset or fill) soaks damage after armor modifiers. Ice-mode units
+  start full and regenerate through their `DMARegenGenerator`; fire mode drops it.
+* `Transfer` components drain health (`Target_Effect HealthDamage`). When the source effect is
+  `AmmoUnits` the drain fills the user's `Energy_Ammo_Capacity`, and abilities with `Check_Ammo_Full`
+  stop when it is full: Orlok's crush takes about five cartridges' worth, which his siege mode spends.
 
 ## Research
 

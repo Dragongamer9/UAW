@@ -1,6 +1,7 @@
 #include "alamo/ai.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace alamo {
@@ -208,6 +209,9 @@ void SkirmishAI::manageConstruction() {
         if (roleCount[int(Role::Power)] == 0 || unpoweredReceiver) choice = pick(Role::Power, 99);
         if (choice.empty() && roleCount[int(Role::Economy)] < wantEconomy) choice = pick(Role::Economy, 99);
         if (choice.empty()) choice = pick(Role::Production, 1);
+        // More factories as the game goes on: with the mods' population costs of 0, armies are
+        // limited by how fast they can be built.
+        if (choice.empty() && minutes > 2) choice = pick(Role::Production, 1 + int(minutes / 3));
         if (choice.empty() && roleCount[int(Role::Defense)] < wantDefense) choice = pick(Role::Defense, 99);
         // Research facilities (where a mod makes them buildable) research a second suite at once.
         if (choice.empty() && w_.researchTree(player_) && rich > 0.6f && roleCount[int(Role::Research)] < 1 && minutes > 5)
@@ -240,10 +244,12 @@ void SkirmishAI::manageProduction() {
         const auto options = w_.producible(s.id);
         if (options.empty()) continue;
         if (!s.hasRally) w_.setRally(s.id, rally);
-        // A spare builder first (up to 2), then a random affordable combat unit,
+        // A spare builder first, then a random affordable combat unit,
         // weighted toward what we can buy several of.
         std::string choice;
-        if (builders < 2)
+        // Spare builders: two, more while money piles up faster than they can spend it.
+        const int wantBuilders = rich > 0.8f ? 4 : rich > 0.5f ? 3 : 2;
+        if (builders < wantBuilders)
             for (const auto& o : options)
                 if (const GameObjectType* t = db_.find(o); t && isBuilderType(*t) && buildInfo(*t, db_).cost <= me->credits) {
                     choice = o;
@@ -437,6 +443,11 @@ void SkirmishAI::update() {
 void SkirmishAI::manageResearch() {
     const Player* me = w_.player(player_);
     if (!me || w_.seconds() < 120) return; // the economy first
+    // ...and an army: research is a luxury until there is something to defend with.
+    int army = 0;
+    for (const Unit& u : w_.units())
+        if (u.owner == player_ && !u.structure && isCombatUnit(*u.type)) ++army;
+    if (army < 6 && w_.seconds() < 480) return;
     const auto options = w_.availableResearch(player_);
     if (options.empty()) return;
     // Suites that unlock units (heroes) first, then the lowest tier; ties in turn (seeded) so the
@@ -469,8 +480,23 @@ void SkirmishAI::manageAbilities() {
         const World::TypeAbilities& ta = w_.abilitiesOf(*u.type);
         for (size_t i = 0; i < u.abilities.size(); ++i) {
             const AbilitySpec& s = ta.abilities[u.abilities[i].index];
-            if (s.autonomous || u.abilities[i].cooldown > 0 || s.kind == AbilitySpec::Kind::Unsupported) continue;
+            if (s.autonomous || u.abilities[i].cooldown > 0 || s.kind == AbilitySpec::Kind::Unsupported || u.leaping) continue;
             if (s.aiHealthBelow > 0 && u.health >= s.aiHealthBelow * u.maxHealth) continue;
+            if (s.kind == AbilitySpec::Kind::Switch) {
+                // Masari: dark (ice) mode's armor when hurt, light (fire) mode's damage otherwise.
+                // Other mode switches (Orlok's siege mode, shield modes) are left alone for now.
+                if (!s.elemental) continue;
+                std::string name = u.type->name;
+                for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
+                const bool ice = name.size() > 4 && name.compare(name.size() - 4, 4, "_ICE") == 0;
+                const float hp = u.health / std::max(1.f, u.maxHealth);
+                if ((!ice && hp < 0.5f && u.target) || (ice && hp > 0.9f && !u.target)) todo.push_back({u.id, i});
+                continue;
+            }
+            // Blowing up only where the data's AI hints call for it (low health).
+            if ((s.kind == AbilitySpec::Kind::SelfDestruct || (s.kind == AbilitySpec::Kind::Leap && s.selfDestructOnLanding)) &&
+                s.aiHealthBelow <= 0)
+                continue;
             // Never sacrifice or cripple the unit (generators that destroy their user or switch off its
             // weapons / movement: weapon-mode toggles, deploy modes).
             bool selfDestroy = false;
@@ -492,7 +518,10 @@ void SkirmishAI::manageAbilities() {
         const Unit* u = w_.unit(id);
         if (!u) continue;
         uint32_t target = 0;
-        if (w_.abilityTarget(*u, i, target)) w_.useAbility(id, i, target, u->position);
+        if (!w_.abilityTarget(*u, i, target)) continue;
+        Vec3 point = u->position;
+        if (const Unit* t = w_.unit(target)) point = t->position;
+        w_.useAbility(id, i, target, point);
     }
 }
 

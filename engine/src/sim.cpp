@@ -399,30 +399,8 @@ float Unit::maxRange() const {
     return r;
 }
 
-uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, float facing) {
-    const GameObjectType* t = db_.find(typeName);
-    if (!t) return 0;
-    lastSpawned_.clear();
-    // Squads (Company_Units, e.g. Military_Team_Marines = 5 Marines) arrive as their members.
-    if (const auto members = squadMembers(*t, db_); !members.empty()) {
-        std::vector<uint32_t> ids;
-        for (size_t i = 0; i < members.size(); ++i) {
-            const float a = float(i) * 2.3999632f, r = i == 0 ? 0.f : 10.f + 4.f * std::sqrt(float(i));
-            const uint32_t id = spawn(members[i]->name, owner, {position[0] + std::cos(a) * r, position[1] + std::sin(a) * r, 0}, facing);
-            if (id) ids.push_back(id);
-        }
-        lastSpawned_ = ids;
-        return ids.empty() ? 0 : ids.front();
-    }
-    // Masari units that only fight in an elemental mode (Peacebringer, Sentry: weapons on
-    // their _Fire/_Ice variants) start in the first mode listed (Type_Switch_Types).
-    if (!isStructureType(*t) && weaponsFor(*t, db_).empty())
-        if (const std::string* modes = t->find("Type_Switch_Types")) {
-            std::string first = trim(modes->substr(0, modes->find(',')));
-            if (const GameObjectType* v = db_.find(first); v && !weaponsFor(*v, db_).empty()) t = v;
-        }
+Unit World::makeUnit(const GameObjectType* t, int owner, Vec3 position, float facing) {
     Unit u;
-    u.id = nextId_++;
     u.type = t;
     u.owner = owner;
     const Vec3 p = nav_.nearestPassable(position);
@@ -446,7 +424,6 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
         u.maxSpeed = 0;
         u.radius = std::max(u.footprintX, u.footprintY);
         u.position = {position[0], position[1], map_.heightAt(position[0], position[1])}; // no snapping to open ground
-        navDirty_ = true;
     }
     for (const WeaponSpec& w : weaponsFor(*t, db_)) u.weapons.push_back({w, 0, 0, 0});
     if (const std::string* hps = t->find("Attached_Hard_Points")) {
@@ -482,7 +459,36 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
             u.maxHealth = u.health = std::max(total, 1.f);
         }
     }
+    initDefenses(u);
     initAbilities(u);
+    return u;
+}
+
+uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, float facing) {
+    const GameObjectType* t = db_.find(typeName);
+    if (!t) return 0;
+    lastSpawned_.clear();
+    // Squads (Company_Units, e.g. Military_Team_Marines = 5 Marines) arrive as their members.
+    if (const auto members = squadMembers(*t, db_); !members.empty()) {
+        std::vector<uint32_t> ids;
+        for (size_t i = 0; i < members.size(); ++i) {
+            const float a = float(i) * 2.3999632f, r = i == 0 ? 0.f : 10.f + 4.f * std::sqrt(float(i));
+            const uint32_t id = spawn(members[i]->name, owner, {position[0] + std::cos(a) * r, position[1] + std::sin(a) * r, 0}, facing);
+            if (id) ids.push_back(id);
+        }
+        lastSpawned_ = ids;
+        return ids.empty() ? 0 : ids.front();
+    }
+    // Masari units that only fight in an elemental mode (Peacebringer, Sentry: weapons on
+    // their _Fire/_Ice variants) start in the first mode listed (Type_Switch_Types).
+    if (!isStructureType(*t) && weaponsFor(*t, db_).empty())
+        if (const std::string* modes = t->find("Type_Switch_Types")) {
+            std::string first = trim(modes->substr(0, modes->find(',')));
+            if (const GameObjectType* v = db_.find(first); v && !weaponsFor(*v, db_).empty()) t = v;
+        }
+    Unit u = makeUnit(t, owner, position, facing);
+    u.id = nextId_++;
+    if (u.structure) navDirty_ = true;
     units_.push_back(std::move(u));
     lastSpawned_ = {units_.back().id};
     return units_.back().id;
@@ -711,7 +717,7 @@ int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& f
 }
 
 void World::fireWeapons(Unit& u) {
-    if (u.underConstruction) return;
+    if (u.underConstruction || u.leaping) return;
     const Unit* t = u.target ? unit(u.target) : nullptr;
     if (t && !u.moving()) {
         // Face the target while standing (turrets handle aim while moving).
@@ -779,12 +785,27 @@ void World::fireWeapons(Unit& u) {
 void World::applyDamage(Unit& victim, float amount, const std::string& damageType) {
     amount *= victim.damageTaken;
     victim.damagedThisTick = true;
+    if (amount <= 0) return;
+    // A shield takes the hit first, with its own armor type.
+    if (victim.shield > 0) {
+        const float smod = damage_ && !victim.shieldArmor.empty() ? damage_->modifier(damageType, victim.shieldArmor) : 1.f;
+        const float hit = amount * std::max(0.f, smod);
+        if (hit <= victim.shield) { victim.shield -= hit; return; }
+        amount *= (hit - victim.shield) / hit; // what is left after the shield breaks
+        victim.shield = 0;
+    }
     float extra = 0; // ModifyArmor effects
     for (const auto& [type, add] : victim.armorMods)
         if (iequals(type, damageType)) extra += add;
     if (!victim.shieldedByHardpoints) {
         const float mod = (damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f) + extra;
-        victim.health -= amount * std::max(0.f, mod);
+        float dealt = amount * std::max(0.f, mod);
+        if (victim.dma > 0) { // Masari dark-matter armor soaks it up
+            const float soak = std::min(victim.dma, dealt);
+            victim.dma -= soak;
+            dealt -= soak;
+        }
+        victim.health -= dealt;
         return;
     }
     // Legs first, then the core; other hardpoints (weapon crowns) only fall with the body.
@@ -847,12 +868,13 @@ void World::removeDead() {
         if (!u.alive()) {
             deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
             if (u.structure) navDirty_ = true;
+            deathSpawn(u);
         }
     units_.erase(std::remove_if(units_.begin(), units_.end(), [](const Unit& u) { return !u.alive(); }), units_.end());
 }
 
 void World::moveUnit(Unit& u) {
-    if (u.structure) return;
+    if (u.structure || u.leaping) return; // leaps move in updateLeap
     if (u.path.empty()) {
         u.speed = std::max(0.f, u.speed - u.acceleration * 2);
         return;
@@ -913,6 +935,7 @@ void World::separate() {
             Unit& a = units_[i];
             Unit& b = units_[j];
             if (a.structure || b.structure) continue; // the nav grid keeps units off footprints
+            if (a.leaping || b.leaping) continue;
             if (a.flying() != b.flying()) continue;   // aircraft pass over ground units
             const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
             const float minD = (a.radius + b.radius) * 0.9f;

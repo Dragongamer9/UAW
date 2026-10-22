@@ -59,6 +59,9 @@ std::optional<WeaponSpec> weaponFrom(const GameObjectType& t, const GameDatabase
     w.blastDamage = float(proj->number("Projectile_Blast_Area_Damage").value_or(0));
     w.blastRange = float(proj->number("Projectile_Blast_Area_Range").value_or(0));
     w.maxFlight = float(proj->number("Projectile_Max_Flight_Distance").value_or(std::max(500.0, double(w.maxRange) * 2)));
+    // A projectile that can't fly the weapon's full range limits it (Grunt shotgun pellets:
+    // range 100, pellets fly 80); keep a little margin for the target's own radius.
+    if (w.maxFlight > 0 && w.maxFlight < w.maxRange + 10) w.maxRange = std::max(w.minRange, w.maxFlight - 10);
     if (w.damage <= 0 && w.blastDamage <= 0) return std::nullopt; // effect-only projectiles (handled by abilities later)
     return w;
 }

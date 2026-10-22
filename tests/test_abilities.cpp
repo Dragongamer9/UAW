@@ -1,5 +1,6 @@
 // Tests for effects, effect generators, abilities, research and the Lua bytecode VM,
 // on synthetic game data.
+#include "alamo/combat.hpp"
 #include "alamo/effects.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/luavm.hpp"
@@ -97,6 +98,34 @@ static Data testData(const fs::path& root) {
         <Excluded_Unit_Categories>Flying</Excluded_Unit_Categories></Generic_Attack_Ability>
     </Abilities></X_Units>
   <X_Units Name="Squad"><MovementClass>Infantry</MovementClass><Company_Units>Dummy, Dummy,Brawler</Company_Units></X_Units>
+  <X_Units Name="Moth_Fire"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>200</Tactical_Health><CategoryMask>Small</CategoryMask>
+    <BehaviorType Name="ElementalModeType"><Elemental_Object_Types>Fire, Moth_Fire</Elemental_Object_Types>
+      <Elemental_Object_Types>Ice, Moth_Ice</Elemental_Object_Types></BehaviorType></X_Units>
+  <X_Units Name="Moth_Ice"><Variant_Of_Existing_Type>Moth_Fire</Variant_Of_Existing_Type><Tactical_Health>300</Tactical_Health>
+    <Attributes><DMA_Max>100</DMA_Max></Attributes></X_Units>
+  <X_Units Name="Shielded"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="ShieldBehaviorType"><Shield_Points>100</Shield_Points><Shield_Refresh_Rate>30</Shield_Refresh_Rate></BehaviorType></X_Units>
+  <X_Units Name="Jumper"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>100</Tactical_Health>
+    <Unit_Abilities_Data SubObjectList="Yes">
+      <Unit_Ability Name="Jump"><Type>LEAP</Type><Recharge_Seconds>10</Recharge_Seconds><Targeting_Type>ENEMY_OBJECT</Targeting_Type>
+        <GUI_Activated_Ability_Name>Jump_Ability</GUI_Activated_Ability_Name></Unit_Ability></Unit_Abilities_Data>
+    <Abilities SubObjectList="Yes"><Leap_Activation_Ability Name="Jump_Ability"><Activation_Style>USER_INPUT</Activation_Style>
+      <Activation_Max_Range>200</Activation_Max_Range></Leap_Activation_Ability></Abilities>
+    <BehaviorType Name="LeapBehaviorType"><Self_Destruct_On_Landing>YES</Self_Destruct_On_Landing>
+      <Damage_Applied_On_Self_Destruct>50</Damage_Applied_On_Self_Destruct>
+      <Radius_Affected_By_Self_Destruction>30</Radius_Affected_By_Self_Destruction></BehaviorType></X_Units>
+  <X_Units Name="Phoenix"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>50</Tactical_Health>
+    <BehaviorType Name="DeathFXBehaviorType"><On_Death_Spawn_Object_Type>Brawler</On_Death_Spawn_Object_Type></BehaviorType></X_Units>
+  <X_Units Name="Shorty"><MovementClass>Infantry</MovementClass><Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Short</Projectile_Types>
+      <Targeting_Max_Attack_Distance>100</Targeting_Max_Attack_Distance></BehaviorType></X_Units>
+  <Projectile Name="Proj_Short"><Max_Speed>20</Max_Speed>
+    <BehaviorType Name="ProjectileBehaviorType"><Projectile_Damage>3</Projectile_Damage>
+      <Projectile_Max_Flight_Distance>80</Projectile_Max_Flight_Distance></BehaviorType></Projectile>
   <X_Structures Name="Lab"><MovementClass>Building</MovementClass><Tactical_Health>500</Tactical_Health>
     <Custom_Hard_XExtent>20</Custom_Hard_XExtent>
     <BehaviorType Name="GroundStructureBehaviorType"><Enables_Research>Yes</Enables_Research></BehaviorType></X_Structures>
@@ -152,6 +181,11 @@ static void testParsing(const Data& d) {
     if (brawler) {
         const auto abs = abilitiesFor(*brawler, d.db, {});
         CHECK(abs.size() == 1 && abs[0].kind == AbilitySpec::Kind::Attack && abs[0].autonomous && abs[0].damage == 25);
+    }
+    // A projectile that can't fly the weapon's range shortens it (Grunt shotgun pellets).
+    if (const GameObjectType* shorty = d.db.find("Shorty")) {
+        const auto ws = weaponsFor(*shorty, d.db);
+        CHECK(ws.size() == 1 && ws[0].maxRange == 70);
     }
     const std::vector<std::string> cats = {"SMALL", "ORGANIC"};
     CHECK(matchesCategories(cats, "Small + Organic"));
@@ -243,6 +277,75 @@ static void testSquads(const Data& d) {
     CHECK(first != 0 && w.spawned().size() == 3 && w.units().size() == 3);
     CHECK(w.unit(first) && w.unit(first)->type->name == "Dummy");
     CHECK(squadMembers(*d.db.find("Squad"), d.db).size() == 3 && squadMembers(*d.db.find("Dummy"), d.db).empty());
+}
+
+static void testModesAndDefences(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t moth = w.spawn("Moth_Fire", a, {200, 200, 0});
+    w.unit(moth)->health = 100;
+    w.tick();
+    CHECK(w.unit(moth)->abilities.size() == 1 && w.dmaMax(*w.unit(moth)) == 0);
+    CHECK(w.useAbility(moth, 0) == OrderResult::Ok);
+    CHECK(w.unit(moth)->type->name == "Moth_Ice" && std::fabs(w.unit(moth)->health - 150) < 0.01f);
+    CHECK(w.dmaMax(*w.unit(moth)) == 100 && w.unit(moth)->abilities[0].cooldown > 0);
+    w.unit(moth)->dma = 40;
+    w.applyEffect(*w.unit(moth), *d.lib.find("HexEffect"), nullptr, b, 1); // damage taken x2 for a tick
+    w.unit(moth)->abilities[0].cooldown = 0;
+    CHECK(w.useAbility(moth, 0) == OrderResult::Ok && w.unit(moth)->type->name == "Moth_Fire");
+    CHECK(w.unit(moth)->dma == 0 && !w.unit(moth)->effects.empty()); // effects survive the switch
+
+    const uint32_t ice = w.spawn("Moth_Ice", a, {300, 200, 0});
+    CHECK(w.unit(ice)->dma == 100);                 // starts with full armor
+    const uint32_t shielded = w.spawn("Shielded", a, {400, 200, 0});
+    CHECK(w.unit(shielded)->shield == 100);
+
+    // A melee brawler hits both: the armor/shield soak it first.
+    const uint32_t brawler = w.spawn("Brawler", b, {300, 214, 0});
+    for (int i = 0; i < 2 * 30 + 2; ++i) w.tick();
+    CHECK(w.unit(ice)->health == 300 && std::fabs(w.unit(ice)->dma - 25) < 0.01f); // three swings of 25 soaked
+    w.unit(brawler)->health = 0;
+    w.tick();
+
+    // Shields regenerate.
+    const uint32_t s2 = w.spawn("Shielded", a, {500, 500, 0});
+    w.unit(s2)->shield = 0;
+    for (int i = 0; i < 30; ++i) w.tick();
+    CHECK(w.unit(s2)->shield > 28 && w.unit(s2)->shield < 32);
+}
+
+static void testDeathSpawn(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int p = w.addPlayer("Novus", 0);
+    const uint32_t phoenix = w.spawn("Phoenix", p, {300, 300, 0});
+    w.unit(phoenix)->health = 0;
+    w.tick();
+    w.tick();
+    bool reborn = false;
+    for (const Unit& u : w.units()) reborn = reborn || (u.type->name == "Brawler" && u.owner == p);
+    CHECK(!w.unit(phoenix) && reborn);
+}
+
+static void testLeap(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t jumper = w.spawn("Jumper", a, {200, 200, 0});
+    const uint32_t victim = w.spawn("Dummy", b, {350, 200, 0});
+    const uint32_t bystander = w.spawn("Dummy", b, {360, 215, 0});
+    w.tick();
+    uint32_t target = 0;
+    CHECK(w.abilityTarget(*w.unit(jumper), 0, target) && target == victim);
+    CHECK(w.useAbility(jumper, 0, victim) == OrderResult::Ok && w.unit(jumper)->leaping);
+    for (int i = 0; i < 10; ++i) w.tick();
+    CHECK(w.unit(jumper) && w.unit(jumper)->position[0] > 220 && w.unit(jumper)->position[2] > 5); // in the air
+    for (int i = 0; i < 60; ++i) w.tick();
+    CHECK(!w.unit(jumper));                                   // blew up on landing
+    CHECK(w.unit(victim)->health == 950 && w.unit(bystander)->health == 950);
 }
 
 static void testResearch(const Data& d) {
@@ -383,6 +486,9 @@ int main() {
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);
+    testModesAndDefences(d);
+    testLeap(d);
+    testDeathSpawn(d);
     testResearch(d);
     testLua();
     fs::remove_all(root);
