@@ -385,6 +385,13 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                         mx[k] = std::max(mx[k], p[k]);
                     }
                 }
+                // Night-only layers (DayNightEffect: street-lamp light cones, lit windows): the
+                // skirmish maps are daytime.
+                if (auto it = sm.material.params.find("DayNightEffect"); it != sm.material.params.end()) {
+                    const auto* i = std::get_if<int32_t>(&it->second);
+                    const auto* f = std::get_if<float>(&it->second);
+                    if ((i && *i != 0) || (f && *f != 0)) continue;
+                }
                 GpuMesh gpu;
                 gpu.upload(verts, sm.indices.data(), sm.indices.size(), false);
                 gpu.palette = std::move(palette);
