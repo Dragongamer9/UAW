@@ -156,6 +156,7 @@ public:
         bool wreck = false;
     };
     mutable std::unordered_map<uint64_t, Fallen> fallen_;
+    mutable std::unordered_map<uint32_t, uint64_t> flashTick_; // last tick a unit's muzzle flash was played
     const Fallen& fallenOf(Renderer& r, const alamo::GameObjectType& t, uint32_t id) const;
     mutable alamo::World* world_ = nullptr;
     mutable float turretTime_ = 0;
