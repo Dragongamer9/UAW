@@ -269,14 +269,15 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 
 | Faction   | Income | Resource value |
 |-----------|-------:|---------------:|
-| Novus     | 0.84   | 1              |
-| Masari    | 2.3    | 1              |
-| Military  | 1.5    | 1              |
+| Novus     | 0.75   | 1              |
+| Masari    | 2.7    | 1              |
+| Military  | 1.85   | 1              |
 | Hierarchy | 2.2    | 10             |
 
-Checked with a 36-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
-2 seeds, fog of war on) once weapons honoured their target restrictions and the saucers fought: Hierarchy 20
-wins, Novus 17, Masari 16, Military 16, 6 draws. The mods set most units' population cost to 0, so armies
+Checked with a 72-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
+2 seeds, fog of war on, the AI playing by it): Hierarchy 19 wins of 36, Novus 17, Masari 17, Military 13,
+6 draws. The matchups themselves are lopsided (Novus beats the Military 12-0, the Masari beat Novus 10-2), so
+the totals hide a rock-paper-scissors. The mods set most units' population cost to 0, so armies
 are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
 Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
 Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
