@@ -500,7 +500,7 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
     const float rich = wealth();
     std::unordered_map<std::string, int> alive;
     float enemyAir = 0, enemyAll = 0; // the enemy's air power as far as we know it: counter it
-    std::unordered_map<std::string, float> enemyArmor; // and its armor: what our weapons hurt most
+    std::map<std::string, float> enemyArmor; // and its armor: what our weapons hurt most (ordered: sums must not depend on hashing)
     for (const Unit& u : w_.units()) {
         if (u.owner == player_) ++alive[u.type->name];
         else if (w_.enemies(player_, u.owner) && u.owner >= 0 && !u.structure &&
