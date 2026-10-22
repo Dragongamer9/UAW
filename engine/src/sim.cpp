@@ -35,7 +35,9 @@ float angleDiff(float from, float to) {
 
 World::World(const Map& map, const GameDatabase& db, const DamageTable* damage, uint64_t seed, const TechTree* tech)
     : map_(map), db_(db), nav_(map), damage_(damage), tech_(tech), baseNav_(nav_),
-      rng_(seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull) {}
+      rng_(seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull) {
+    loadMapResources();
+}
 
 const char* toString(OrderResult r) {
     switch (r) {
@@ -45,6 +47,7 @@ const char* toString(OrderResult r) {
     case OrderResult::PopulationCap: return "population cap reached";
     case OrderResult::BlockedSite: return "site blocked";
     case OrderResult::InvalidUnit: return "invalid unit";
+    case OrderResult::BuildLimit: return "build limit reached";
     }
     return "?";
 }
@@ -67,8 +70,28 @@ BuildInfo buildInfo(const GameObjectType& type, const GameDatabase& db) {
     return b;
 }
 
+int World::countOwned(int owner, const GameObjectType& type) const {
+    int n = 0;
+    for (const Unit& u : units_) {
+        if (u.owner != owner) continue;
+        if (u.type == &type) ++n;
+        for (const GameObjectType* q : u.queue)
+            if (q == &type) ++n;
+    }
+    return n;
+}
+
+namespace {
+bool atBuildLimit(const World& w, int owner, const GameObjectType& t) {
+    const auto limit = t.number("Build_Limit_Current_Per_Player");
+    return limit && *limit > 0 && w.countOwned(owner, t) >= int(*limit);
+}
+} // namespace
+
 int World::addPlayer(const std::string& faction, float credits, int popCap) {
-    players_.push_back({int(players_.size()), faction, credits, popCap});
+    Player p{int(players_.size()), faction, credits, popCap};
+    if (const Faction* f = db_.faction(faction)) p.baselineBank = f->baselineBankCapacity;
+    players_.push_back(p);
     return players_.back().id;
 }
 
@@ -148,6 +171,7 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
             if (q == t) return OrderResult::NotAllowed;
     }
     Player* p = player(s->owner);
+    if (atBuildLimit(*this, s->owner, *t)) return OrderResult::BuildLimit;
     if (p && p->credits < info.cost) return OrderResult::NotEnoughCredits;
     if (p && info.spawnsUnit && popUsed(s->owner) + int(t->number("Unit_Pop_Cap").value_or(0)) > p->popCap)
         return OrderResult::PopulationCap;
@@ -194,6 +218,7 @@ OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeN
     for (const auto& n : constructible(builderId)) allowed = allowed || iequals(n, typeName);
     if (!allowed) return OrderResult::NotAllowed;
     if (!siteClear(*t, site)) return OrderResult::BlockedSite;
+    if (atBuildLimit(*this, b->owner, *t)) return OrderResult::BuildLimit;
     Player* p = player(b->owner);
     const BuildInfo info = buildInfo(*t, db_);
     if (p && p->credits < info.cost) return OrderResult::NotEnoughCredits;
@@ -213,7 +238,7 @@ OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeN
     b->attackOrder = 0;
     b->attackMove = false;
     b->goal = site;
-    b->path = nav_.findPath(b->position, nav_.nearestPassable({site[0] - s->footprintX - b->radius - 10, site[1], 0}));
+    b->path = planPath(*b, nav_.nearestPassable({site[0] - s->footprintX - b->radius - 10, site[1], 0}));
     return OrderResult::Ok;
 }
 
@@ -241,7 +266,7 @@ Vec3 World::exitPoint(const Unit& s, const Unit& u) {
 }
 
 void World::updateProduction(Unit& s) {
-    if (s.queue.empty() || s.underConstruction) return;
+    if (s.queue.empty() || s.underConstruction || !s.powered) return; // unpowered Novus structures idle
     const GameObjectType* t = s.queue.front();
     const BuildInfo info = buildInfo(*t, db_);
     if (++s.queueTicks < info.ticks) return;
@@ -373,7 +398,8 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
         u->attackOrder = 0;
         u->attackMove = false;
         u->goal = slots[best];
-        u->path = nav_.findPath(u->position, slots[best]);
+        u->path = planPath(*u, slots[best]);
+        u->harvest = Unit::Harvest::None;
     }
 }
 
@@ -383,6 +409,7 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
             u->path.clear();
             u->attackOrder = 0;
             u->attackMove = false;
+            u->harvest = Unit::Harvest::None;
         }
 }
 
@@ -421,7 +448,7 @@ void World::updateTargeting(Unit& u) {
                 // Chase: re-plan now and then, or when the target has moved off the goal.
                 if (--u.repathTicks <= 0 || dist2d(u.goal, t->position) > range * 0.5f) {
                     u.goal = t->position;
-                    u.path = nav_.findPath(u.position, t->position);
+                    u.path = planPath(u, t->position);
                     u.repathTicks = kTicksPerSecond;
                 }
             } else {
@@ -449,7 +476,7 @@ void World::updateTargeting(Unit& u) {
         if (u.target) {
             u.path.clear(); // hold and fight
         } else if (u.path.empty() && dist2d(u.position, u.goal) > std::max(u.radius * 2, 20.f)) {
-            u.path = nav_.findPath(u.position, u.goal); // area clear: carry on
+            u.path = planPath(u, u.goal); // area clear: carry on
         } else if (u.path.empty()) {
             u.attackMove = false; // arrived
         }
@@ -669,7 +696,7 @@ void World::moveUnit(Unit& u) {
         return;
     }
     // Skip ahead when a later waypoint is already in clear view (e.g. after being nudged by others).
-    while (u.path.size() > 1 && nav_.lineClear(u.position, u.path[1])) u.path.erase(u.path.begin());
+    while (!u.flying() && u.path.size() > 1 && nav_.lineClear(u.position, u.path[1])) u.path.erase(u.path.begin());
 
     const Vec3& wp = u.path.front();
     const float dx = wp[0] - u.position[0], dy = wp[1] - u.position[1];
@@ -700,7 +727,7 @@ void World::moveUnit(Unit& u) {
     const float step = std::min(u.speed, d);
     const float mx = std::cos(heading) * step, my = std::sin(heading) * step;
     Vec3 next{u.position[0] + mx, u.position[1] + my, 0};
-    if (!nav_.passableAt(next[0], next[1])) {
+    if (!u.flying() && !nav_.passableAt(next[0], next[1])) {
         // Slide along the wall on whichever axis is free.
         if (nav_.passableAt(u.position[0] + mx, u.position[1])) next = {u.position[0] + mx, u.position[1], 0};
         else if (nav_.passableAt(u.position[0], u.position[1] + my)) next = {u.position[0], u.position[1] + my, 0};
@@ -710,7 +737,7 @@ void World::moveUnit(Unit& u) {
     u.stuckTicks = progressed ? 0 : u.stuckTicks + 1;
     if (u.stuckTicks > kTicksPerSecond / 2) {
         // Wedged (crowding or a bad waypoint): plan again from where we are.
-        u.path = nav_.findPath(u.position, u.goal);
+        u.path = planPath(u, u.goal);
         u.stuckTicks = 0;
     }
     u.position = {next[0], next[1], map_.heightAt(next[0], next[1])};
@@ -723,6 +750,7 @@ void World::separate() {
             Unit& a = units_[i];
             Unit& b = units_[j];
             if (a.structure || b.structure) continue; // the nav grid keeps units off footprints
+            if (a.flying() != b.flying()) continue;   // aircraft pass over ground units
             const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
             const float minD = (a.radius + b.radius) * 0.9f;
             const float d2 = dx * dx + dy * dy;
@@ -737,8 +765,8 @@ void World::separate() {
             const float sa = wa / (wa + wb), sb = wb / (wa + wb);
             Vec3 pa{a.position[0] - nx * push * sa, a.position[1] - ny * push * sa, 0};
             Vec3 pb{b.position[0] + nx * push * sb, b.position[1] + ny * push * sb, 0};
-            if (nav_.passableAt(pa[0], pa[1])) a.position = {pa[0], pa[1], map_.heightAt(pa[0], pa[1])};
-            if (nav_.passableAt(pb[0], pb[1])) b.position = {pb[0], pb[1], map_.heightAt(pb[0], pb[1])};
+            if (a.flying() || nav_.passableAt(pa[0], pa[1])) a.position = {pa[0], pa[1], map_.heightAt(pa[0], pa[1])};
+            if (b.flying() || nav_.passableAt(pb[0], pb[1])) b.position = {pb[0], pb[1], map_.heightAt(pb[0], pb[1])};
         }
     }
 }
@@ -747,6 +775,7 @@ void World::tick() {
     if (navDirty_) rebuildNav();
     for (size_t i = 0; i < units_.size(); ++i) updateConstruction(units_[i]);
     for (size_t i = 0; i < units_.size(); ++i) updateProduction(units_[i]); // may spawn (index loop on purpose)
+    updateEconomy();
     for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
     separate();

@@ -12,6 +12,7 @@
 //     --squads            instead of a skirmish start, give every start position a mixed test squad
 //     --no-units          no units at all
 //     --demo              (with --screenshot) start a construction and a production order first
+//     --spawn TYPE        place a finished TYPE for you near your base (repeatable), e.g. Novus_Input_Station
 //     --battle            Novus and Hierarchy squads face off mid-map (with --run: prints the battle)
 //     --size WxH          window size (default 1600x900)
 //     --camera x,y,dist,yaw,pitch
@@ -69,6 +70,7 @@ struct Options {
     int width = 1600, height = 900, player = 1;
     bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
     bool squads = false, demo = false;
+    std::vector<std::string> spawns;
     std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
@@ -113,6 +115,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--no-mods") o.noMods = true;
         else if (a == "--enemy") o.enemy = next();
         else if (a == "--demo") o.demo = true;
+        else if (a == "--spawn") o.spawns.push_back(next());
         else if (a == "--order") o.haveOrder = std::sscanf(next(), "%f,%f", &o.order[0], &o.order[1]) == 2;
         else if (a == "--run") o.runSeconds = float(std::atof(next()));
         else if (a == "--size") std::sscanf(next(), "%dx%d", &o.width, &o.height);
@@ -229,7 +232,10 @@ int main(int argc, char** argv) {
         const DamageTable damageTable = loadDamageTable(vfs);
         const TechTree techTree = loadTechTree(vfs);
         const StringTable text = loadStrings(vfs);
+        GameDatabase effects;
+        try { effects.loadEffects(vfs); } catch (const std::exception& e) { SDL_Log("effects: %s", e.what()); }
         World world(map, db, &damageTable, 1, &techTree);
+        world.setEffects(&effects);
         std::vector<Vec3> starts;
         for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
         if (opt.battle) {
@@ -255,6 +261,25 @@ int main(int argc, char** argv) {
                 if (slot == you) addSkirmishPlayer(world, db, opt.faction, starts[size_t(slot)], &forces);
                 else if (slot == them) addSkirmishPlayer(world, db, opt.enemy, starts[size_t(slot)], &forces);
                 else world.addPlayer("Neutral", 0, 0);
+            }
+        }
+        if (!opt.spawns.empty() && opt.units && !opt.squads) {
+            // Ring of free sites around your HQ, nearest first, facing the map centre.
+            const int me = opt.player - 1;
+            Vec3 base = starts.empty() ? Vec3{map.sizeX() / 2, map.sizeY() / 2, 0} : starts[size_t(std::min<int>(me, int(starts.size()) - 1))];
+            const float toCentre = std::atan2(map.sizeY() / 2 - base[1], map.sizeX() / 2 - base[0]);
+            int k = 0;
+            for (const auto& name : opt.spawns) {
+                const GameObjectType* t = db.find(name);
+                if (!t) { std::printf("spawn: no type %s\n", name.c_str()); continue; }
+                bool placed = false;
+                for (int tries = 0; tries < 64 && !placed; ++tries, ++k) {
+                    const float ring = 260 + 110 * float(k / 8), a = toCentre + (float(k % 8) - 3.5f) * 0.42f;
+                    const Vec3 p{base[0] + std::cos(a) * ring, base[1] + std::sin(a) * ring, 0};
+                    if (!world.siteClear(*t, p)) continue;
+                    placed = world.spawn(t->name, me, p, toCentre) != 0;
+                }
+                std::printf("spawn: %s %s\n", name.c_str(), placed ? "placed" : "no room");
             }
         }
         if (world.players().empty())

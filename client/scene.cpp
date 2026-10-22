@@ -20,6 +20,8 @@ Scene::Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, 
             continue;
         const alamo::GameObjectType* t = db.findByCrc(o.typeCrc);
         if (!t) continue;
+        // Harvestable piles live in the simulation (they shrink and disappear); drawn by UnitControl.
+        if (!includeAllGroups && t->number("Resource_Units").value_or(0) > 0) continue;
 
         SceneObject so;
         so.type = t;

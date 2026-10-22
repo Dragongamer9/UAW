@@ -24,7 +24,8 @@ redistributed.
 | 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points | done |
 | 1 | Mods: every mod in `Game\Mods` is layered on top of the base game by default and merged entry by entry (objects, tech tree, factions, damage table, strings, skirmish starts) | done: Community Patch 4 + Human Resurgence 1.02 + Universe at Remix 2.8 load together (3,746 objects, 235 buildable entries) |
 | 3 | Military (human) faction in skirmish via the mods: Bunker + Build Bot start, base building | done |
-| 3 | Resource collection (scrap, collectors, Military supply), enemy AI | next |
+| 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
+| 3 | Enemy AI (skirmish) | next |
 | 3 | Abilities, melee, hardpoint destruction, shields, veterancy | planned |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
@@ -74,7 +75,13 @@ uaw-viewer "<game>" M16_Sahara --faction Alien --enemy Masari
 uaw-viewer "<game>" M16_Sahara --squads      # mixed test squads at every start instead
 uaw-viewer "<game>" M25_Grand_Canyon --player 5
 uaw-viewer "<game>" M16_Sahara --screenshot shot.png --size 1920x1080 --camera 2700,1700,2400,15,38
+uaw-viewer "<game>" M25_Grand_Canyon --faction Military --enemy Novus   # Military needs a mod (loaded by default)
+uaw-viewer "<game>" M25_Grand_Canyon --spawn Novus_Power_Router --spawn Novus_Input_Station  # start with an economy
+uaw-viewer "<game>" M16_Sahara --no-mods     # the original game only
 ```
+
+Scrap piles are drawn as gold heaps that shrink as they are mined; collectors show their load as a crate.
+The top bar shows credits, the Masari bank cap and passive income per second.
 
 On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
 `Data\MegaFiles.xml`) and double-click it to open the Sahara map.
@@ -295,6 +302,28 @@ the victim's `Armor_Type` (1.0 if absent).
   carving that needs the Glyph Carver; after that the walker finishes on its own.
 - **Upgrades and patches** (hardpoints and `X12_Novus_Patches`) are researched
   once per structure rather than spawned, and can unlock further units.
+
+### Resources
+
+Everything comes from the XML (and the effect library, `Data/XML/Effects/EffectSystemFiles.xml`):
+
+| Source | Fields | Retail values |
+|---|---|---|
+| Piles (any object with `ResourceBehaviorType`, placed in the map's Multiplayer group) | `Resource_Units`, `Resource_For_Faction` | car pile 7,000; Grand Canyon has 335 piles; Masari/Military excluded |
+| Novus Input Station (`ResourceDepotBehaviorType`) | `Resource_Depot_Active_Drones`, `..._Seconds_To_Build_Drone`, `..._Collection_Radius` | 3 drones, one per 3 s, whole map |
+| Novus Collector (`AIBehaviorType`) | `Drone_Capacity`, `Resources_Per_Grab` / `Resources_Seconds_Per_Grab`, `Resource_Gather_Range` | 220, 110 per 1 s, 80 |
+| Hierarchy Reaper (Lua `AlienReaperTurret`) | `resource_drone_search_radius`, `resource_drone_harvest_distance`; rate from `AlienHarvestResourcesEffect` Transfer `Amount_Per_Second` | 200, 100, 18/s |
+| Masari Matter Engine (Lua `MasariMatterEngine`) | `MatterEngine.ResourcesPerTimeBlock / ResourcesTimeSeconds`, `ResourcesStorage`, `MustBeOfFaction`; bank cap = `Baseline_Bank_Capacity` (Factions.xml) + storage of every engine | 4 per 3 s, +80; base cap 400 |
+| Refineries / Military Supply (Lua `NeutralRefinery`) | `ResourcesPerSecond` | Neutral Refinery 12/s, Military Supply 16/s (Remix) |
+
+Novus power (`PoweredBehaviorType`): Generators (Power Router) and Transmitters (Signal Tower) chain within the
+`Transmit_Radius_Attribute` radius (550); Receivers are powered within a powered node's `Radius_Attribute`
+(260 router, 165 tower); `Self_Powered` (Remote Terminal) is always on. Unpowered Novus structures don't produce
+and Input Stations don't launch drones (as `NovusInputStation.lua` checks `Is_Powered`).
+
+To confirm against the original: collector round trips are fast at 30 ticks/s (about 2,700 credits a minute per
+station on Grand Canyon, where scrap lies close to the start); the Input Station can also build extra collectors
+for 10 credits each.
 
 ### String table (`Data/Text/MasterTextFile_<LANGUAGE>.dat`)
 

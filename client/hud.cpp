@@ -67,7 +67,11 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
     if (me) {
         float x = pad;
         x = textBig(me->faction, x, pad / 2, kEdge) + 24 * s;
-        x = textBig("Credits " + fmt("%.0f", me->credits), x, pad / 2, kText) + 24 * s;
+        x = textBig("Credits " + fmt("%.0f", me->credits), x, pad / 2, kText) + 6 * s;
+        const float cap = w.bankCap(me->id), rate = w.incomePerSecond(me->id);
+        if (cap > 0) x = textSmall("/ " + fmt("%.0f", cap), x, pad / 2 + 4 * s, me->credits >= cap ? kWarn : kDim) + 6 * s;
+        if (rate > 0) x = textSmall("+" + fmt("%.1f/s", rate), x, pad / 2 + 4 * s, kGood) + 6 * s;
+        x += 18 * s;
         const int pop = w.popUsed(me->id);
         x = textBig("Population " + std::to_string(pop) + " / " + std::to_string(me->popCap), x, pad / 2,
                     pop >= me->popCap ? kWarn : kText);

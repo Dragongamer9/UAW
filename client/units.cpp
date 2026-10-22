@@ -241,6 +241,23 @@ void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(se
 // ------------------------------------------------------------------ drawing
 
 void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
+    // Scrap piles: the model when available, else a gold heap that shrinks as it is mined.
+    for (const alamo::ResourceNode& n : w.resources()) {
+        if (n.remaining <= 0) continue;
+        const float frac = std::clamp(n.remaining / std::max(n.initial, 1.f), 0.f, 1.f);
+        const GpuModel* model = nullptr;
+        if (const std::string* name = n.type->find("Land_Model_Name"); name && !alamo::trim(*name).empty())
+            model = r.model(alamo::trim(*name));
+        const Mat4 at = Mat4::translate(n.position[0], n.position[1], n.position[2]);
+        if (model) {
+            r.drawModel(*model, at * Mat4::scale(float(n.type->number("Scale_Factor").value_or(1.0)) * (0.5f + 0.5f * frac)));
+        } else {
+            const float s = n.radius * 1.4f * (0.4f + 0.6f * std::sqrt(frac));
+            r.drawBox(at * Mat4::scale3(s, s, std::max(2.f, s * 0.45f)), {0.85f, 0.68f, 0.25f, 1});
+            r.drawBox(at * Mat4::translate(s * 0.15f, -s * 0.1f, s * 0.3f) * Mat4::scale3(s * 0.5f, s * 0.45f, s * 0.35f),
+                      {0.6f, 0.62f, 0.66f, 1});
+        }
+    }
     for (const alamo::Unit& u : w.units()) {
         const bool sel = selected_.count(u.id) != 0;
         const Vec4 col = [&] {
@@ -266,6 +283,11 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                       {col[0] * 0.5f, col[1] * 0.5f, col[2] * 0.5f, 1});
         }
 
+        if (u.carried > 0) {
+            // Collectors show their load as a small crate underneath.
+            const float c = 3 + 4 * std::min(1.f, u.carried / 220.f);
+            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] - c) * Mat4::scale(c), {0.9f, 0.72f, 0.25f, 1});
+        }
         if (sel) {
             const float s = rad * 2.6f + 4;
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + 0.5f) * Mat4::scale3(s, s, 0.8f),

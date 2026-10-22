@@ -33,6 +33,12 @@ static Map wallMap() {
     return m;
 }
 
+static Map openMap() {
+    Map m = wallMap();
+    m.vertexFlags.assign(2500, 0x01);
+    return m;
+}
+
 static void write(const fs::path& p, const std::string& s) {
     fs::create_directories(p.parent_path());
     std::ofstream(p, std::ios::binary) << s;
@@ -89,7 +95,39 @@ static GameDatabase testDb(const fs::path& root) {
   <X_Units Name="Tank"><MovementClass>Tracked</MovementClass><Max_Speed>3.0</Max_Speed>
     <Max_Rate_Of_Turn>4</Max_Rate_Of_Turn><Stopped_Rate_Of_Turn>3</Stopped_Rate_Of_Turn>
     <OverrideAcceleration>0.1</OverrideAcceleration><Custom_Hard_XExtent>14</Custom_Hard_XExtent></X_Units>
+  <X_Structures Name="Depot"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>20</Custom_Hard_XExtent>
+    <BehaviorType Name="ResourceDepotBehaviorType"><Resource_Depot_Active_Drones>2</Resource_Depot_Active_Drones>
+      <Resource_Depot_Seconds_To_Build_Drone>1</Resource_Depot_Seconds_To_Build_Drone>
+      <Resource_Depot_Collection_Radius>2000</Resource_Depot_Collection_Radius></BehaviorType>
+    <BehaviorType Name="PoweredBehaviorType"><Role>Receiver</Role><Radius_Attribute>Powerup</Radius_Attribute></BehaviorType>
+    <Attributes><Powerup>0</Powerup></Attributes></X_Structures>
+  <X_Structures Name="Router"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>10</Custom_Hard_XExtent>
+    <BehaviorType Name="PoweredBehaviorType"><Role>Generator</Role><Radius_Attribute>Powerup</Radius_Attribute>
+      <Transmit_Radius_Attribute>Transmit</Transmit_Radius_Attribute></BehaviorType>
+    <Attributes><Powerup>150</Powerup><Transmit>400</Transmit></Attributes></X_Structures>
+  <X_Units Name="Drone"><MovementClass>Flying</MovementClass><Max_Speed>4.0</Max_Speed><Custom_Hard_XExtent>4</Custom_Hard_XExtent>
+    <Is_Resource_Collector>true</Is_Resource_Collector>
+    <BehaviorType Name="AIBehaviorType"><Drone_Capacity>200</Drone_Capacity><Resources_Per_Grab>100</Resources_Per_Grab>
+      <Resources_Seconds_Per_Grab>1</Resources_Seconds_Per_Grab><Resource_Gather_Range>30</Resource_Gather_Range>
+      <Resource_Depot_Type>Depot</Resource_Depot_Type></BehaviorType></X_Units>
+  <X_Units Name="Reaper"><MovementClass>Walker</MovementClass><Max_Speed>1.0</Max_Speed><Custom_Hard_XExtent>12</Custom_Hard_XExtent>
+    <Is_Resource_Collector>true</Is_Resource_Collector>
+    <BehaviorType Name="LuaScriptBehaviorType"><Lua_Land_Behaviors>AlienReaperTurret</Lua_Land_Behaviors>
+      <Lua_Script_Data>ResourceFaction = "Alien"  resource_drone_search_radius = 300.0  resource_drone_harvest_distance = 60.0</Lua_Script_Data></BehaviorType></X_Units>
+  <X_Structures Name="Engine"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>15</Custom_Hard_XExtent>
+    <BehaviorType Name="LuaScriptBehaviorType"><Lua_Land_Behaviors>MasariMatterEngine</Lua_Land_Behaviors>
+      <Lua_Script_Data>MatterEngine = {}  MatterEngine.ResourcesPerTimeBlock = 6.0  MatterEngine.ResourcesTimeSeconds = 2.0
+        MatterEngine.ResourcesStorage = 100.0</Lua_Script_Data></BehaviorType></X_Structures>
+  <X_Structures Name="Refinery"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>15</Custom_Hard_XExtent>
+    <BehaviorType Name="LuaScriptBehaviorType"><Lua_Land_Behaviors>NeutralRefinery, MasariMatterEngine</Lua_Land_Behaviors>
+      <Lua_Script_Data>ResourcesPerSecond = 10.0 MatterEngine = {} MatterEngine.MustBeOfFaction = "Masari"</Lua_Script_Data></BehaviorType></X_Structures>
+  <X_Resource_Objects Name="Scrap"><CategoryMask>Resource</CategoryMask><Custom_Hard_XExtent>10</Custom_Hard_XExtent>
+    <BehaviorType Name="ResourceBehaviorType"><Resource_Units>1000</Resource_Units>
+      <Resource_For_Faction>Novus, Alien</Resource_For_Faction></BehaviorType></X_Resource_Objects>
 </Units>)");
+    write(root / "Data/XML/Factions.xml", R"(<Factions>
+  <Faction Name="Masari"><Baseline_Bank_Capacity>400</Baseline_Bank_Capacity></Faction>
+  <Faction Name="Novus"></Faction><Faction Name="Alien"></Faction></Factions>)");
     MegVfs vfs;
     mountGame(vfs, root);
     GameDatabase db;
@@ -336,6 +374,62 @@ static void testStartingForces() {
     CHECK(defaultStartingForces().count("NOVUS"));
 }
 
+static void testResources(const GameDatabase& db) {
+    Map m = openMap(); // flat, all passable
+    // Script data parsing.
+    const auto sd = parseScriptData("ResourcesPerSecond = 16.0      MatterEngine = {}  MatterEngine.MustBeOfFaction = \"Masari\" a=1");
+    CHECK(sd.count("RESOURCESPERSECOND") && sd.at("RESOURCESPERSECOND") == "16.0");
+    CHECK(sd.count("MATTERENGINE.MUSTBEOFFACTION") && sd.at("MATTERENGINE.MUSTBEOFFACTION") == "Masari");
+    CHECK(sd.count("A") && sd.at("A") == "1");
+
+    // Collectors: an unpowered depot launches nothing; with a router nearby it launches two drones
+    // that bring the pile home 200 at a time.
+    {
+        World w(m, db);
+        const int nv = w.addPlayer("Novus", 0);
+        const uint32_t depot = w.spawn("Depot", nv, {200, 200, 0});
+        const uint32_t pile = w.addResource("Scrap", {600, 200, 0});
+        CHECK(depot && pile && w.resource(pile) && w.resource(pile)->remaining == 1000);
+        for (int i = 0; i < 5 * 30; ++i) w.tick();
+        int drones = 0;
+        for (const Unit& u : w.units()) drones += u.depot == depot;
+        CHECK(drones == 0); // no power
+        w.spawn("Router", nv, {260, 260, 0});
+        for (int i = 0; i < 60 * 30; ++i) w.tick();
+        drones = 0;
+        for (const Unit& u : w.units()) drones += u.depot == depot;
+        CHECK(drones == 2);
+        const float credits = w.player(nv)->credits;
+        CHECK(credits >= 200 && std::fmod(credits, 100.f) == 0); // whole grabs delivered
+        CHECK(w.resource(pile)->remaining + credits + 400 >= 1000 - 0.01f); // conserved (minus loads in flight)
+        for (int i = 0; i < 120 * 30; ++i) w.tick();
+        CHECK(w.resource(pile)->remaining == 0 && w.player(nv)->credits == 1000);
+    }
+    // Faction filter: Masari can't take Novus/Alien scrap; Reapers drain piles in reach.
+    {
+        World w(m, db);
+        const int al = w.addPlayer("Alien", 0);
+        const uint32_t pile = w.addResource("Scrap", {400, 200, 0});
+        w.spawn("Reaper", al, {200, 200, 0});
+        for (int i = 0; i < 10 * 30; ++i) w.tick();
+        CHECK(w.player(al)->credits > 0 && w.resource(pile)->remaining < 1000);
+        CHECK(std::fabs(w.player(al)->credits + w.resource(pile)->remaining - 1000) < 0.5f);
+    }
+    // Matter Engines: 3/s each, Masari bank capped at baseline + storage; refinery pays anyone.
+    {
+        World w(m, db);
+        const int ma = w.addPlayer("Masari", 0), nv = w.addPlayer("Novus", 0);
+        w.spawn("Engine", ma, {200, 200, 0});
+        w.spawn("Refinery", nv, {600, 600, 0});
+        CHECK(std::fabs(w.incomePerSecond(ma) - 3) < 1e-4f && std::fabs(w.incomePerSecond(nv) - 10) < 1e-4f);
+        CHECK(w.bankCap(ma) == 500 && w.bankCap(nv) == 0);
+        for (int i = 0; i < 10 * 30; ++i) w.tick();
+        CHECK(std::fabs(w.player(ma)->credits - 30) < 0.5f && std::fabs(w.player(nv)->credits - 100) < 0.5f);
+        for (int i = 0; i < 300 * 30; ++i) w.tick();
+        CHECK(std::fabs(w.player(ma)->credits - 500) < 0.01f); // capped
+    }
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -344,6 +438,7 @@ int main() {
     testGroups(db);
     testCombat(db);
     testEconomy(db);
+    testResources(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

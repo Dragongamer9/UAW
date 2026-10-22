@@ -216,23 +216,23 @@ std::filesystem::path findMod(const std::filesystem::path& gameRoot, const std::
     return {};
 }
 
-void GameDatabase::load(MegVfs& vfs) {
-    // Every layer's GameObjectFiles.xml contributes its files (union, first-seen order).
+void GameDatabase::loadFileList(MegVfs& vfs, const std::string& listPath, const char* rootTag, const std::string& dir) {
+    // Every layer's list contributes its files (union, first-seen order).
     std::vector<std::string> files;
     std::unordered_set<std::string> seen;
-    for (const auto& v : vfs.readAllLayers("Data\\XML\\GameObjectFiles.xml")) {
+    for (const auto& v : vfs.readAllLayers(listPath)) {
         XmlDocument list = parseXml(std::string(v.data.begin(), v.data.end()));
-        const XmlNode* root = list.root.child("Game_Object_Files");
+        const XmlNode* root = list.root.child(rootTag);
         if (!root) {
-            warnings_.push_back(v.layer + ": GameObjectFiles.xml has no <Game_Object_Files> element");
+            warnings_.push_back(v.layer + ": " + listPath + " has no <" + rootTag + "> element");
             continue;
         }
         for (const XmlNode* f : root->childrenNamed("File")) {
-            std::string path = "Data\\XML\\" + trim(f->text);
+            std::string path = dir + trim(f->text);
             if (seen.insert(normalizePath(path)).second) files.push_back(path);
         }
     }
-    if (files.empty()) throw MegError("no GameObjectFiles.xml");
+    if (files.empty()) throw MegError("no " + listPath);
     // Load layer by layer, so a mod's definition of an object replaces the one below it.
     for (size_t layer = 0; layer < vfs.layerCount(); ++layer) {
         for (const std::string& path : files) {
@@ -246,6 +246,15 @@ void GameDatabase::load(MegVfs& vfs) {
     }
     for (const std::string& path : files)
         if (!vfs.exists(path)) warnings_.push_back(path + ": file not found");
+}
+
+void GameDatabase::loadEffects(MegVfs& vfs) {
+    loadFileList(vfs, "Data\\XML\\Effects\\EffectSystemFiles.xml", "EffectSystemFiles", "Data\\XML\\Effects\\");
+    resolveVariants();
+}
+
+void GameDatabase::load(MegVfs& vfs) {
+    loadFileList(vfs, "Data\\XML\\GameObjectFiles.xml", "Game_Object_Files", "Data\\XML\\");
     resolveVariants();
     for (size_t i = 0; i < objects_.size(); ++i) byCrc_[crc32(upper(objects_[i].name))] = i;
 
@@ -265,6 +274,7 @@ void GameDatabase::load(MegVfs& vfs) {
             fac.aiPlayable = yes("Is_AI_Playable");
             if (const XmlNode* c = f->child("Multiplayer_Starting_Credits")) fac.multiplayerCredits = float(std::atof(c->text.c_str()));
             if (const XmlNode* c = f->child("Pop_Cap_For_Multiplayer_Games")) fac.multiplayerPopCap = std::atoi(c->text.c_str());
+            if (const XmlNode* c = f->child("Baseline_Bank_Capacity")) fac.baselineBankCapacity = float(std::atof(c->text.c_str()));
             auto it = std::find_if(factions_.begin(), factions_.end(), [&](const Faction& x) { return iequals(x.name, fac.name); });
             if (it != factions_.end()) *it = std::move(fac);
             else factions_.push_back(std::move(fac));

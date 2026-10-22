@@ -56,12 +56,16 @@ struct Faction {
     bool aiPlayable = false;
     float multiplayerCredits = 0;  // Multiplayer_Starting_Credits
     int multiplayerPopCap = 90;    // Pop_Cap_For_Multiplayer_Games
+    float baselineBankCapacity = 0; // Baseline_Bank_Capacity (Masari: bank limit without Matter Engines)
 };
 
 class GameDatabase {
 public:
     // Loads GameObjectFiles.xml and Factions.xml through the VFS.
     void load(MegVfs& vfs);
+    // Loads the effect library (Data/XML/Effects/EffectSystemFiles.xml) instead: each
+    // <Effect Name=...> becomes an entry, e.g. AlienHarvestResourcesEffect.
+    void loadEffects(MegVfs& vfs);
 
     const GameObjectType* find(std::string_view name) const;
     // Maps refer to object types by crc32 of the uppercase name.
@@ -74,6 +78,7 @@ public:
     size_t overriddenCount() const { return overridden_; } // objects a mod replaced
 
 private:
+    void loadFileList(MegVfs& vfs, const std::string& listPath, const char* rootTag, const std::string& dir);
     void loadObjectFile(MegVfs& vfs, const std::string& path);
     void loadObjectFile(MegVfs& vfs, const std::string& path, size_t layer, const std::string& text);
     void resolveVariants();

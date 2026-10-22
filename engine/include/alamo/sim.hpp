@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <string_view>
 #include <string>
 #include <vector>
@@ -81,6 +82,17 @@ struct Unit {
     uint32_t constructing = 0;         // builders: structure they are working on
     int builderTicks = 0;              // construction ticks that need a builder present (the rest run alone)
     std::vector<const GameObjectType*> upgrades; // finished upgrades/hardpoints bought at this structure
+
+    // Economy.
+    enum class Harvest : uint8_t { None, ToNode, Gathering, Returning };
+    Harvest harvest = Harvest::None;   // collectors and reapers (player orders reset it)
+    uint32_t harvestNode = 0;
+    uint32_t depot = 0;                // collectors: the depot that launched them
+    float carried = 0;
+    int harvestTimer = 0;
+    int droneTimer = 0;                // depots: progress on the next drone
+    bool powered = true;               // Novus structures: on the power network (others always true)
+    bool flying() const { return moveClass == MoveClass::Air; }
 };
 
 // Cost and time to build an object. Structures and walkers keep these on their
@@ -101,9 +113,52 @@ struct Player {
     std::string faction;               // "Novus", "Alien", "Masari", ...
     float credits = 0;
     int popCap = 90;
+    float baselineBank = 0;            // Factions.xml Baseline_Bank_Capacity (Masari); 0 = no cap
+    float earned = 0;                  // total income so far
 };
 
-enum class OrderResult { Ok, NotAllowed, NotEnoughCredits, PopulationCap, BlockedSite, InvalidUnit };
+// A pile of scrap (or any object with ResourceBehaviorType) placed on the map.
+struct ResourceNode {
+    uint32_t id = 0;                   // high bit set, so it never collides with unit ids
+    const GameObjectType* type = nullptr;
+    Vec3 position{};
+    float radius = 15;
+    float remaining = 0, initial = 0;  // Resource_Units
+    std::vector<std::string> factions; // Resource_For_Faction (empty = anyone)
+    bool usableBy(const std::string& faction) const;
+};
+
+// Economy parameters of one object type, read from its XML (see economy.cpp).
+struct EconomySpec {
+    // Collector drones (Is_Resource_Collector + Resource_Depot_Type), e.g. Novus_Collector.
+    bool collector = false;
+    std::string depotType;
+    float capacity = 0, perGrab = 0, gatherRange = 80;
+    int grabTicks = 30;
+    // Reaper-style harvesters (Lua behavior AlienReaperTurret): drain piles in reach directly.
+    bool reaper = false;
+    float reaperRate = 0;              // resource units per second (AlienHarvestResourcesEffect)
+    float reaperSearch = 200, reaperReach = 100;
+    // Depots (ResourceDepotBehaviorType): launch and keep `drones` collectors.
+    int drones = 0, droneBuildTicks = 90;
+    float collectionRadius = 0;
+    const GameObjectType* droneType = nullptr;
+    // Passive income (Lua behaviors MasariMatterEngine / NeutralRefinery).
+    float passivePerSecond = 0;
+    std::string passiveFaction;        // MatterEngine.MustBeOfFaction
+    bool matterEngine = false;         // counts toward the Masari bank cap
+    float storage = 0;                 // MatterEngine.ResourcesStorage
+    // Novus power (PoweredBehaviorType): generators (Power Router) and transmitters
+    // (Signal Tower) chain within Transmit radius and power receivers within Radius.
+    enum class Power : uint8_t { None, Generator, Transmitter, Receiver, SelfPowered };
+    Power power = Power::None;
+    float powerRadius = 0, transmitRadius = 0;
+};
+
+// Reads `Key = value` pairs from a Lua_Script_Data block (keys upper-cased, quotes stripped).
+std::unordered_map<std::string, std::string> parseScriptData(std::string_view text);
+
+enum class OrderResult { Ok, NotAllowed, NotEnoughCredits, PopulationCap, BlockedSite, InvalidUnit, BuildLimit };
 const char* toString(OrderResult r);
 
 struct Projectile {
@@ -138,6 +193,8 @@ public:
     const std::vector<Player>& players() const { return players_; }
     int popUsed(int owner) const;
     bool owns(int owner, const std::string& typeName) const; // a finished unit/structure of that type
+    // Units/structures of the type the player has or is building (for Build_Limit_Current_Per_Player).
+    int countOwned(int owner, const GameObjectType& type) const;
 
     // Production: queue a unit at one of the player's structures (pays up front).
     OrderResult queueProduction(uint32_t structure, const std::string& typeName);
@@ -178,6 +235,16 @@ public:
     // Unit ids within `radius` of a ground point, nearest first.
     std::vector<uint32_t> unitsNear(Vec3 p, float radius) const;
 
+    // Economy. Resource piles come from the map's Multiplayer objects at construction.
+    const std::vector<ResourceNode>& resources() const { return resources_; }
+    const ResourceNode* resource(uint32_t id) const;
+    uint32_t addResource(const std::string& typeName, Vec3 position); // tests / scripted piles
+    const EconomySpec& economy(const GameObjectType& t) const;
+    // Effect library for data-driven rates (Reaper harvest); optional.
+    void setEffects(const GameDatabase* effects) { effects_ = effects; }
+    float bankCap(int owner) const;    // 0 = unlimited
+    float incomePerSecond(int owner) const; // passive income only (drones/reapers vary)
+
 private:
     void moveUnit(Unit& u);
     void separate();
@@ -191,6 +258,15 @@ private:
     void updateConstruction(Unit& u);
     void rebuildNav();
     Vec3 exitPoint(const Unit& structure, const Unit& unit);
+    std::vector<Vec3> planPath(const Unit& u, Vec3 to) const;
+    void loadMapResources();
+    void updateEconomy();
+    void updateDepot(Unit& depot);
+    void updateCollector(Unit& u, const EconomySpec& e);
+    void updateReaper(Unit& u, const EconomySpec& e);
+    void deposit(int owner, float amount);
+    void updatePower();
+    ResourceNode* resourceMut(uint32_t id);
 
     const Map& map_;
     const GameDatabase& db_;
@@ -203,6 +279,9 @@ private:
     std::vector<Unit> units_;
     std::vector<Projectile> projectiles_;
     std::vector<DeathEvent> deaths_;
+    std::vector<ResourceNode> resources_;
+    const GameDatabase* effects_ = nullptr;
+    mutable std::unordered_map<const GameObjectType*, EconomySpec> economyCache_;
     uint32_t nextId_ = 1;
     uint64_t ticks_ = 0;
     uint64_t rng_;

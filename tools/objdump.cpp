@@ -17,7 +17,7 @@
 using namespace alamo;
 
 static int usage() {
-    std::cerr << "usage: objdump <game-root> summary | units [faction] | show <name> | warnings\n";
+    std::cerr << "usage: objdump <game-root> summary | units [faction] | show <name> | effect <name> | warnings\n";
     return 2;
 }
 
@@ -86,8 +86,13 @@ int main(int argc, char** argv) {
             std::printf("%zu buildable objects\n", n);
             return 0;
         }
-        if (cmd == "show" && argc > 3) {
-            const GameObjectType* o = db.find(argv[3]);
+        GameDatabase effects;
+        if (cmd == "effect" && argc > 3) {
+            effects.loadEffects(vfs);
+            std::fprintf(stderr, "%zu effects\n", effects.objects().size());
+        }
+        if ((cmd == "show" || cmd == "effect") && argc > 3) {
+            const GameObjectType* o = (cmd == "effect" ? effects : db).find(argv[3]);
             if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }
             std::printf("%s  (%s, %s)\n", o->name.c_str(), o->category.c_str(), o->sourceFile.c_str());
             if (!o->variantOf.empty()) std::printf("variant of %s\n", o->variantOf.c_str());

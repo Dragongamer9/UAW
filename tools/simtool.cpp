@@ -73,6 +73,8 @@ int main(int argc, char** argv) {
         db.load(vfs);
         const TechTree tech = loadTechTree(vfs);
         const DamageTable dmg = loadDamageTable(vfs);
+        GameDatabase effects;
+        try { effects.loadEffects(vfs); } catch (const std::exception&) {}
         Map map = loadTed(vfs.read(mapPath(argv[2])));
         const auto st = starts(map, db);
         if (st.size() < 2) { std::cerr << "map needs 2 start positions\n"; return 1; }
@@ -80,8 +82,10 @@ int main(int argc, char** argv) {
         std::printf("tech tree: %zu buildable objects\n", tech.size());
 
         const StartingForces forces = loadStartingForces(vfs);
+        std::printf("resource piles on the map: %zu\n", World(map, db).resources().size());
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
+            w.setEffects(&effects);
             std::vector<std::string> factions;
             for (const Faction& f : db.factions())
                 if (f.humanPlayable && forces.count(upper(f.name))) factions.push_back(f.name);
@@ -94,6 +98,7 @@ int main(int argc, char** argv) {
         if (cmd == "opening" && argc > 4) {
             const std::string faction = argv[4];
             World w(map, db, &dmg, 1, &tech);
+            w.setEffects(&effects);
             const int me = addSkirmishPlayer(w, db, faction, st[0], &forces);
             uint32_t builder = 0, hq = 0;
             for (const Unit& u : w.units()) (u.structure ? hq : builder) = u.id;
@@ -135,6 +140,7 @@ int main(int argc, char** argv) {
                         if (iequals(type, b->type->name)) continue; // no extra builders
                         const GameObjectType* pt = db.find(type);
                         if (!pt || pt->category.find("Patch") != std::string::npos || pt->category.find("Hero") != std::string::npos) continue;
+                        if (w.economy(*pt).collector) continue; // depots launch their own drones
                         const OrderResult r = w.queueProduction(u.id, type);
                         if (r == OrderResult::Ok) {
                             std::printf("%6.1fs  %-26s queues %s\n", w.seconds(), u.type->name.c_str(), type.c_str());
@@ -155,9 +161,15 @@ int main(int argc, char** argv) {
                 if (sec % 60 == 0 && sec != lastReport) {
                     lastReport = sec;
                     size_t structures = 0, units = 0;
-                    for (const Unit& u : w.units()) (u.structure ? structures : units)++;
-                    std::printf("--- %d:00  credits %.0f  pop %d/%d  structures %zu  units %zu\n", sec / 60,
-                                w.player(me)->credits, w.popUsed(me), w.player(me)->popCap, structures, units);
+                    size_t drones = 0, depots = 0;
+                    for (const Unit& u : w.units()) {
+                        (u.structure ? structures : units)++;
+                        if (u.depot) ++drones;
+                        if (w.economy(*u.type).drones) ++depots;
+                    }
+                    if (drones || depots) std::printf("    depots %zu drones %zu\n", depots, drones);
+                    std::printf("--- %d:00  credits %.0f  earned %.0f  pop %d/%d  structures %zu  units %zu\n", sec / 60,
+                                w.player(me)->credits, w.player(me)->earned, w.popUsed(me), w.player(me)->popCap, structures, units);
                     if (const Unit* b = w.unit(builder); b && b->constructing)
                         if (const Unit* s = w.unit(b->constructing))
                             std::printf("    builder at (%.0f,%.0f) site (%.0f,%.0f) %s, path %zu, progress %.0f%%\n", b->position[0],
