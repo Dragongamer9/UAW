@@ -78,6 +78,12 @@ public:
     void boxSelect(alamo::World& w, const View& v, float x0, float y0, float x1, float y1, bool add);
     void selectAllVisible(alamo::World& w, const View& v);
     void selectAll(alamo::World& w);
+    // Your units on screen of the same type as the one under the point (double click).
+    void selectSameType(alamo::World& w, const View& v, const alamo::Vec3& ground);
+    // Control groups 0-9: Ctrl+N stores the selection, N recalls it (false if group N is empty).
+    void storeGroup(int n);
+    bool recallGroup(alamo::World& w, int n);
+    bool hasGroup(const alamo::World& w, int n) const;
     void moveTo(alamo::World& w, const alamo::Vec3& ground);
     // Right click / RB: attack an enemy under the point, otherwise move there.
     void command(alamo::World& w, const alamo::Vec3& ground);
@@ -119,6 +125,7 @@ public:
 private:
     int player_;
     std::set<uint32_t> selected_;
+    std::set<uint32_t> groups_[10];
     mutable std::set<uint32_t> seenStructures_; // enemy structures once seen stay drawn under the fog
     alamo::Vec3 lastOrder_{};
     float lastOrderTime_ = -100;

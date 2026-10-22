@@ -40,7 +40,9 @@
 //             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera,
-//             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu
+//             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
+//             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
+//             selects every unit of that type on screen
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
 //   build     select a structure or builder: 1-9 / click the menu (D-pad left/right + down on a gamepad);
 //             builders then place the structure with a click / A (right click / B cancels);
@@ -617,6 +619,8 @@ int main(int argc, char** argv) {
             int frames = 0;
             // Mouse drag state for box selection / right-click orders.
             bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false, superweaponArmed = false;
+            int lastGroupKey = -1;
+            uint64_t lastGroupTime = 0;
             float downX = 0, downY = 0, mouseX = 0, mouseY = 0;
             while (running) {
                 const bool* k = SDL_GetKeyboardState(nullptr);
@@ -649,6 +653,24 @@ int main(int argc, char** argv) {
                             opt.speed = std::max(0.5f, opt.speed / 2);
                         } else if (e.key.key >= SDLK_F1 && e.key.key <= SDLK_F8) {
                             control.useAbility(world, size_t(e.key.key - SDLK_F1));
+                        } else if (e.key.key >= SDLK_0 && e.key.key <= SDLK_9 && (e.key.mod & SDL_KMOD_CTRL)) {
+                            control.storeGroup(int(e.key.key - SDLK_0));
+                            control.say("Group " + std::to_string(int(e.key.key - SDLK_0)) + " set", world.seconds());
+                        } else if (e.key.key >= SDLK_0 && e.key.key <= SDLK_9 && !control.placing() &&
+                                   control.hasGroup(world, int(e.key.key - SDLK_0))) {
+                            // A control group: select it; pressed twice quickly, look at it too.
+                            const int n = int(e.key.key - SDLK_0);
+                            const uint64_t nowMs = SDL_GetTicks();
+                            control.recallGroup(world, n);
+                            if (n == lastGroupKey && nowMs - lastGroupTime < 400 && !control.selection().empty()) {
+                                float sx = 0, sy = 0;
+                                for (uint32_t id : control.selection())
+                                    if (const Unit* u = world.unit(id)) { sx += u->position[0]; sy += u->position[1]; }
+                                cam.x = sx / float(control.selection().size());
+                                cam.y = sy / float(control.selection().size());
+                            }
+                            lastGroupKey = n;
+                            lastGroupTime = nowMs;
                         } else if (e.key.key >= SDLK_1 && e.key.key <= SDLK_9 && !control.placing()) {
                             const auto items = control.menu(world, db, text);
                             const size_t i = size_t(e.key.key - SDLK_1);
@@ -702,7 +724,8 @@ int main(int argc, char** argv) {
                             leftDown = false;
                             if (std::hypot(e.button.x - downX, e.button.y - downY) < 6) {
                                 Vec3 g;
-                                if (view.groundAt(map, e.button.x, e.button.y, g)) control.clickSelect(world, g, shift);
+                                if (e.button.clicks >= 2 && view.groundAt(map, e.button.x, e.button.y, g)) control.selectSameType(world, view, g);
+                                else if (view.groundAt(map, e.button.x, e.button.y, g)) control.clickSelect(world, g, shift);
                                 else if (!shift) control.clear();
                             } else {
                                 control.boxSelect(world, view, downX, downY, e.button.x, e.button.y, shift);

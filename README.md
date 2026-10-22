@@ -118,7 +118,8 @@ squad, or another with `--player N`.
 | Pan | WASD / arrows | left stick |
 | Rotate / tilt | Q/E, R/F, right- or middle-drag | right stick |
 | Zoom | mouse wheel, +/- | triggers |
-| Select | left click, left-drag box, Shift adds, Tab = all yours | A (hold LB to add), X = all on screen, B = clear |
+| Select | left click, left-drag box, Shift adds, Tab = all yours, double click = that type on screen | A (hold LB to add), X = all on screen, B = clear |
+| Control groups | Ctrl+0-9 stores, 0-9 selects (twice: camera to them) | |
 | Move / attack | right click (on an enemy = attack) | RB |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Fire superweapon (enabler selected, ready) | V then right click | |

@@ -122,6 +122,46 @@ void UnitControl::selectAllVisible(alamo::World& w, const View& v) {
     boxSelect(w, v, 0, 0, float(v.width), float(v.height), false);
 }
 
+void UnitControl::selectSameType(alamo::World& w, const View& v, const Vec3& ground) {
+    const alamo::GameObjectType* type = nullptr;
+    float best = 1e30f;
+    for (uint32_t id : w.unitsNear(ground, 12)) {
+        const alamo::Unit* u = w.unit(id);
+        if (!u || u->owner != player_) continue;
+        const float d = std::hypot(u->position[0] - ground[0], u->position[1] - ground[1]);
+        if (d < best) { best = d; type = u->type; }
+    }
+    if (!type) return;
+    selected_.clear();
+    for (const alamo::Unit& u : w.units()) {
+        if (u.owner != player_ || u.type != type) continue;
+        float sx, sy;
+        if (v.toScreen(u.position, sx, sy) && sx >= 0 && sy >= 0 && sx <= float(v.width) && sy <= float(v.height)) selected_.insert(u.id);
+    }
+}
+
+void UnitControl::storeGroup(int n) {
+    if (n < 0 || n > 9) return;
+    groups_[n] = selected_;
+}
+
+bool UnitControl::hasGroup(const alamo::World& w, int n) const {
+    if (n < 0 || n > 9) return false;
+    for (uint32_t id : groups_[n])
+        if (const alamo::Unit* u = const_cast<alamo::World&>(w).unit(id); u && u->owner == player_) return true;
+    return false;
+}
+
+bool UnitControl::recallGroup(alamo::World& w, int n) {
+    if (!hasGroup(w, n)) return false;
+    std::set<uint32_t> alive;
+    for (uint32_t id : groups_[n])
+        if (const alamo::Unit* u = w.unit(id); u && u->owner == player_) alive.insert(id);
+    groups_[n] = alive;
+    selected_ = alive;
+    return true;
+}
+
 void UnitControl::selectAll(alamo::World& w) {
     selected_.clear();
     for (const alamo::Unit& u : w.units())
