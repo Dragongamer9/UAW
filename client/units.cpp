@@ -973,6 +973,9 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             // A defence: its weapons' reach as a ring around the site.
             float reach = 0;
             for (const alamo::WeaponSpec& ws : alamo::weaponsFor(*t, w.db())) reach = std::max(reach, ws.maxRange);
+            if (const std::string* into = t->find("Tactical_Buildable_Constructed")) // a construction site: what it becomes
+                if (const alamo::GameObjectType* done = w.db().find(alamo::trim(*into)))
+                    for (const alamo::WeaponSpec& ws : alamo::weaponsFor(*done, w.db())) reach = std::max(reach, ws.maxRange);
             if (reach > 0) {
                 const int n = 48;
                 const float seg = 2 * 3.14159265f * reach / float(n) * 0.55f;

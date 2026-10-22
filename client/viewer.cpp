@@ -27,6 +27,7 @@
 //     --order X,Y         (with --screenshot) select your squad and order it to X,Y
 //     --run SECONDS       (with --screenshot) simulate this long before the picture
 //     --select NAME       (with --screenshot) select your units whose type name contains NAME
+//     --place NAME        (with --select) start placing that build menu entry at the camera target
 //     --research          open the research panel
 //     --menu              (with --screenshot) picture of the setup screen for MAP
 //     --no-fog            no fog of war
@@ -110,6 +111,7 @@ struct Options {
     std::string lineup;
     bool research = false; // open the research panel (screenshots)
     std::string select;    // (screenshots) select your units whose type contains this
+    std::string place;     // (screenshots, with --select) start placing the build menu entry containing this
     std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
@@ -183,6 +185,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--lineup") o.lineup = next();
         else if (a == "--research") o.research = true;
         else if (a == "--select") o.select = next();
+        else if (a == "--place") o.place = next();
         else if (a == "--menu") o.menu = true;
         else if (a == "--slots") o.slots = next();
         else if (a == "--no-fog") o.fog = false;
@@ -894,6 +897,25 @@ int main(int argc, char** argv) {
                     cam.y = sy / float(n);
                 }
                 std::printf("selected %d units matching %s\n", n, opt.select.c_str());
+            }
+            if (!opt.place.empty()) {
+                // The selection's build menu entry whose type contains the text, placed at the camera target.
+                std::string want = opt.place;
+                for (char& c : want) c = char(std::toupper(static_cast<unsigned char>(c)));
+                bool found = false;
+                for (const MenuItem& it : control.menu(world, db, text)) {
+                    std::string name = it.type;
+                    for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
+                    if (name.find(want) == std::string::npos) continue;
+                    control.activate(world, it);
+                    const Vec3 t = cam.target(map);
+                    control.setGhost({t[0] + 200, t[1], map.heightAt(t[0] + 200, t[1])}); // beside the start, where there is room
+                    found = control.placing();
+                    break;
+                }
+                std::printf("place %s: %s\n", opt.place.c_str(), found ? "placing" : "not in the menu");
+                if (!found)
+                    for (const MenuItem& it : control.menu(world, db, text)) std::printf("  menu: %s\n", it.type.c_str());
             }
             if (!opt.saveAs.empty())
                 std::printf("save %s: %s, state %016llx\n", opt.saveAs.c_str(), saveTo(opt.saveAs) ? "written" : "FAILED",
