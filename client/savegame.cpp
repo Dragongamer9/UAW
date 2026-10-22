@@ -112,6 +112,7 @@ bool writeSave(const std::string& path, const SaveGame& s) {
     out << "UAWSAVE 1\n";
     out << "map " << s.setup.map << "\n";
     out << "fog " << (s.setup.fog ? 1 : 0) << "\n";
+    out << "options " << s.setup.aiLevel << " " << s.setup.credits << "\n";
     for (const PlayerSlot& p : s.setup.slots) out << "slot " << slotKind(p.kind) << " " << p.faction << " " << p.team << "\n";
     for (const std::string& m : s.mods) out << "mod " << m << "\n";
     out << "player " << s.player << " " << (s.spectate ? 1 : 0) << "\n";
@@ -144,6 +145,12 @@ bool readSave(const std::string& path, SaveGame& s, std::string* error) {
         ls >> key;
         if (key == "map") ls >> s.setup.map;
         else if (key == "fog") { int f = 1; ls >> f; s.setup.fog = f != 0; }
+        else if (key == "options") {
+            int ai = 1, cr = 1;
+            ls >> ai >> cr;
+            s.setup.aiLevel = std::clamp(ai, 0, 2);
+            s.setup.credits = std::clamp(cr, 0, 3);
+        }
         else if (key == "slot") {
             std::string kind;
             PlayerSlot p;
