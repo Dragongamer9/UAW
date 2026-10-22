@@ -43,7 +43,7 @@
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
 //             Tab select all yours, . next idle builder, , your army, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
-//             V + right click fires a selected superweapon, minimap click moves the camera,
+//             V + right click fires a selected superweapon, minimap click moves the camera (right click: orders there),
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
 //             Home jumps to the last attack alert, U unloads selected transports (right click your transport to get in), Delete twice sells,
 //             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
@@ -890,8 +890,14 @@ int main(int argc, char** argv) {
                         }
                         if (e.button.button == SDL_BUTTON_RIGHT && rightDown) {
                             rightDown = false;
-                            Vec3 g;
-                            if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
+                            Vec3 g, mm;
+                            if (!rightDragged && hud.minimapAt(e.button.x, e.button.y, mm)) {
+                                // Right click on the minimap: the same orders, at that spot of the map.
+                                mm[2] = map.heightAt(mm[0], mm[1]);
+                                if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, mm);
+                                else control.command(world, mm, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
+                                attackMoveArmed = false;
+                            } else if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
                                 if (control.abilityArmed()) control.targetAbility(world, g);
                                 else if (superweaponArmed) control.fireSuperweapon(world, g);
                                 else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);

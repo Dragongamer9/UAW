@@ -139,6 +139,7 @@ squad, or another with `--player N`.
 | Move / attack | right click (on an enemy = attack) | RB |
 | Queue a move after the current one | Shift + right click | |
 | Next idle builder (camera follows) / your whole army | . / , | |
+| Orders on the minimap (move, attack-move with A/G, Shift to queue) | right click the minimap | |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Fire superweapon (enabler selected, ready) | V then right click | |
 | Abilities of the selection | F1-F8 (targeted ones: then right click the target) | |
