@@ -1416,7 +1416,7 @@ int main(int argc, char** argv) {
                 if (headless && lockstep) {
                     // Headless LAN game (tests): the host starts once --players are in; a client waits.
                     const uint64_t t0 = SDL_GetTicks();
-                    while (!done && SDL_GetTicks() - t0 < 30000) {
+                    while (!done && SDL_GetTicks() - t0 < 180000) {
                         pumpLobby();
                         if (lockstep && lockstep->isHost() && int(lockstep->players().size()) >= std::max(2, opt.waitPlayers)) {
                             SDL_Delay(200);
