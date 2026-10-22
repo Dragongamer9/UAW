@@ -73,6 +73,9 @@ private:
     std::map<uint32_t, Vec3> knownStructures_;
     std::map<uint32_t, float> knownUnits_; // id -> strength when last seen
     int scoutLeg_ = 0;
+    // A wave's target that takes no damage for a minute is given up on (out of reach) for a while.
+    float targetSince_ = 0, targetHealth_ = 0;
+    std::map<uint32_t, float> givenUp_; // target id -> until when (seconds)
     float scoutSince_ = 0;
     float wealth() const;
     float typeStrength(const GameObjectType& t) const; // sqrt(health x dps), cached

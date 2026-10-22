@@ -415,9 +415,18 @@ void SkirmishAI::manageProduction() {
         // The mods set most population costs to 0, so cap the army ourselves: past this the
         // simulation slows down and nothing is gained.
         if (choice.empty() && army < kMaxArmy) choice = pickUnit(s, options, spend);
-        if (!choice.empty() && w_.queueProduction(s.id, choice) == OrderResult::Ok) {
-            lastAction_ = "queue " + choice;
-            ++made_[choice];
+        if (!choice.empty()) {
+            const OrderResult r = w_.queueProduction(s.id, choice);
+            if (r == OrderResult::Ok) {
+                lastAction_ = "queue " + choice;
+                ++made_[choice];
+            } else {
+                // Refused (a build limit, a unique hero already out...): its turn passes, so the
+                // rotation doesn't stall on it.
+                ++made_[choice];
+                if (std::getenv("UAW_AI_DEBUG"))
+                    std::fprintf(stderr, "[%.0fs p%d] %s refused %s: %s\n", w_.seconds(), player_, s.type->name.c_str(), choice.c_str(), toString(r));
+            }
         }
     }
 }
@@ -468,6 +477,8 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
         const bool combat = isCombatUnit(*t), utility = !combat && isUtilityUnit(*t);
         if (!combat && !utility) continue;
         if (utility && (alive[o] >= (rich > 0.5f ? 2 : 1) || w_.seconds() < 240)) continue;
+        if (const auto limit = t->number("Build_Limit_Current_Per_Player"); limit && *limit > 0 && w_.countOwned(player_, *t) >= int(*limit))
+            continue; // a hero already out, etc.
         const float cost = buildInfo(*t, db_).cost;
         const float perCredit = combat ? typeStrength(*t) / std::max(1.f, cost) : 0;
         bestPerCredit = std::max(bestPerCredit, perCredit);
@@ -702,12 +713,22 @@ void SkirmishAI::manageArmy() {
     }
     // Attacking: pick the nearest enemy structure (else any enemy unit) to the army.
     const Unit* target = attackTarget_ ? w_.unit(attackTarget_) : nullptr;
+    if (target && w_.seconds() - targetSince_ > 60) { // no harm done in a minute: can't get at it
+        if (target->health >= targetHealth_) {
+            givenUp_[target->id] = w_.seconds() + 180;
+            target = nullptr;
+        } else {
+            targetSince_ = w_.seconds();
+            targetHealth_ = target->health;
+        }
+    }
     if (!target || (w_.fogOfWar() && !target->structure && !sees(*target))) {
         target = nullptr;
         float best = 1e30f;
         for (int pass = 0; pass < 2 && !target; ++pass)
             for (const Unit& e : w_.units()) {
                 if (!w_.enemies(player_, e.owner) || (pass == 0 && !e.structure)) continue;
+                if (auto g = givenUp_.find(e.id); g != givenUp_.end() && g->second > w_.seconds()) continue;
                 if (w_.fogOfWar() && !(e.structure ? knownStructures_.count(e.id) != 0 : sees(e) && !e.cloaked)) continue;
                 const float d = dist2(e.position, centroid);
                 if (d < best) { best = d; target = &e; }
@@ -732,6 +753,8 @@ void SkirmishAI::manageArmy() {
         }
         if (!target) { attacking_ = false; return; }
         attackTarget_ = target->id;
+        targetSince_ = w_.seconds();
+        targetHealth_ = target->health;
         w_.commandAttackMove(army, target->position);
         lastAction_ = "attack " + target->type->name;
         return;
@@ -743,11 +766,14 @@ void SkirmishAI::manageArmy() {
         lastAction_ = "retreat";
         return;
     }
-    // Keep late units and idle ones heading for the target.
-    std::vector<uint32_t> idle;
+    // Keep late units and idle ones heading for the target; those standing at it attack it outright
+    // (units don't pick some targets on their own, e.g. Masari collectors).
+    std::vector<uint32_t> idle, there;
     for (uint32_t id : army)
-        if (const Unit* u = w_.unit(id); u && !u->moving() && !u->target) idle.push_back(id);
+        if (const Unit* u = w_.unit(id); u && !u->moving() && !u->target)
+            (dist2(u->position, target->position) < target->radius + u->maxRange() + 120 ? there : idle).push_back(id);
     if (!idle.empty()) w_.commandAttackMove(idle, target->position);
+    if (!there.empty()) w_.commandAttack(there, target->id);
 }
 
 void SkirmishAI::manageReapers() {
