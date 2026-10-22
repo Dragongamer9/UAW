@@ -51,13 +51,14 @@ Settings loadSettings() {
         if (key == "sound") s.sound = std::clamp(v, 0.f, 1.f);
         else if (key == "music") s.music = std::clamp(v, 0.f, 1.f);
         else if (key == "graphics") s.fullGraphics = v != 0;
+        else if (key == "fullscreen") s.fullscreen = v != 0;
     }
     return s;
 }
 
 void saveSettings(const Settings& s) {
     std::ofstream out(saveFolder() + "settings.txt");
-    out << "sound " << s.sound << "\nmusic " << s.music << "\ngraphics " << (s.fullGraphics ? 1 : 0) << "\n";
+    out << "sound " << s.sound << "\nmusic " << s.music << "\ngraphics " << (s.fullGraphics ? 1 : 0) << "\nfullscreen " << (s.fullscreen ? 1 : 0) << "\n";
 }
 
 std::string encodeCommand(const alamo::Command& c) {

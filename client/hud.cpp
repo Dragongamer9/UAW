@@ -239,6 +239,7 @@ void Hud::drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVert
         {"Game speed / pause", "[ ] / Pause"},
         {"Quick save / load", "F5 / F9"},
         {"Sound", "M"},
+        {"Full screen", "F11 or Alt+Enter"},
         {"Menu", "Esc"},
     };
     const size_t n = sizeof kKeys / sizeof kKeys[0];

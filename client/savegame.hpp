@@ -39,6 +39,7 @@ std::string saveFolder();
 struct Settings {
     float sound = 0.8f, music = 0.6f;
     bool fullGraphics = true;
+    bool fullscreen = false;
 };
 Settings loadSettings();
 void saveSettings(const Settings& s);

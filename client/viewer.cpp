@@ -311,11 +311,23 @@ int main(int argc, char** argv) {
         Settings settings = headless ? Settings{} : loadSettings();
         if (audio) audio->volume = settings.sound, audio->musicVolume = settings.music;
         if (!settings.fullGraphics) renderer.setDetail(false);
+        if (settings.fullscreen) SDL_SetWindowFullscreen(window, true);
         auto keepSettings = [&]() {
             if (headless) return;
             if (audio) settings.sound = audio->volume, settings.music = audio->musicVolume;
             settings.fullGraphics = renderer.detail();
+            settings.fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
             saveSettings(settings);
+        };
+        // F11 or Alt+Enter: full screen (the desktop's resolution) or back to a window.
+        auto fullscreenKey = [&](const SDL_Event& ev) {
+            if (headless || ev.type != SDL_EVENT_KEY_DOWN) return false;
+            if (!(ev.key.key == SDLK_F11 || ((ev.key.key == SDLK_RETURN || ev.key.key == SDLK_KP_ENTER) && (ev.key.mod & SDL_KMOD_ALT))))
+                return false;
+            SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) == 0);
+            SDL_SyncWindow(window);
+            keepSettings();
+            return true;
         };
         std::printf("sound: %zu SFX events%s\n", sfxLibrary.size(), audio && audio->ok() ? "" : " (no audio device)");
         const float uiScale = std::max(0.75f, float(opt.height) / 900.f);
@@ -912,6 +924,7 @@ int main(int argc, char** argv) {
                 const bool shift = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
                 SDL_Event e;
                 while (SDL_PollEvent(&e)) {
+                    if (fullscreenKey(e)) continue;
                     if (pause.open && e.type != SDL_EVENT_QUIT && e.type != SDL_EVENT_GAMEPAD_ADDED && e.type != SDL_EVENT_GAMEPAD_REMOVED) {
                         switch (pause.handle(e)) {
                         case PauseMenu::Result::Resume: pause.open = false; break;
@@ -998,7 +1011,7 @@ int main(int argc, char** argv) {
                             const size_t i = size_t(e.key.key - SDLK_1);
                             if (i < items.size()) control.activate(world, items[i]);
                         } else if (e.key.key == SDLK_BACKSPACE) control.cancelQueue(world);
-                        else if (e.key.key == SDLK_F11) placeholders = !placeholders;
+                        else if (e.key.key == SDLK_F12) placeholders = !placeholders;
                         else if (e.key.key == SDLK_P && !control.selection().empty()) {
                             patrolArmed = true; // next right click: patrol between here and there
                             control.say("Patrol: right click the far end", world.seconds());
@@ -1434,6 +1447,7 @@ int main(int argc, char** argv) {
                     SDL_Event e;
                     while (SDL_PollEvent(&e)) {
                         if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
+                        if (fullscreenKey(e)) continue;
                         const SkirmishMenu::Result r = menu->handle(e);
                         if (r == SkirmishMenu::Result::Start) {
                             if (lockstep && lockstep->isHost()) lockstep->start(menu->setup());
