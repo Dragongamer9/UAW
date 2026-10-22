@@ -72,6 +72,8 @@ public:
     bool shown(const alamo::World& w, const alamo::Unit& u) const;
     const std::set<uint32_t>& selection() const { return selected_; }
     float lastOrderTime() const { return lastOrderTime_; } // game seconds of the last move/attack order
+    // Interface sounds asked for since the last call (SFX event names), for the audio to play.
+    std::vector<std::string> takeSounds() { return std::move(sounds_); }
     bool lastOrderWasAttack() const { return attackOrder_; }
 
     void clear() { selected_.clear(); }
@@ -137,6 +139,10 @@ public:
                         const Mat4& xf, const Pose* pose, int depth) const;
 
 private:
+    std::vector<std::string> sounds_;
+    void sound(const alamo::GameObjectType* t, const char* field) {
+        if (const std::string* v = t ? t->find(field) : nullptr) sounds_.push_back(alamo::trim(*v));
+    }
     uint32_t lastIdleBuilder_ = 0;
     int player_;
     std::set<uint32_t> selected_;

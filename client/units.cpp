@@ -250,12 +250,17 @@ void UnitControl::activate(alamo::World& w, const MenuItem& item) {
     }
     const alamo::OrderResult r = w.queueProduction(id, item.type);
     say(r == alamo::OrderResult::Ok ? "Queued " + item.label : item.label + ": " + alamo::toString(r), w.seconds());
+    if (r == alamo::OrderResult::Ok) sound(w.db().find(item.type), "SFXEvent_Tactical_Build_Started");
+    else sounds_.push_back("GUI_Generic_Bad_Sound");
 }
 
 void UnitControl::cancelQueue(alamo::World& w) {
     if (const uint32_t id = menuOwner(w)) {
+        const alamo::Unit* s = w.unit(id);
+        const alamo::GameObjectType* last = s && !s->queue.empty() ? s->queue.back() : nullptr;
         w.cancelProduction(id);
         say("Cancelled", w.seconds());
+        sound(last, "SFXEvent_Tactical_Build_Cancelled");
     }
 }
 
@@ -263,7 +268,12 @@ void UnitControl::place(alamo::World& w) {
     if (!placing()) return;
     const alamo::OrderResult r = w.commandConstruct(placingBuilder_, placingType_, ghost_);
     say(r == alamo::OrderResult::Ok ? "Building" : std::string("Can't build here: ") + alamo::toString(r), w.seconds());
-    if (r == alamo::OrderResult::Ok) placingType_.clear();
+    if (r == alamo::OrderResult::Ok) {
+        sound(w.db().find(placingType_), "SFXEvent_Tactical_Build_Started");
+        placingType_.clear();
+    } else {
+        sounds_.push_back("GUI_Generic_Bad_Sound");
+    }
 }
 
 void UnitControl::command(alamo::World& w, const Vec3& ground, bool queued) {

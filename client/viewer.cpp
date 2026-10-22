@@ -544,7 +544,7 @@ int main(int argc, char** argv) {
         float lastCombat = -100;
         const std::string environment = mapEnvironment(setup.map);
         auto sounds = [&](const Vec3& listenerAt, float yawDeg) {
-            if (!audio) return;
+            if (!audio) { control.takeSounds(); return; }
             // Music: the faction's ambient piece, battle music while your units fight (and for 15 s
             // after), the win or lose piece at the end.
             if (const Player* me = world.player(control.player()); me && me->faction != "Neutral") {
@@ -606,6 +606,7 @@ int main(int argc, char** argv) {
                 if (!heardFirst) audio->play(event(*u.type, "SFXEvent_Tactical_Build_Complete"));
             }
             heardFirst = false;
+            for (const std::string& s : control.takeSounds()) audio->play(s);
             audio->update();
         };
         control.effects = &effects;
