@@ -38,6 +38,7 @@ add_library(alamo
     engine/src/garrison.cpp
     engine/src/flow.cpp
     engine/src/luavm.cpp
+    engine/src/luacompile.cpp
     engine/src/research.cpp
     engine/src/ai.cpp
   engine/src/combat.cpp

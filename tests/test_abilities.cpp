@@ -750,6 +750,112 @@ static void testLuaMeta() {
     CHECK(!mt.empty() && mt[0].isTable() && mt[0].get("__index").get("hp").n == 7);
 }
 
+
+// Lua source compiled by compileLua: every construct the mods' scripts use, checked by the script
+// itself (each `ok(cond, name)` must pass).
+static void testLuaSource() {
+    LuaVM vm;
+    std::vector<std::string> failed;
+    int passed = 0;
+    vm.setFunction("ok", [&](const std::vector<LuaValue>& a) {
+        if (!a.empty() && a[0].truthy()) ++passed;
+        else failed.push_back(a.size() > 1 ? a[1].str() : "?");
+        return std::vector<LuaValue>{};
+    });
+    const char* src = R"LUA(
+-- comments, [[long]] strings and numbers
+--[[ a long
+comment ]]
+local a, b, c = 1, 2.5e1, 0x10
+ok(a + b + c == 42, "numbers")
+ok([[x
+y]] == "x\ny" and [==[a]]b]==] == "a]]b", "long strings")
+ok("tab\t" .. 'q\'' .. "\65" == "tab\tq'A", "escapes")
+ok(2 ^ 3 ^ 2 == 512 and -2 ^ 2 == -4 and 7 % 3 == 1 and 1 + 2 * 3 == 7, "precedence")
+ok(not nil and not false and (nil or 5) == 5 and (false and 1) == false and (1 and 2) == 2, "and/or")
+ok(1 < 2 and 2 <= 2 and 3 > 2 and 3 >= 3 and 1 ~= 2 and "a" < "b", "comparisons")
+local s = "x" .. 1 .. "y"
+ok(s == "x1y" and #s == 3, "concat and length")
+-- tables
+local t = {10, 20, 30, x = 1, ["y z"] = 2, [5] = 50; 40}
+ok(#t == 5 and t[4] == 40 and t.x == 1 and t["y z"] == 2 and t[5] == 50, "constructor")
+t.deep = {inner = {v = 7}}
+ok(t.deep.inner.v == 7, "nested index")
+local big = {}
+for i = 1, 120 do big[#big + 1] = i end
+local list = {unpack(big)}
+ok(#list == 120 and list[120] == 120, "setlist with many items")
+-- control flow
+local sum = 0
+for i = 10, 1, -2 do sum = sum + i end
+ok(sum == 30, "numeric for down")
+local n = 0
+while true do n = n + 1; if n >= 5 then break end end
+ok(n == 5, "while/break")
+repeat local k = n; n = n - 1 until k <= 2
+ok(n == 1, "repeat sees body locals")
+local keys = 0
+for k, v in pairs({a = 1, b = 2, c = 3}) do keys = keys + v end
+ok(keys == 6, "pairs")
+local idx = 0
+for i, v in ipairs({5, 6, 7}) do idx = idx + i * v end
+ok(idx == 5 + 12 + 21, "ipairs")
+local grade
+if n > 5 then grade = "high" elseif n > 0 then grade = "low" else grade = "none" end
+ok(grade == "low", "elseif")
+-- functions, varargs, multiple results
+local function fact(x) if x <= 1 then return 1 end return x * fact(x - 1) end
+ok(fact(5) == 120, "recursive local function")
+local function three() return 1, 2, 3 end
+local p, q, r, z = three()
+ok(p == 1 and q == 2 and r == 3 and z == nil, "multiple results")
+ok(select("#", three()) == 3 and select("#", (three())) == 1, "parenthesized call keeps one")
+local function count(...) return select("#", ...) end
+ok(count() == 0 and count(nil, nil) == 2 and count(three()) == 3 and count(three(), 9) == 2, "varargs")
+local function pack(...) return {...} end
+ok(#pack(4, 5, 6) == 3, "vararg table")
+local x, y = 1, 2
+x, y = y, x
+ok(x == 2 and y == 1, "swap")
+-- closures: each iteration has its own variable
+local fns = {}
+for i = 1, 3 do fns[i] = function() return i end end
+ok(fns[1]() == 1 and fns[3]() == 3, "closures per iteration")
+local function counter()
+  local c = 0
+  return function() c = c + 1; return c end
+end
+local c1, c2 = counter(), counter()
+c1(); c1()
+ok(c1() == 3 and c2() == 1, "upvalues")
+local function outer() local v = 1; local function mid() return function() v = v + 1; return v end end; return mid()() end
+ok(outer() == 2, "upvalue of upvalue")
+-- methods and metatables
+Account = {balance = 0}
+Account.__index = Account
+function Account.new(b) return setmetatable({balance = b}, Account) end
+function Account:deposit(v) self.balance = self.balance + v; return self end
+local acc = Account.new(10):deposit(5)
+ok(acc.balance == 15 and getmetatable(acc) == Account, "methods")
+local V = {}
+V.__add = function(l, r) return l.v + r.v end
+local v1, v2 = setmetatable({v = 1}, V), setmetatable({v = 2}, V)
+ok(v1 + v2 == 3, "metamethods")
+Global_Value = "set"
+function Module_Fn(a, b) return a * b end
+)LUA";
+    std::string err;
+    CHECK(vm.runSource(src, &err));
+    if (!err.empty()) std::fprintf(stderr, "lua source: %s\n", err.c_str());
+    for (const std::string& f : failed) std::fprintf(stderr, "lua source check failed: %s\n", f.c_str());
+    CHECK(failed.empty() && passed == 27);
+    CHECK(vm.global("Global_Value").str() == "set");
+    const auto r = vm.call(vm.global("Module_Fn"), {LuaValue::number(6), LuaValue::number(7)});
+    CHECK(r.size() == 1 && r[0].n == 42);
+    CHECK(!compileLua("x = = 1", &err) && err.find("line 1") != std::string::npos);
+    CHECK(!compileLua("if x then", &err));
+}
+
 static void testLua() {
     LuaVM vm;
     std::string err;
@@ -811,6 +917,7 @@ int main() {
     testDeathSpawn(d);
     testResearch(d);
     testLua();
+    testLuaSource();
     fs::remove_all(root);
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

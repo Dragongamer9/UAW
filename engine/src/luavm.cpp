@@ -390,6 +390,14 @@ LuaVM::LuaVM() : globals_(std::make_shared<LuaTable>()) {
         const double d = a.empty() ? 0 : toNumber(a[0], &ok);
         return std::vector<LuaValue>{ok ? LuaValue::number(d) : LuaValue()};
     });
+    setFunction("select", [](const std::vector<LuaValue>& a) {
+        if (a.empty()) return std::vector<LuaValue>{};
+        if (a[0].isString() && a[0].s == "#") return std::vector<LuaValue>{LuaValue::number(double(a.size() - 1))};
+        const double n = toNumber(a[0]);
+        const long long from = n < 0 ? (long long)(a.size()) + (long long)n : (long long)n;
+        if (from < 1) return std::vector<LuaValue>{};
+        return std::vector<LuaValue>(a.begin() + std::min<long long>(from, (long long)a.size()), a.end());
+    });
     setFunction("unpack", [](const std::vector<LuaValue>& a) {
         std::vector<LuaValue> out;
         if (!a.empty() && a[0].isTable())

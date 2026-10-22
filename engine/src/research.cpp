@@ -1,4 +1,5 @@
 // Research trees from the game's compiled tree scripts (see research.hpp).
+#include <cstdlib>
 #include "alamo/research.hpp"
 
 #include "alamo/luavm.hpp"
@@ -101,8 +102,10 @@ std::vector<ResearchTree> loadResearchTrees(MegVfs& vfs) {
         if (chunk.size() > 4 && chunk[0] == 0x1b) { // compiled: run it
             if (!vm.run(chunk)) continue;
             vm.call(vm.global("Init_Research_Tree"), {});
-        } else { // source (mods): read the branch tables it assigns
-            vm.loadDataAssignments(std::string_view(reinterpret_cast<const char*>(chunk.data()), chunk.size()));
+        } else { // source (mods): compile and run it; if it doesn't compile, read the tables it assigns
+            const std::string_view src(reinterpret_cast<const char*>(chunk.data()), chunk.size());
+            if (vm.runSource(src) && !std::getenv("UAW_LUA_DATA_ONLY")) vm.call(vm.global("Init_Research_Tree"), {});
+            else vm.loadDataAssignments(src);
         }
         for (const auto& [k, v] : vm.globals().fields) {
             const std::string g = k.str();

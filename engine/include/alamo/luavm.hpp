@@ -88,6 +88,8 @@ public:
     // malformed chunk or when the step budget runs out.
     bool run(const std::vector<uint8_t>& chunk, std::string* error = nullptr);
     std::vector<LuaValue> call(const LuaValue& fn, const std::vector<LuaValue>& args);
+    // Compiles Lua 5.1 source (compileLua) and runs it. False with a message on a syntax error.
+    bool runSource(std::string_view source, std::string* error = nullptr);
     // Plain Lua source (mods ship some scripts uncompiled): sets every `Name = value` assignment
     // whose value is a literal - numbers, strings, booleans, nested table constructors and
     // Find_Object_Type("X") (which yields "X") - wherever it appears, later ones winning.
@@ -113,5 +115,8 @@ private:
 
 // Parses a chunk into its main function prototype (null on error).
 std::shared_ptr<LuaProto> loadLuaChunk(const std::vector<uint8_t>& chunk, std::string* error = nullptr);
+// Compiles Lua 5.1 source into a main function prototype for the VM (null with "line N: ..." on a
+// syntax error). Mods ship some scripts as source.
+std::shared_ptr<LuaProto> compileLua(std::string_view source, std::string* error = nullptr);
 
 } // namespace alamo

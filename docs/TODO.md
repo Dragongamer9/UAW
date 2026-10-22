@@ -77,8 +77,7 @@ before the Remix Material Center's units (Hailfire, Armored Assault Tank, Provid
 ## Bigger pieces still to do
 
 - A Lua scripting host: the engine API the game's own scripts call (unit behaviours, the skirmish AI
-  scripts, story missions). The VM itself is complete enough (metatables, coroutines).
-- A Lua source compiler, for mods that ship scripts uncompiled (today only their literal data is read).
+  scripts, story missions). The VM itself is complete enough (metatables, coroutines, a source compiler).
 - The campaign (story maps, Global Conquest).
 - GitHub Actions stopped running on 2026-10-22 (the account's billing / spending limit); builds resume
   once that is sorted.
