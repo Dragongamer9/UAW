@@ -692,6 +692,7 @@ int main(int argc, char** argv) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
             renderer.setFogOfWar(control.fog ? world.fogGrid(control.player()) : nullptr, world.fogWidth(), world.fogHeight(),
                                  world.fogCell(), world.tickCount() / 15);
+            renderer.setTime(world.seconds());
             renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
             view = View{rc.eye, rc.target, rc.fovY, w, h, renderer.viewProj()};
             if (lineupMode)

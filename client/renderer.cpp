@@ -27,6 +27,7 @@ uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform mat4 uSkin[64];
 uniform int uSkinned;
+uniform vec2 uUvOffset; // scrolling textures (UVScrollRate x time, the water)
 out vec3 vNormal;
 out vec2 vUv;
 out vec4 vColor;
@@ -43,7 +44,7 @@ void main() {
     vNormal = mat3(uModel) * mat3(skin) * aNormal;
     vTangent = mat3(uModel) * mat3(skin) * aTangent;
     vBinormal = mat3(uModel) * mat3(skin) * aBinormal;
-    vUv = aUv;
+    vUv = aUv + uUvOffset;
     vColor = aColor;
     gl_Position = uViewProj * world;
 }
@@ -61,7 +62,7 @@ uniform int uHasTex;
 uniform sampler2D uBump;  // tangent-space normal map
 uniform int uHasBump;
 uniform vec4 uSpec;       // rgb = specular colour, w = shininess
-uniform int uGloss;       // gloss mask: 0 none, 1 normal map alpha, 2 base texture alpha
+uniform int uGloss;       // gloss mask: 0 none, 1 normal map alpha, 2 base texture alpha, 3 everywhere
 uniform vec4 uTint;
 uniform vec3 uLightDir;
 uniform vec3 uSun;       // sun colour x intensity
@@ -115,6 +116,7 @@ void main() {
         if (uGloss == 1) gloss = bt.a;
     }
     if (uGloss == 2 && uHasTex != 0) gloss = texture(uTex, vUv).a;
+    if (uGloss == 3) gloss = 1.0;
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
@@ -212,6 +214,10 @@ void main() {
 GLuint link(const char* vsSrc, const char* fsSrc);
 
 void glUniform4f4(GLint loc, const alamo::Vec4& v) { glUniform4fv(loc, 1, v.data()); }
+void glUniform2f2(GLint loc, float x, float y) {
+    const float v[2] = {x, y};
+    glUniform2fv(loc, 1, v);
+}
 
 GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
@@ -353,6 +359,7 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uHasBump_ = glGetUniformLocation(program_, "uHasBump");
     uSpec_ = glGetUniformLocation(program_, "uSpec");
     uGloss_ = glGetUniformLocation(program_, "uGloss");
+    uUvOffset_ = glGetUniformLocation(program_, "uUvOffset");
     glUseProgram(program_);
     glUniform1i(glGetUniformLocation(program_, "uBump"), 4);
 
@@ -499,6 +506,12 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 gpu.palette = std::move(palette);
                 if (const std::string* t = sm.material.texture("BaseTexture"); t && !t->empty()) gpu.texture = texture(*t);
                 if (hasBump) gpu.bump = texture(*bumpName);
+                if (auto it = sm.material.params.find("UVScrollRate"); it != sm.material.params.end())
+                    if (auto* r = std::get_if<alamo::Vec4>(&it->second); r && ((*r)[0] != 0 || (*r)[1] != 0)) {
+                        gpu.uvScroll[0] = (*r)[0];
+                        gpu.uvScroll[1] = (*r)[1];
+                        gpu.scrolls = true;
+                    }
                 if (auto it = sm.material.params.find("Specular"); it != sm.material.params.end())
                     if (auto* sp = std::get_if<alamo::Vec4>(&it->second)) {
                         gpu.specular = {(*sp)[0], (*sp)[1], (*sp)[2], 32};
@@ -663,6 +676,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     clipZ_ = 1e9f;
     glUniform4f4(uTeam_, {0, 0, 0, 0});
     glUniform1i(uGloss_, 0);
+    glUniform2f2(uUvOffset_, 0, 0);
     team_ = {1, 1, 1, 1};
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
@@ -875,7 +889,9 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
         if (mesh.colorize) glUniform4f4(uTeam_, team_);
         glUniform1i(uGloss_, bumpsOn_ || mesh.gloss == 2 ? mesh.gloss : 0);
         if (mesh.gloss) glUniform4f4(uSpec_, mesh.specular);
+        if (mesh.scrolls) glUniform2f2(uUvOffset_, mesh.uvScroll[0] * time_, mesh.uvScroll[1] * time_);
         mesh.draw();
+        if (mesh.scrolls) glUniform2f2(uUvOffset_, 0, 0);
         if (mesh.colorize) glUniform4f4(uTeam_, {0, 0, 0, 0});
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 0);
     }
@@ -933,7 +949,9 @@ void Renderer::endFrame() {
         setUniforms(d.transform, d.tint, d.mesh->texture, bumpsOn_ ? d.mesh->bump : 0);
         setSkin(*d.mesh, d.pose.get());
         glUniform1i(uGloss_, 0);
+        if (d.mesh->scrolls) glUniform2f2(uUvOffset_, d.mesh->uvScroll[0] * time_, d.mesh->uvScroll[1] * time_);
         d.mesh->draw();
+        if (d.mesh->scrolls) glUniform2f2(uUvOffset_, 0, 0);
     }
     glUniform1i(uSkinned_, 0);
     glDepthMask(GL_TRUE_);
@@ -1010,11 +1028,22 @@ void Renderer::setWater(const alamo::MapWater& w, float sizeX, float sizeY) {
     const float m = 4000, z = w.level;
     const alamo::Vec3 n{0, 0, 1};
     const alamo::Vec4 c{1, 1, 1, 1};
-    auto at = [&](float x, float y) { return vtx({x, y, z}, n, x / 250.f, y / 250.f, c); };
+    auto at = [&](float x, float y) {
+        GpuVertex g = vtx({x, y, z}, n, x / 250.f, y / 250.f, c);
+        g.tangent[0] = 1, g.binormal[1] = 1; // flat: the ripple map's axes are the map's
+        return g;
+    };
     std::vector<GpuVertex> v{at(-m, -m), at(sizeX + m, -m), at(sizeX + m, sizeY + m), at(-m, sizeY + m)};
     const uint16_t idx[6] = {0, 1, 2, 0, 2, 3};
     water_.upload(v, idx, 6, false);
-    waterTexture_ = w.texture.empty() ? 0 : texture(w.texture);
+    // Some maps name the ripple (bump) map as the water's texture too: that is no colour.
+    auto isBump = [](std::string t) {
+        for (char& ch : t) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        return t.find("bump") != std::string::npos;
+    };
+    waterTexture_ = w.texture.empty() || isBump(w.texture) ? 0 : texture(w.texture);
+    waterBump_ = w.bump.empty() ? 0 : texture(w.bump);
+    if (!waterBump_ && !w.texture.empty() && isBump(w.texture)) waterBump_ = texture(w.texture);
     // Murky blue-green, tinted by the map's water colour.
     const alamo::Vec4 base{0.32f, 0.44f, 0.5f, 0.72f};
     for (int k = 0; k < 3; ++k) waterTint_[k] = base[k] * std::clamp(w.color[size_t(k)], 0.2f, 1.f) * (waterTexture_ ? 1.6f : 1.f);
@@ -1027,9 +1056,22 @@ void Renderer::drawWater() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE_);
-    setUniforms(Mat4::translate(0, 0, 0), waterTint_, waterTexture_);
+    setUniforms(Mat4::translate(0, 0, 0), waterTint_, waterTexture_, bumpsOn_ ? waterBump_ : 0);
+    if (waterBump_ && bumpsOn_ && !waterTexture_) { // ripples need a texture to sample: a white one
+        if (!white_) white_ = uploadTexture(std::vector<uint8_t>(16, 255), 2, 2);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, white_);
+        glUniform1i(uHasTex_, 1);
+        glUniform1i(uHasBump_, 1);
+    }
     glUniform1i(uSkinned_, 0);
+    glUniform1i(uGloss_, waterBump_ && bumpsOn_ ? 3 : 0); // the sun glints off it everywhere
+    glUniform4f4(uSpec_, {0.9f, 0.9f, 0.85f, 60});
+    glUniform2f2(uUvOffset_, time_ * 0.012f, time_ * 0.007f); // a slow drift
     water_.draw();
+    glUniform2f2(uUvOffset_, 0, 0);
+    glUniform1i(uGloss_, 0);
+    glUniform1i(uHasBump_, 0);
     glDepthMask(GL_TRUE_);
     glDisable(GL_BLEND);
 }

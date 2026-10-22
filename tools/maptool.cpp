@@ -286,6 +286,9 @@ int main(int argc, char** argv) {
                         *std::max_element(m.heights.begin(), m.heights.end()));
             std::printf("playable: (%.0f, %.0f) - (%.0f, %.0f)\n", m.playableMin[0], m.playableMin[1], m.playableMax[0],
                         m.playableMax[1]);
+            if (m.water.on)
+                std::printf("water: level %.1f, colour (%.2f %.2f %.2f %.2f), texture %s, bump %s\n", m.water.level, m.water.color[0],
+                            m.water.color[1], m.water.color[2], m.water.color[3], m.water.texture.c_str(), m.water.bump.c_str());
             if (const MapEnvironment& e = m.environment; e.valid)
                 std::printf("environment: %s, sun (%.2f %.2f %.2f) x%.2f from (%.2f %.2f %.2f), ambient (%.2f %.2f %.2f), haze (%.2f %.2f %.2f) %.0f-%.0f%s, sky %s\n",
                             e.name.empty() ? "-" : e.name.c_str(), e.sun[0], e.sun[1], e.sun[2], e.sunIntensity, e.sunDirection[0],

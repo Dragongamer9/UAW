@@ -75,6 +75,7 @@ constexpr GLenum GL_CLAMP_TO_EDGE = 0x812F;
     X(void, glDeleteProgram, GLuint)                                                                     \
     X(GLint, glGetUniformLocation, GLuint, const GLchar*)                                                \
     X(void, glUniformMatrix4fv, GLint, GLsizei, GLboolean, const GLfloat*)                               \
+    X(void, glUniform2fv, GLint, GLsizei, const GLfloat*)                                                \
     X(void, glUniform3fv, GLint, GLsizei, const GLfloat*)                                                \
     X(void, glUniform4fv, GLint, GLsizei, const GLfloat*)                                                \
     X(void, glUniform1i, GLint, GLint)                                                                   \
