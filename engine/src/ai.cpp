@@ -85,8 +85,18 @@ bool SkirmishAI::isCombatUnit(const GameObjectType& t) const {
 bool SkirmishAI::isBuilderType(const GameObjectType& t) const {
     auto it = builder_.find(&t);
     if (it != builder_.end()) return it->second;
-    const bool b = !isStructureType(t) && w_.tech() &&
-                   !w_.tech()->constructibleBy(t.name, [](const std::string&) { return true; }).empty();
+    bool b = !isStructureType(t) && w_.tech() &&
+             !w_.tech()->constructibleBy(t.name, [](const std::string&) { return true; }).empty();
+    // ...or a mobile unit listed as the Tactical_Builder of a structure (it builds on site: the
+    // Military Build Bot).
+    if (!b && !isStructureType(t) && w_.tech())
+        for (const std::string& obj : w_.tech()->objects()) {
+            const GameObjectType* ot = db_.find(obj);
+            if (!ot || !isStructureType(*ot)) continue;
+            for (const BuildOption& o : w_.tech()->options(obj))
+                for (const std::string& name : o.builders) b = b || iequals(name, t.name);
+            if (b) break;
+        }
     const_cast<SkirmishAI*>(this)->builder_[&t] = b;
     return b;
 }
@@ -694,7 +704,10 @@ void SkirmishAI::manageArmy() {
     if (!attacking_) {
         // Go when clearly stronger than everything the enemy has in the field (and not
         // before minute 4 unless overwhelming), or when we can't grow any more.
-        const float value = armyValue(army), enemy = enemyStrength();
+        const float value = armyValue(army);
+        // Under fog, an enemy army never seen isn't no army: assume a fair match until scouted.
+        float enemy = enemyStrength();
+        if (w_.fogOfWar() && knownUnits_.empty()) enemy = std::max(enemy, 0.75f * value);
         const bool ready = (minutes >= 4 && army.size() >= 6 && value >= 1.3f * enemy) || (minutes >= 3 && army.size() >= 4 && value >= 3 * enemy + 1) ||
                            capped || (minutes >= 12 && army.size() >= 10);
         if (!ready) {
