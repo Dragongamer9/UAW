@@ -612,6 +612,10 @@ bool UnitControl::aimTurret(const GpuModel& m, const Mat4& xf, const alamo::Game
         const float step = float(t.number("Turret_Rotate_Speed").value_or(5.0)) * 3.14159265f / 180.f * 30.f * dt;
         const float diff = std::remainder(want - angle, 6.2831853f);
         angle = std::fabs(diff) <= step ? want : angle + (diff > 0 ? step : -step);
+        if (std::fabs(diff) > step && turretSounds_.size() < 64) // turning: its rotating sound
+            if (const std::string* ev = t.find("SFXEvent_Turret_Rotating_Loop"); ev && !alamo::trim(*ev).empty())
+                turretSounds_.push_back({key | (1ull << 62), alamo::trim(*ev),
+                                         {xf.at(0, 3), xf.at(1, 3), xf.at(2, 3)}});
         angle = std::remainder(angle, 6.2831853f);
     }
     it->second.second = time;

@@ -148,6 +148,10 @@ public:
     bool aimTurret(const GpuModel& m, const Mat4& xf, const alamo::GameObjectType& t, const alamo::Vec3* target, uint64_t key,
                    float time, Pose& pose) const;
     mutable std::unordered_map<uint64_t, std::pair<float, float>> turrets_; // key -> (angle, last time)
+    // Turrets turning this frame (for their SFXEvent_Turret_Rotating_Loop): key, event, where.
+    struct TurretSound { uint64_t key; std::string event; alamo::Vec3 at; };
+    mutable std::vector<TurretSound> turretSounds_;
+    std::vector<TurretSound> takeTurretSounds() const { return std::move(turretSounds_); }
     // What a dead unit leaves to watch: its death clone's (or its own) model and death animation.
     struct Fallen {
         const GpuModel* model = nullptr;

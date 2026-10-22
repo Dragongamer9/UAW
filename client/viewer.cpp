@@ -685,7 +685,11 @@ int main(int argc, char** argv) {
                     }
                     if (!ev.empty()) near.push_back({d, key, ev, u.position});
                 }
-                const size_t keep = std::min<size_t>(near.size(), 6);
+                for (const auto& ts : control.takeTurretSounds()) { // turrets turning
+                    const float dx = ts.at[0] - listenerAt[0], dy = ts.at[1] - listenerAt[1];
+                    near.push_back({dx * dx + dy * dy, ts.key, ts.event, ts.at});
+                }
+                const size_t keep = std::min<size_t>(near.size(), 8);
                 std::partial_sort(near.begin(), near.begin() + long(keep), near.end(), [](const Near& a, const Near& b) { return a.d < b.d; });
                 for (size_t i = 0; i < keep; ++i) audio->loop(near[i].key, near[i].event, near[i].at);
             }
