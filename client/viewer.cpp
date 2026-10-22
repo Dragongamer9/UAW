@@ -665,6 +665,8 @@ int main(int argc, char** argv) {
         View view;
         Hud hud(vfs, uiScale);
         PauseMenu pause(vfs, uiScale);
+        pause.soundOn = audio && audio->volume > 0;
+        pause.musicOn = audio && audio->musicVolume > 0;
         bool paused = false;
         if (!lineupMode) hud.setMap(renderer, map, vfs);
         hud.researchOpen = opt.research;
@@ -861,6 +863,14 @@ int main(int argc, char** argv) {
                             end = End::Load;
                             running = false;
                             break;
+                        case PauseMenu::Result::Sound:
+                            if (audio) audio->volume = audio->volume > 0 ? 0.f : 0.8f;
+                            pause.soundOn = audio && audio->volume > 0;
+                            break;
+                        case PauseMenu::Result::Music:
+                            if (audio) audio->musicVolume = audio->musicVolume > 0 ? 0.f : 0.6f;
+                            pause.musicOn = audio && audio->musicVolume > 0;
+                            break;
                         case PauseMenu::Result::None: break;
                         }
                         continue;
@@ -926,6 +936,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_M && audio) { // sound on / off
                             audio->volume = audio->volume > 0 ? 0.f : 0.8f;
                             control.say(audio->volume > 0 ? "Sound on" : "Sound off", world.seconds());
+                            pause.soundOn = audio->volume > 0;
                         }
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_U) control.unload(world);

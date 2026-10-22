@@ -490,8 +490,8 @@ void SkirmishMenu::draw(Renderer& r) {
 // ---------------------------------------------------------------- pause menu
 
 namespace {
-const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Restart", "Quit to setup", "Exit game"};
-constexpr int kPauseCount = 6;
+const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Sound", "Music", "Restart", "Quit to setup", "Exit game"};
+constexpr int kPauseCount = 8;
 }
 
 PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
@@ -500,8 +500,10 @@ PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
         case 0: return Result::Resume;
         case 1: return Result::Save;
         case 2: return Result::Load;
-        case 3: return Result::Restart;
-        case 4: return Result::ToMenu;
+        case 3: return Result::Sound;
+        case 4: return Result::Music;
+        case 5: return Result::Restart;
+        case 6: return Result::ToMenu;
         default: return Result::Quit;
         }
     };
@@ -542,7 +544,10 @@ void PauseMenu::draw(Renderer& r) {
     paint_.text("Paused", W / 2 - paint_.textWidth("Paused") / 2, y0 - lh - 24 * s, kHot);
     for (int i = 0; i < kPauseCount; ++i) {
         const float y = y0 + float(i) * (bh + gap);
-        if (paint_.button(r, i, kPauseItems[i], x0, y, x0 + bw, y + bh, i == highlight_, mouseX_, mouseY_)) highlight_ = i;
+        std::string label = kPauseItems[i];
+        if (i == 3) label = soundOn ? "Sound: on" : "Sound: off";
+        if (i == 4) label = musicOn ? "Music: on" : "Music: off";
+        if (paint_.button(r, i, label, x0, y, x0 + bw, y + bh, i == highlight_, mouseX_, mouseY_)) highlight_ = i;
     }
     paint_.flush(r);
 }
