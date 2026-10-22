@@ -341,6 +341,9 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         for (uint32_t mi = 0; mi < m.meshes.size(); ++mi) {
             const alamo::Mesh& mesh = m.meshes[mi];
             if (mesh.hidden || mesh.collision) continue;
+            // Meshes on hidden bones (effect shells like a walker's arrival fireball) are shown only
+            // by animations; drawn in rest they would be permanent.
+            if (const uint32_t b = m.meshBone(mi); b < m.bones.size() && !m.bones[b].visible) continue;
             const alamo::Mat34 xf = m.boneWorld(m.meshBone(mi));
             for (const alamo::SubMesh& sm : mesh.subMeshes) {
                 if (sm.vertices.empty() || sm.indices.empty()) continue;

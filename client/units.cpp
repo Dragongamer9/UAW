@@ -419,7 +419,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             // (falling back to idle), each unit at its own phase.
             const Pose* pose = nullptr;
             Pose posed;
-            if (animate && !u.structure) {
+            if (animate && (!u.structure || u.maxSpeed > 0)) { // walkers too
                 std::string stem = alamo::trim(*u.type->find("Land_Model_Name"));
                 if (const size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
                 const char* kind = u.moving() ? "_MOVE_00.ALA" : (u.target && !u.weapons.empty()) ? "_ATTACK_00.ALA" : "_IDLE_00.ALA";
