@@ -27,7 +27,7 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 826 of 936 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory); teleports still to come |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 885 of 936 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory) |
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
@@ -438,6 +438,11 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   `EJECT_GARRISONED` (or U in the viewer) drops them around it; a transport that is destroyed drops them
   too, minus `Damage_Percent_On_Destruction` of their health. In the viewer, right click your transport
   with units selected to load them.
+* **Teleports** (`Teleport_Move_Ability`, the Hierarchy Cylinder): after `Teleport_Pre_Delay_Time` the unit
+  appears at a point between `Minimum_` and `Maximum_Teleport_Range` away.
+* **Lightning arcs** (`Lightning_Attack_Ability`, walker arc triggers and the Hierarchy gunship): a share of
+  the target's health every `Damage_Interval_In_Secs` for the ability's duration, simulated as one hit per
+  cycle of duration plus cooldown.
 * **Charges** (`Tackle_Ability`, the Brute): a low dash of up to `Tackle_Charge_Distance` at the target,
   which takes `Damage_Amount` when the Brute arrives.
 

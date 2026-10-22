@@ -133,6 +133,11 @@ static Data testData(const fs::path& root) {
         <Effect_Generator_Entry Name="Entry1"><Effect_Name>CloakEffect</Effect_Name><Duration>-1</Duration>
           <Target_Gathering_Mask>Self</Target_Gathering_Mask></Effect_Generator_Entry>
       </Effect_Generator></Effect_Generator_Data></X_Units>
+  <X_Units Name="Blinker"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>100</Tactical_Health>
+    <Abilities SubObjectList="Yes"><Teleport_Move_Ability Name="Blink"><Activation_Style>USER_INPUT</Activation_Style>
+      <Teleport_Pre_Delay_Time>1.0</Teleport_Pre_Delay_Time><Maximum_Teleport_Range>500</Maximum_Teleport_Range>
+      <Minimum_Teleport_Range>100</Minimum_Teleport_Range></Teleport_Move_Ability></Abilities></X_Units>
   <X_Structures Name="Lab"><MovementClass>Building</MovementClass><Tactical_Health>500</Tactical_Health>
     <Custom_Hard_XExtent>20</Custom_Hard_XExtent>
     <BehaviorType Name="GroundStructureBehaviorType"><Enables_Research>Yes</Enables_Research></BehaviorType></X_Structures>
@@ -245,6 +250,23 @@ static void testCloak(const Data& d) {
     for (int i = 0; i < 3 * 30; ++i) w.tick();
     CHECK(w.unit(ghost) && !w.unit(ghost)->cloaked);
     CHECK(w.unit(ghost) && w.unit(ghost)->health < 100);
+}
+
+static void testTeleport(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int a = w.addPlayer("Novus", 0);
+    const uint32_t b = w.spawn("Blinker", a, {200, 200, 0});
+    w.tick();
+    CHECK(w.unit(b)->abilities.size() == 1);
+    CHECK(w.useAbility(b, 0, 0, {250, 200, 0}) == OrderResult::NotAllowed); // too close
+    CHECK(w.useAbility(b, 0, 0, {800, 200, 0}) == OrderResult::NotAllowed); // too far
+    CHECK(w.useAbility(b, 0, 0, {500, 300, 0}) == OrderResult::Ok);
+    for (int i = 0; i < 20; ++i) w.tick();
+    CHECK(w.unit(b)->position[0] < 210); // still charging up
+    for (int i = 0; i < 20; ++i) w.tick();
+    CHECK(std::fabs(w.unit(b)->position[0] - 500) < 15 && std::fabs(w.unit(b)->position[1] - 300) < 15);
 }
 
 static void testHexAndCharm(const Data& d) {
@@ -512,6 +534,7 @@ int main() {
     testParsing(d);
     testAura(d);
     testCloak(d);
+    testTeleport(d);
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);

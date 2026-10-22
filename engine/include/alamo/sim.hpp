@@ -582,6 +582,8 @@ private:
         const AbilitySpec* spec;
     };
     std::vector<BurstPulse> bursts_;
+    struct PendingTeleport { int64_t tick; uint32_t unit; Vec3 point; };
+    std::vector<PendingTeleport> teleports_;
     void updateBursts();
     void updateGarrisons();
     mutable std::unordered_map<const GameObjectType*, std::unique_ptr<GarrisonSpec>> garrisons_;

@@ -5,6 +5,7 @@
 #include "alamo/xml.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -331,6 +332,26 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.kind = AbilitySpec::Kind::Leap;
         } else if (iequals(r.kind, "Radiation_Weapon_Ability")) {
             s.kind = AbilitySpec::Kind::Weapon;
+        } else if (iequals(r.kind, "Teleport_Move_Ability")) {
+            s.kind = AbilitySpec::Kind::Teleport;
+            s.needsTarget = false;
+            s.minRange = num(lookup(kv, "Minimum_Teleport_Range"), 0);
+            s.maxRange = num(lookup(kv, "Maximum_Teleport_Range"), 500);
+            s.teleportDelay = int(num(lookup(kv, "Teleport_Pre_Delay_Time"), 1) * 30);
+            if (s.rechargeTicks <= 0) s.rechargeTicks = 15 * 30; // the data gives none
+        } else if (iequals(r.kind, "Lightning_Attack_Ability")) {
+            // Arcs that burn a share of the target's health each interval for a while, then cool
+            // down: simulated as one hit of the whole arc per cycle.
+            const float interval = std::max(0.1f, num(lookup(kv, "Damage_Interval_In_Secs"), 1));
+            const float duration = num(lookup(kv, "Ability_Duration_Time_In_Secs"), 1);
+            const float pulses = std::floor(duration / interval) + 1;
+            s.kind = AbilitySpec::Kind::Attack;
+            s.needsTarget = true;
+            s.damage = num(lookup(kv, "Damage_Amount"), 0) * pulses;
+            s.damagePercent = num(lookup(kv, "Damage_Percentage"), 0) * pulses;
+            if (const std::string* v = lookup(kv, "Damage_Type")) s.damageType = trim(*v);
+            s.rechargeTicks = std::max(s.rechargeTicks, int((duration + num(lookup(kv, "Ability_Cooldown_Time_In_Secs"), 1)) * 30));
+            if (s.damage <= 0 && s.damagePercent <= 0) s.kind = AbilitySpec::Kind::Unsupported;
         } else if (iequals(r.kind, "Tackle_Ability")) {
             // The Brute's charge: a low, fast dash at the target, which takes the hit on arrival.
             s.kind = AbilitySpec::Kind::Leap;
@@ -390,7 +411,7 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             }
         }
         const bool tackle = s.kind == AbilitySpec::Kind::Leap && s.landingDamage > 0;
-        if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst && !tackle)
+        if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst && s.kind != AbilitySpec::Kind::Teleport && !tackle)
             s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator)
                          ? AbilitySpec::Kind::Generator
                          : AbilitySpec::Kind::Unsupported;
@@ -441,7 +462,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         if (s.abilityType == "ATTACK_SUBSTITUTE" && s.rechargeTicks < 5 * 30) s.kind = AbilitySpec::Kind::Unsupported;
         // Handled by other systems, or only meaningful in the campaign / global conquest.
         if (s.kind == AbilitySpec::Kind::Unsupported &&
-            (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability")))
+            (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability") ||
+             up(s.name).find("RETREAT_FROM_TACTICAL") != std::string::npos))
             s.kind = AbilitySpec::Kind::Elsewhere;
         out.push_back(std::move(s));
     }
@@ -464,6 +486,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.needsTarget = target;
             s.targetsAllies = s.targetsAllies || ally;
         }
+        if (s.kind == AbilitySpec::Kind::Unsupported && iequals(s.abilityType, "Hostile_Territory_Ability"))
+            s.kind = AbilitySpec::Kind::Elsewhere; // global conquest only
         out.push_back(std::move(s));
     }
     // Masari elemental modes: every unit with two or more Elemental_Object_Types can switch.

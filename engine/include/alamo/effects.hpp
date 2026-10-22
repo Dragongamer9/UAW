@@ -134,6 +134,7 @@ struct AbilitySpec {
         Burst,          // point-blank area attack over time: projectile sprays, the Dervish spin
         Elsewhere,      // done by another system (construction) or campaign-only (retreat, hostile territory)
         Unload,         // EJECT_GARRISONED on a transport: everyone out (garrison.cpp)
+        Teleport,       // Teleport_Move_Ability: after a delay the unit appears at the chosen point
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name
@@ -162,6 +163,7 @@ struct AbilitySpec {
     float leapHeight = 60;              // Leap_Max_Height
     float selfDestructDamage = 0;       // Damage_Applied_On_Self_Destruct
     float selfDestructRadius = 0;       // Radius_Affected_By_Self_Destruction
+    int teleportDelay = 0;              // Teleport_Pre_Delay_Time (ticks)
     float landingDamage = 0;            // Tackle_Ability: damage to the target when the charge lands
     std::string landingDamageType;
     std::string selfDestructDamageType;

@@ -810,6 +810,12 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
         unload(u.id);
         return;
     }
+    if (s.kind == AbilitySpec::Kind::Teleport) {
+        u.path.clear();
+        u.speed = 0;
+        teleports_.push_back({int64_t(ticks_) + s.teleportDelay, u.id, point});
+        return;
+    }
     if (s.kind == AbilitySpec::Kind::SpawnClones) {
         // Around the unit, created after this tick (spawning now would move the unit list).
         for (int k = 0; k < s.cloneCount; ++k) {
@@ -895,7 +901,11 @@ OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
     const AbilitySpec& s = abilitiesOf(*u->type).abilities[u->abilities[i].index];
     if (s.kind == AbilitySpec::Kind::Unsupported || abilityLocked(*u, s)) return OrderResult::NotAllowed;
-    if (s.kind == AbilitySpec::Kind::Leap && !target) {
+    if (s.kind == AbilitySpec::Kind::Teleport) {
+        const float d = distXY(u->position, point);
+        if (d > s.maxRange || d < s.minRange) return OrderResult::NotAllowed;
+        target = 0;
+    } else if (s.kind == AbilitySpec::Kind::Leap && !target) {
         if (distXY(u->position, point) > (s.maxRange > 0 ? s.maxRange : 150) || u->leaping) return OrderResult::NotAllowed;
     } else if (s.needsTarget || (s.kind == AbilitySpec::Kind::Leap && target)) {
         const Unit* t = unit(target);
@@ -1009,6 +1019,21 @@ void World::projectileImpact(const Projectile& p, const Unit* hit) {
 }
 
 void World::updateBursts() {
+    if (!teleports_.empty()) {
+        std::vector<PendingTeleport> later;
+        for (const PendingTeleport& t : teleports_) {
+            if (t.tick > int64_t(ticks_)) { later.push_back(t); continue; }
+            Unit* u = unit(t.unit);
+            if (!u || !u->alive() || u->inside) continue;
+            Vec3 p = u->flying() ? t.point : nav_.nearestPassable(t.point);
+            const float lift = u->position[2] - map_.heightAt(u->position[0], u->position[1]);
+            p[2] = map_.heightAt(p[0], p[1]) + (u->flying() ? lift : 0);
+            u->position = p;
+            u->path.clear();
+            u->goal = p;
+        }
+        teleports_.swap(later);
+    }
     if (bursts_.empty()) return;
     std::vector<BurstPulse> later;
     for (const BurstPulse& b : bursts_) {
