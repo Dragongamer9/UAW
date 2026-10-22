@@ -63,11 +63,15 @@ Vec4 slotColor(size_t k) { return playerColor(int(k)); }
 
 // ---------------------------------------------------------------- painter
 
-MenuPainter::MenuPainter(alamo::MegVfs& vfs, float scale) : scale_(scale) {
+MenuPainter::MenuPainter(alamo::MegVfs& vfs, float scale) : vfs_(&vfs), scale_(scale) { load(); }
+
+void MenuPainter::load() {
+    big_.reset();
+    small_.reset();
     for (const char* path : {"Data\\Resources\\Fonts\\ARIAL.TTF", "Data\\Resources\\Fonts\\IMPACT.TTF"}) {
-        if (!vfs.exists(path)) continue;
+        if (!vfs_->exists(path)) continue;
         try {
-            const auto ttf = vfs.read(path);
+            const auto ttf = vfs_->read(path);
             big_ = std::make_unique<Font>(ttf, 24 * scale_);
             small_ = std::make_unique<Font>(ttf, 17 * scale_);
             break;
@@ -76,6 +80,12 @@ MenuPainter::MenuPainter(alamo::MegVfs& vfs, float scale) : scale_(scale) {
             small_.reset();
         }
     }
+}
+
+void MenuPainter::rescale(float scale) {
+    if (std::fabs(scale - scale_) < 0.08f * scale_) return;
+    scale_ = scale;
+    load();
 }
 
 float MenuPainter::lineHeight(bool big) const {

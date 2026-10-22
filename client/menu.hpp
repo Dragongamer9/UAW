@@ -44,6 +44,7 @@ class MenuPainter {
 public:
     MenuPainter(alamo::MegVfs& vfs, float scale);
     float scale() const { return scale_; }
+    void rescale(float scale); // fonts made again for a new UI scale
     bool hasFont() const { return big_ != nullptr; }
     float lineHeight(bool big = true) const;
     float textWidth(const std::string& s, bool big = true) const;
@@ -57,8 +58,10 @@ public:
     void flush(Renderer& r); // draws the queued text
 
 private:
+    alamo::MegVfs* vfs_;
     std::unique_ptr<Font> big_, small_;
     float scale_;
+    void load();
     struct Button { int id; float x0, y0, x1, y1; };
     std::vector<Button> buttons_;
     std::vector<GpuVertex> bigText_, smallText_;
@@ -72,6 +75,7 @@ public:
     std::string quickSave; // shown as a "Load saved game" button when this file exists
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
+    void rescale(float scale) { paint_.rescale(scale); }
     const SkirmishSetup& setup() const { return setup_; }
     SkirmishSetup& editSetup() { return setup_; } // LAN lobby: the host's changes (players joining)
     // A setup from the LAN host: map and slots as given (map picked in the list too).
@@ -123,6 +127,7 @@ public:
     bool fullGraphics = true;            // shadows and normal maps (off: faster on slow graphics cards)
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
+    void rescale(float scale) { paint_.rescale(scale); }
 
 private:
     MenuPainter paint_;

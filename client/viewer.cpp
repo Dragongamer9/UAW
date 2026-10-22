@@ -736,7 +736,10 @@ int main(int argc, char** argv) {
         hud.helpOpen = std::getenv("UAW_SHOW_KEYS") != nullptr; // pictures of the key panel
         bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
-            if (!headless) hud.rescale(vfs, std::max(0.75f, float(h) / 900.f));
+            if (!headless) {
+                hud.rescale(vfs, std::max(0.75f, float(h) / 900.f));
+                pause.rescale(std::max(0.75f, float(h) / 900.f));
+            }
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
             renderer.setFogOfWar(control.fog ? world.fogGrid(control.player()) : nullptr, world.fogWidth(), world.fogHeight(),
                                  world.fogCell(), world.tickCount() / 15);
@@ -1470,6 +1473,7 @@ int main(int argc, char** argv) {
                     SDL_GetWindowSizeInPixels(window, &w, &h);
                     renderer.beginFrame(w, h, Renderer::Camera{{0, 0, 1}, {0, 1, 0}}, 100);
                     renderer.endFrame();
+                    if (!headless) menu->rescale(std::max(0.75f, float(h) / 900.f));
                     menu->draw(renderer);
                     SDL_GL_SwapWindow(window);
                     if (lockstep) SDL_Delay(5);
