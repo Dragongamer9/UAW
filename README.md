@@ -557,6 +557,13 @@ Each projectile has `Max_Speed` (units/frame), `Damage_Type`, `Projectile_Damage
 Damage is multiplied by the `Damage_To_Armor_Mod` entry for the damage type and
 the victim's `Armor_Type` (1.0 if absent).
 
+Which enemy a unit picks on its own comes from its `Targeting_Priority_Set`, a set in
+`GroundUnitTargetingPriorities.xml` (92 with the mods): `Attack_Priorities` (category or type name,
+lowest number first; enemies not listed come after), `Category_Exclusions` and `Type_Exclusions` (never
+picked on their own, but attacked when ordered) and `Category_Restrictions` (never). Among equals it keeps
+its current target, then prefers one under 20% health, then the nearest; it looks again twice a second.
+`Attack_Category_Restrictions` (unit or hardpoint) says what a weapon can't fire at at all.
+
 ### Economy
 
 - **Skirmish start** (from `DefaultLandScript.lua`): Hierarchy gets
