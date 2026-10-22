@@ -49,6 +49,11 @@ SkirmishAI::SkirmishAI(World& world, int player, uint64_t seed)
                 }
         }
     }
+    // Member type -> squad type, for counting squads that builders place (Hierarchy science teams).
+    if (const TechTree* tech = w_.tech())
+        for (const std::string& obj : tech->objects())
+            if (const GameObjectType* t = db_.find(obj))
+                for (const GameObjectType* m : squadMembers(*t, db_)) squadOf_.emplace(m, t->name);
     for (const auto& [t, yes] : massProducers_)
         if (!heroProducers.count(t)) lineFactories_.insert(t);
 }
@@ -255,6 +260,8 @@ void SkirmishAI::manageConstruction() {
     for (const Unit& u : w_.units()) {
         if (u.owner != player_) continue;
         ++have[u.type->name];
+        // Squads appear as their members: count them as the squad type too.
+        if (auto sq = squadOf_.find(u.type); sq != squadOf_.end()) ++have[sq->second];
         if (u.structure || w_.economy(*u.type).reaper || roleOf(*u.type) == Role::Production) ++roleCount[int(roleOf(*u.type))];
         if (w_.economy(*u.type).power == EconomySpec::Power::Generator) haveGenerator = true;
         if (u.structure && u.underConstruction && roleOf(*u.type) == Role::Power) nodeComing = true;

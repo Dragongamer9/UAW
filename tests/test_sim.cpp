@@ -492,6 +492,78 @@ static void testAI(const GameDatabase& db) {
     std::printf("ai match: %s\n", s1.substr(0, 40).c_str());
 }
 
+// Hierarchy-style walkers: carved by base builders though no Tactical_Builder names them, and
+// hardpoints bought into sockets nested in the walker's hardpoint tree.
+static void testWalkers() {
+    const fs::path root = fs::temp_directory_path() / "uaw_native_test_walkers";
+    fs::remove_all(root);
+    write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
+    write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
+    write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Units Name="Carver"><MovementClass>Infantry</MovementClass><Max_Speed>3.0</Max_Speed><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Affiliation>Alien</Affiliation><Is_Tactical_Base_Builder>Yes</Is_Tactical_Base_Builder></X_Units>
+  <X_Structures Name="Core"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>20</Custom_Hard_XExtent>
+    <Affiliation>Alien</Affiliation></X_Structures>
+  <X_Units Name="Walker"><MovementClass>Walker</MovementClass><Max_Speed>1.0</Max_Speed><Custom_Hard_XExtent>60</Custom_Hard_XExtent>
+    <Tactical_Health>5000</Tactical_Health><Affiliation>Alien</Affiliation>
+    <Attached_Hard_Points> Walker_Leg_00, B_Leg0
+      Walker_Leg_01, B_Leg1 </Attached_Hard_Points></X_Units>
+  <X_Units Name="Novus_Walker"><MovementClass>Walker</MovementClass><Affiliation>Novus</Affiliation></X_Units>
+  <HardPoint Name="Walker_Leg_00"><Attached_Hard_Points> Leg_Socket_00, B_Socket </Attached_Hard_Points></HardPoint>
+  <HardPoint Name="Walker_Leg_01"><Variant_Of_Existing_Type>Walker_Leg_00</Variant_Of_Existing_Type>
+    <Attached_Hard_Points> Leg_Socket_01, B_Socket </Attached_Hard_Points></HardPoint>
+  <HardPoint Name="Leg_Socket"></HardPoint>
+  <HardPoint Name="Leg_Socket_00"><Variant_Of_Existing_Type>Leg_Socket</Variant_Of_Existing_Type></HardPoint>
+  <HardPoint Name="Leg_Socket_01"><Variant_Of_Existing_Type>Leg_Socket</Variant_Of_Existing_Type></HardPoint>
+  <HardPoint Name="HP_Gun"><BehaviorType Name="BuildableObjectBehaviorType"><Tactical_Build_Time_Seconds>1</Tactical_Build_Time_Seconds></BehaviorType>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Bullet</Projectile_Types>
+      <Targeting_Max_Attack_Distance>150</Targeting_Max_Attack_Distance></BehaviorType></HardPoint>
+  <X_Units Name="Mutant"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed><Custom_Hard_XExtent>5</Custom_Hard_XExtent></X_Units>
+  <Projectile Name="Proj_Bullet"><Max_Speed>30</Max_Speed>
+    <BehaviorType Name="ProjectileBehaviorType"><Projectile_Damage>5</Projectile_Damage></BehaviorType></Projectile>
+</Units>)");
+    MegVfs vfs;
+    mountGame(vfs, root);
+    GameDatabase db;
+    db.load(vfs);
+    TechTree tech;
+    tech.add("Core", {{}, {"Carver"}});
+    tech.add("Walker", {{}, {"Core"}});       // Tactical_Builder null, only the core required
+    tech.add("Novus_Walker", {{}, {"Core"}}); // another faction's: not ours to carve
+    tech.add("HP_Gun", {{"Leg_Socket"}, {}});
+    tech.add("Mutant", {{"Walker"}, {"HP_Gun"}});
+    Map m = openMap();
+    World w(m, db, nullptr, 1, &tech);
+    const int p = w.addPlayer("Alien", 10000, 100);
+    const uint32_t carver = w.spawn("Carver", p, {200, 200, 0});
+    CHECK(w.constructible(carver) == std::vector<std::string>{"Core"});
+    CHECK(w.commandConstruct(carver, "Core", {300, 300, 0}) == OrderResult::Ok);
+    for (int i = 0; i < 60 * 30 && !w.owns(p, "Core"); ++i) w.tick();
+    CHECK(w.owns(p, "Core"));
+    const auto opts = w.constructible(carver);
+    CHECK(std::find(opts.begin(), opts.end(), "Walker") != opts.end());
+    CHECK(std::find(opts.begin(), opts.end(), "Novus_Walker") == opts.end());
+
+    // Two leg sockets (both variants of Leg_Socket): two guns, then no more; the Mutant needs one.
+    const uint32_t walker = w.spawn("Walker", p, {500, 500, 0});
+    CHECK(w.producible(walker) == std::vector<std::string>{"HP_Gun"});
+    CHECK(w.unit(walker)->weapons.empty());
+    CHECK(w.queueProduction(walker, "HP_Gun") == OrderResult::Ok);
+    for (int i = 0; i < 2 * 30; ++i) w.tick();
+    CHECK(w.unit(walker)->weapons.size() == 1); // the hardpoint's gun came with it
+    auto prod = w.producible(walker);
+    CHECK(std::find(prod.begin(), prod.end(), "Mutant") != prod.end());
+    CHECK(std::find(prod.begin(), prod.end(), "HP_Gun") != prod.end()); // second socket still free
+    CHECK(w.queueProduction(walker, "HP_Gun") == OrderResult::Ok);
+    prod = w.producible(walker);
+    CHECK(std::find(prod.begin(), prod.end(), "HP_Gun") == prod.end()); // both sockets taken
+    CHECK(w.queueProduction(walker, "HP_Gun") == OrderResult::NotAllowed);
+    // A second walker has sockets of its own.
+    const uint32_t walker2 = w.spawn("Walker", p, {800, 500, 0});
+    CHECK(w.queueProduction(walker2, "HP_Gun") == OrderResult::Ok);
+    fs::remove_all(root);
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -502,6 +574,7 @@ int main() {
     testEconomy(db);
     testResources(db);
     testAI(db);
+    testWalkers();
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

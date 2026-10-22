@@ -15,7 +15,8 @@ Try candidate multipliers with `Data\XML\UAW_Balance.xml` in the game folder (no
 copy the final numbers into `Balance::defaults()` and the README's balance table. Ideally by then the
 AI uses every unit and building of each faction, so the games exercise the whole roster.
 
-Last run (2026-10-22): Novus 3, Masari 3, Hierarchy 3, Military 1 wins of 6; 2 draws.
+Last run (2026-10-22, after the AI learned the whole roster; 24 games, 2 seeds): Masari 7,
+Hierarchy 6, Military 5, Novus 3 wins of 12; 3 draws. Results swing a lot between seeds, so use 2+.
 
 ## 🚩 Missing art (not shipped by the game or any mod)
 
@@ -43,14 +44,8 @@ layers (the droideka shield) are skipped. If an Empire at War install turns up, 
 Recheck: every faction type's `Land_Model_Name` must exist (`uaw-viewer --lineup` also logs failures with `UAW_MODEL_ERRORS=1`),
 and every texture its model names.
 
-## AI uses the whole roster (in progress, 2026-10-22)
+## AI roster: what is still never used
 
-Done: roster rotation in production (every unit type gets turns, expensive ones saved for), bank
-reserve for the next structure and research suite, strict build order, walkers carved by Glyph
-Carvers, walker hardpoint sockets (bought per walker, weapons added), Novus power network
-placement, Masari bank-cap aware reserves. Solo 25-minute coverage: Novus 15/28 units,
-Hierarchy 23/27, Masari 14/17, Military 18/20; nearly all structures.
-
-Next: cap AI army size (mods' 0 population let the Hierarchy reach ~2,200 units against an idle
-opponent and the sim crawled), Novus income (starved before its top tier), then rerun the
-12-game balance tournament, tests, README.
+The AI now builds nearly everything (README, AI section). Left over: research-locked heroes that its
+research order doesn't reach, Novus' top tier (Providence 30,000, Flying Fortress) and some Novus patches,
+and superweapons: built, but check that their abilities fire.

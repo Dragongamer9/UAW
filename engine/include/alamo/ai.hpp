@@ -85,6 +85,7 @@ private:
     std::string lastAction_;
     std::unordered_map<std::string, float> blockedUntil_; // structure types that found no site
     std::unordered_map<std::string, bool> unlocks_;
+    std::unordered_map<const GameObjectType*, std::string> squadOf_; // squad member -> squad type
     std::unordered_map<std::string, int> made_; // units queued so far, by type (roster rotation)
     float reserve_ = 0;                         // credits kept for the next structure
     float researchReserve_ = 0;                 // ...and for the next research suite

@@ -72,12 +72,13 @@ Balance Balance::defaults() {
     // starves, so a pile is worth ten times as much to it (same income rate, piles last 10x).
     b.factions["ALIEN"].resourceValue = 10;
     // PROVISIONAL (see docs/TODO.md): rerun the balance games before release.
-    // Income multipliers tuned by AI-vs-AI tournaments (simtool tournament, 8 maps, all mods):
-    // untouched, Novus won 86/96 games and the Masari 0/96.
-    b.factions["NOVUS"].income = 0.4f;
-    b.factions["MASARI"].income = 1.3f;
-    b.factions["MILITARY"].income = 1.1f;
-    b.factions["ALIEN"].income = 4.5f;
+    // Income multipliers tuned by AI-vs-AI tournaments (simtool tournament, all mods): untouched,
+    // Novus won 86/96 games and the Masari 0/96. Retuned once the AI used the whole roster
+    // (walkers, hardpoints, every structure): 24 games on Grand Canyon, 7/6/5/3 wins.
+    b.factions["NOVUS"].income = 0.7f;
+    b.factions["MASARI"].income = 2.2f;
+    b.factions["MILITARY"].income = 1.5f;
+    b.factions["ALIEN"].income = 2.6f;
     return b;
 }
 

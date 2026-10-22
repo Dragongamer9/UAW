@@ -224,9 +224,7 @@ std::vector<std::string> World::producible(uint32_t id) const {
         for (const std::string& n : tech_->producibleBy(sock->name, [&](const std::string& t) { return owns(owner, t); })) {
             const GameObjectType* t = db_.find(n);
             if (!t || std::find(out.begin(), out.end(), n) != out.end()) continue;
-            if (std::find(s->upgrades.begin(), s->upgrades.end(), t) != s->upgrades.end()) continue;
-            if (std::find(s->queue.begin(), s->queue.end(), t) != s->queue.end()) continue;
-            if (socketFor(*s, *t)) out.push_back(n);
+            if (socketFor(*s, *t)) out.push_back(n); // one per free socket (each leg takes its own)
         }
     if (!s->structure) {
         // A mobile builder listed as Tactical_Builder of a structure constructs it on site
@@ -1038,16 +1036,47 @@ void World::moveUnit(Unit& u) {
 }
 
 void World::separate() {
-    // Gentle push apart so units don't stack. Units are bucketed on a grid of the largest
-    // mobile unit's diameter, so only neighbouring cells are compared.
+    // Gentle push apart so units don't stack. Ordinary units are bucketed on a grid of the
+    // largest one's diameter, so only neighbouring cells are compared; the few big ones
+    // (walkers, capital ships) would make the cells huge, so they are checked against everyone.
+    constexpr float kBig = 32;
     float cell = 16;
-    for (const Unit& u : units_)
-        if (!u.structure) cell = std::max(cell, u.radius * 2);
+    std::vector<size_t> big;
+    for (size_t i = 0; i < units_.size(); ++i) {
+        const Unit& u = units_[i];
+        if (u.structure) continue;
+        if (u.radius > kBig) big.push_back(i);
+        else cell = std::max(cell, u.radius * 2);
+    }
+    auto pushApart = [&](size_t i, size_t j) {
+        Unit& a = units_[i];
+        Unit& b = units_[j];
+        if (a.structure || b.structure) return; // the nav grid keeps units off footprints
+        if (a.leaping || b.leaping) return;
+        if (a.flying() != b.flying()) return;   // aircraft pass over ground units
+        const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
+        const float minD = (a.radius + b.radius) * 0.9f;
+        const float d2 = dx * dx + dy * dy;
+        if (d2 >= minD * minD) return;
+        float d = std::sqrt(d2);
+        float nx = 1, ny = 0;
+        if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
+        else { nx = (a.id < b.id) ? 1.f : -1.f; d = 0; } // deterministic split for exact overlaps
+        const float push = (minD - d) * 0.25f;
+        // Units standing still yield more than moving ones.
+        const float wa = a.moving() ? 0.35f : 0.65f, wb = b.moving() ? 0.35f : 0.65f;
+        const float sa = wa / (wa + wb), sb = wb / (wa + wb);
+        Vec3 pa{a.position[0] - nx * push * sa, a.position[1] - ny * push * sa, 0};
+        Vec3 pb{b.position[0] + nx * push * sb, b.position[1] + ny * push * sb, 0};
+        if (a.flying() || nav_.passableAt(pa[0], pa[1])) a.position = {pa[0], pa[1], map_.heightAt(pa[0], pa[1])};
+        if (b.flying() || nav_.passableAt(pb[0], pb[1])) b.position = {pb[0], pb[1], map_.heightAt(pb[0], pb[1])};
+    };
     std::unordered_map<int64_t, std::vector<size_t>> grid;
     auto cellOf = [&](const Vec3& p) { return std::pair<int64_t, int64_t>{int64_t(std::floor(p[0] / cell)), int64_t(std::floor(p[1] / cell))}; };
     auto keyOf = [](int64_t x, int64_t y) { return (x << 32) ^ (y & 0xffffffff); };
+    auto isBig = [&](size_t i) { return units_[i].radius > kBig; };
     for (size_t i = 0; i < units_.size(); ++i) {
-        if (units_[i].structure) continue;
+        if (units_[i].structure || isBig(i)) continue;
         const auto [cx, cy] = cellOf(units_[i].position);
         grid[keyOf(cx, cy)].push_back(i);
     }
@@ -1055,36 +1084,20 @@ void World::separate() {
     for (size_t i = 0; i < units_.size(); ++i) {
         if (units_[i].structure) continue;
         near.clear();
-        const auto [cx, cy] = cellOf(units_[i].position);
-        for (int64_t dx = -1; dx <= 1; ++dx)
-            for (int64_t dy = -1; dy <= 1; ++dy)
-                if (auto it = grid.find(keyOf(cx + dx, cy + dy)); it != grid.end())
-                    for (size_t j : it->second)
-                        if (j > i) near.push_back(j);
-        std::sort(near.begin(), near.end()); // same pair order every run
-        for (size_t j : near) {
-            Unit& a = units_[i];
-            Unit& b = units_[j];
-            if (a.structure || b.structure) continue; // the nav grid keeps units off footprints
-            if (a.leaping || b.leaping) continue;
-            if (a.flying() != b.flying()) continue;   // aircraft pass over ground units
-            const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
-            const float minD = (a.radius + b.radius) * 0.9f;
-            const float d2 = dx * dx + dy * dy;
-            if (d2 >= minD * minD) continue;
-            float d = std::sqrt(d2);
-            float nx = 1, ny = 0;
-            if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
-            else { nx = (a.id < b.id) ? 1.f : -1.f; d = 0; } // deterministic split for exact overlaps
-            const float push = (minD - d) * 0.25f;
-            // Units standing still yield more than moving ones.
-            const float wa = a.moving() ? 0.35f : 0.65f, wb = b.moving() ? 0.35f : 0.65f;
-            const float sa = wa / (wa + wb), sb = wb / (wa + wb);
-            Vec3 pa{a.position[0] - nx * push * sa, a.position[1] - ny * push * sa, 0};
-            Vec3 pb{b.position[0] + nx * push * sb, b.position[1] + ny * push * sb, 0};
-            if (a.flying() || nav_.passableAt(pa[0], pa[1])) a.position = {pa[0], pa[1], map_.heightAt(pa[0], pa[1])};
-            if (b.flying() || nav_.passableAt(pb[0], pb[1])) b.position = {pb[0], pb[1], map_.heightAt(pb[0], pb[1])};
+        if (isBig(i)) {
+            // Against every unit after it, and every small one before it (small units skip bigs).
+            for (size_t j = 0; j < units_.size(); ++j)
+                if (j != i && !units_[j].structure && (j > i || !isBig(j))) near.push_back(j);
+        } else {
+            const auto [cx, cy] = cellOf(units_[i].position);
+            for (int64_t dx = -1; dx <= 1; ++dx)
+                for (int64_t dy = -1; dy <= 1; ++dy)
+                    if (auto it = grid.find(keyOf(cx + dx, cy + dy)); it != grid.end())
+                        for (size_t j : it->second)
+                            if (j > i) near.push_back(j);
         }
+        std::sort(near.begin(), near.end()); // same pair order every run
+        for (size_t j : near) pushApart(std::min(i, j), std::max(i, j));
     }
 }
 

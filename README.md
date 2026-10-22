@@ -216,13 +216,83 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 
 | Faction   | Income | Resource value |
 |-----------|-------:|---------------:|
-| Novus     | 0.4    | 1              |
-| Masari    | 1.3    | 1              |
-| Military  | 1.1    | 1              |
-| Hierarchy | 4.5    | 10             |
+| Novus     | 0.7    | 1              |
+| Masari    | 2.2    | 1              |
+| Military  | 1.5    | 1              |
+| Hierarchy | 2.6    | 10             |
 
-Checked with a 12-game round robin on Grand Canyon (every matchup from both sides): Novus, Masari and
-Hierarchy 3 wins each, Military 1, 2 draws. The mods set most units' population cost to 0, so armies
+Checked with a 24-game round robin on Grand Canyon (every matchup from both sides, 2 seeds) after the
+AI learned to use the whole roster: Masari 7 wins, Hierarchy 6, Military 5, Novus 3, 3 draws. The mods set most units' population cost to 0, so armies
+are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
+Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
+Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+
+```xml
+<UAW_Balance>
+  <Faction Name="Alien"><Income_Multiplier>2.6</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
+</UAW_Balance>
+```
+
+### AI
+
+`SkirmishAI` (engine/src/ai.cpp) knows nothing faction-specific. It classifies everything by data: economy
+(depots, Matter Engines, refineries, Reapers), power (Novus generators/transmitters), production (anything,
+structure or walker, that is a `Tactical_Builder` of a unit with weapons), defence (structures with weapons)
+and tech. It aims to use **the whole roster**:
+
+- **Build order**: a generator first (Novus), a little economy, one of each production building, a defence,
+  then every tech structure once (labs, advanced factories, detectors, superweapons, field-built units such as
+  the Hierarchy scan drone), more economy and defences as the game goes on, and extra line factories (not HQs)
+  when credits pile up. The next item is built as soon as it is affordable; nothing cheaper jumps the queue.
+- **Bank reserve**: production keeps the price of the next structure, the next research suite, or an expensive
+  unit another factory is saving for in the bank (never more than a capped bank, Masari, can hold).
+- **Units in rotation**: every unit type gets turns in proportion to its combat value per credit (never less
+  than a quarter of the best), so cheap efficient units come most often but heroes, capital ships and the rest
+  get built too; unarmed specialists (hackers, scouts, science teams) one or two each. Upgrades that unlock a
+  unit are bought first; other upgrades and hardpoints once the bank is comfortable. Hierarchy walkers buy
+  hardpoints into their sockets. At most 160 combat units (the mods' population costs are 0).
+- **Novus power**: transmitters are placed within reach of the powered network, receivers inside a powered
+  node's field, one node at a time.
+
+The army gathers at a rally point, defends structures under attack, and attacks the nearest enemy structure
+when its strength (sqrt of health x damage per second, summed) is 1.3x the enemy's after minute 4 with six
+units, 3x after minute 3, at the population cap, or after minute 12 with ten units; it regroups when a wave
+drops below a third. Only units with `Is_Tactical_Base_Builder` construct; objects with no `Tactical_Builder`
+and no builder among their requirements (Hierarchy walkers, the Remix missile silo) are placed by any base
+builder of their faction. `UAW_AI_DEBUG=1` prints production turns and construction attempts.
+
+Roster reached in 25 minutes against an idle opponent (Grand Canyon): Novus 15/28 units, 15/18 structures;
+Hierarchy 23/27, 10/10; Masari 14/17, 16/16; Military 18/20, 10/10. What is left is mostly research-locked
+heroes and Novus' top tier (Providence, Flying Fortress) that its income doesn't reach in time.
+
+```sh
+simtool "<game>" M25_Grand_Canyon start                  # every playable faction's starting forces and menus
+simtool "<game>" M25_Grand_Canyon opening Novus          # one faction builds everything for 8 minutes
+simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someone is defeated
+simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
+```
+
+A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decision.
+
+### Balance
+
+> ⚑ **Provisional.** These numbers get re-tuned when the gameplay is close to finished; see
+> [docs/TODO.md](docs/TODO.md).
+
+The original numbers are not balanced for this engine's AI: in an untouched 8-map round robin (all mods,
+20 minutes, both seats, 2 seeds) Novus won 86 of 96 games and the Masari none. Each faction now has an income
+multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but
+a pile lasts ten times longer, so it doesn't strip the map and starve):
+
+| Faction   | Income | Resource value |
+|-----------|-------:|---------------:|
+| Novus     | 0.7    | 1              |
+| Masari    | 2.2    | 1              |
+| Military  | 1.5    | 1              |
+| Hierarchy | 2.6    | 10             |
+
+Checked with a 24-game round robin on Grand Canyon (every matchup from both sides, 2 seeds) after the
+AI learned to use the whole roster: Masari 7 wins, Hierarchy 6, Military 5, Novus 3, 3 draws. The mods set most units' population cost to 0, so armies
 are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
 Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
 Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
