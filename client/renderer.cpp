@@ -72,6 +72,63 @@ void main() {
 }
 )";
 
+// Terrain: every triangle carries its three vertices' texture layers (aBone.xyz) and each vertex
+// a one-hot weight (aWeight.xyz), so the layers blend smoothly across the triangle. Layers sample a
+// texture array, tiled in world units and rotated per layer, and are tinted.
+const char* kTerrainVertexShader = R"(#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 4) in vec4 aBone;
+layout(location = 5) in vec4 aWeight;
+uniform mat4 uViewProj;
+out vec3 vNormal;
+out vec3 vWorld;
+out vec3 vLayers;
+out vec3 vWeights;
+void main() {
+    vWorld = aPos;
+    vNormal = aNormal;
+    vLayers = aBone.xyz;
+    vWeights = aWeight.xyz;
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}
+)";
+
+const char* kTerrainFragmentShader = R"(#version 330 core
+in vec3 vNormal;
+in vec3 vWorld;
+in vec3 vLayers;
+in vec3 vWeights;
+uniform sampler2DArray uLayers;
+uniform vec4 uLayer[64];     // x = texture slot, y = 1 / tiling, z = rotation (radians)
+uniform vec4 uLayerTint[64];
+uniform vec3 uLightDir;
+uniform vec3 uCamPos;
+uniform vec3 uFogColor;
+uniform vec4 uFogRange;
+out vec4 fragColor;
+vec3 layerColor(float index) {
+    int i = int(index + 0.5);
+    vec4 L = uLayer[i];
+    float c = cos(L.z), s = sin(L.z);
+    vec2 p = vWorld.xy * L.y;
+    vec2 uv = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+    return texture(uLayers, vec3(uv, L.x)).rgb * uLayerTint[i].rgb;
+}
+void main() {
+    vec3 w = vWeights / max(vWeights.x + vWeights.y + vWeights.z, 1e-4);
+    vec3 base = w.x * layerColor(vLayers.x) + w.y * layerColor(vLayers.y) + w.z * layerColor(vLayers.z);
+    vec3 n = normalize(vNormal);
+    float diffuse = max(dot(n, -uLightDir), 0.0);
+    vec3 lit = base * (0.42 + 0.7 * diffuse);
+    float dist = length(vWorld - uCamPos);
+    float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
+    fragColor = vec4(mix(lit, uFogColor, fog), 1.0);
+}
+)";
+
+GLuint link(const char* vsSrc, const char* fsSrc);
+
 GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr);
@@ -84,6 +141,44 @@ GLuint compile(GLenum type, const char* src) {
         throw std::runtime_error(std::string("shader compile failed: ") + log);
     }
     return s;
+}
+
+GLuint link(const char* vsSrc, const char* fsSrc) {
+    GLuint vs = compile(GL_VERTEX_SHADER, vsSrc);
+    GLuint fs = compile(GL_FRAGMENT_SHADER, fsSrc);
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[2048];
+        glGetProgramInfoLog(prog, sizeof log, nullptr, log);
+        throw std::runtime_error(std::string("shader link failed: ") + log);
+    }
+    return prog;
+}
+
+// Bilinear resample of an RGBA image to size x size (terrain layers share one texture array).
+std::vector<uint8_t> resampled(const alamo::Image& img, int size) {
+    std::vector<uint8_t> out(size_t(size) * size * 4);
+    const int W = int(img.width), H = int(img.height);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            const float fx = (float(x) + 0.5f) * float(W) / float(size) - 0.5f, fy = (float(y) + 0.5f) * float(H) / float(size) - 0.5f;
+            const int x0 = std::clamp(int(std::floor(fx)), 0, W - 1), y0 = std::clamp(int(std::floor(fy)), 0, H - 1);
+            const int x1 = std::min(x0 + 1, W - 1), y1 = std::min(y0 + 1, H - 1);
+            const float tx = std::clamp(fx - float(x0), 0.f, 1.f), ty = std::clamp(fy - float(y0), 0.f, 1.f);
+            for (int k = 0; k < 4; ++k) {
+                auto at = [&](int xx, int yy) { return float(img.rgba[(size_t(yy) * W + xx) * 4 + k]); };
+                const float v = (at(x0, y0) * (1 - tx) + at(x1, y0) * tx) * (1 - ty) + (at(x0, y1) * (1 - tx) + at(x1, y1) * tx) * ty;
+                out[(size_t(y) * size + x) * 4 + k] = uint8_t(std::clamp(v + 0.5f, 0.f, 255.f));
+            }
+        }
+    return out;
 }
 
 GpuVertex vtx(const alamo::Vec3& p, const alamo::Vec3& n, float u, float v, const alamo::Vec4& c) {
@@ -166,6 +261,8 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uSkin_ = glGetUniformLocation(program_, "uSkin");
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
 
+    terrainProgram_ = link(kTerrainVertexShader, kTerrainFragmentShader);
+
     // Unit box (-0.5..0.5 in X/Y, 0..1 in Z) for objects whose model isn't available.
     std::vector<GpuVertex> v;
     std::vector<uint16_t> idx;
@@ -195,6 +292,8 @@ Renderer::~Renderer() {
     for (auto& [k, t] : textures_)
         if (t) glDeleteTextures(1, &t);
     if (program_) glDeleteProgram(program_);
+    if (terrainProgram_) glDeleteProgram(terrainProgram_);
+    if (terrainLayers_) glDeleteTextures(1, &terrainLayers_);
 }
 
 GLuint Renderer::texture(const std::string& name) {
@@ -316,27 +415,76 @@ const GpuModel* Renderer::model(const std::string& aloName) {
 
 void Renderer::setTerrain(const alamo::Map& map) {
     terrain_.release();
+    if (terrainLayers_) glDeleteTextures(1, &terrainLayers_);
+    terrainLayers_ = 0;
+    // Layer textures, each distinct one once, in a 512x512 texture array; slot 0 is plain white
+    // for layers whose texture is missing (they keep their average/guessed colour as the tint).
+    constexpr int kSize = 512;
     const std::vector<alamo::Vec3> colors = alamo::terrainLayerColors(vfs_, map);
-    std::vector<GpuVertex> verts;
-    verts.reserve(size_t(map.width) * map.height);
-    for (uint32_t y = 0; y < map.height; ++y) {
-        for (uint32_t x = 0; x < map.width; ++x) {
-            const float px = float(x) * map.spacing, py = float(y) * map.spacing;
-            const float hl = map.vertexHeight(x > 0 ? x - 1 : x, y), hr = map.vertexHeight(x + 1 < map.width ? x + 1 : x, y);
-            const float hd = map.vertexHeight(x, y > 0 ? y - 1 : y), hu = map.vertexHeight(x, y + 1 < map.height ? y + 1 : y);
-            alamo::Vec3 n = Mat4::normalize({hl - hr, hd - hu, 2 * map.spacing});
-            const uint8_t li = map.layerIndex[size_t(y) * map.width + x];
-            const alamo::Vec3 c = li < colors.size() ? colors[li] : alamo::Vec3{0.5f, 0.5f, 0.5f};
-            verts.push_back(vtx({px, py, map.vertexHeight(x, y)}, n, px / 64.f, py / 64.f, {c[0], c[1], c[2], 1}));
+    std::vector<std::vector<uint8_t>> slots{std::vector<uint8_t>(size_t(kSize) * kSize * 4, 255)};
+    std::unordered_map<std::string, int> slotOf;
+    layerParams_.assign(64 * 4, 0.f);
+    layerTints_.assign(64 * 4, 1.f);
+    for (size_t i = 0; i < map.layers.size() && i < 64; ++i) {
+        const alamo::TerrainLayer& l = map.layers[i];
+        const std::string key = alamo::normalizePath(l.diffuse);
+        int slot = 0;
+        if (auto it = slotOf.find(key); it != slotOf.end()) {
+            slot = it->second;
+        } else if (auto img = alamo::loadGameTexture(vfs_, l.diffuse); img && img->width && img->height) {
+            slot = int(slots.size());
+            slots.push_back(resampled(*img, kSize));
+            slotOf[key] = slot;
+        } else {
+            slotOf[key] = 0;
         }
+        layerParams_[i * 4 + 0] = float(slot);
+        layerParams_[i * 4 + 1] = 1.f / std::max(l.tiling > 0 ? l.tiling : 100.f, 1.f);
+        layerParams_[i * 4 + 2] = l.rotation * 3.14159265f / 180.f;
+        const alamo::Vec3 tint = slot ? l.tint : (i < colors.size() ? colors[i] : alamo::Vec3{0.5f, 0.5f, 0.5f});
+        for (int k = 0; k < 3; ++k) layerTints_[i * 4 + k] = tint[k];
     }
-    std::vector<uint32_t> idx;
-    idx.reserve(size_t(map.width - 1) * (map.height - 1) * 6);
+    glGenTextures(1, &terrainLayers_);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, terrainLayers_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GLint(GL_RGBA8), kSize, kSize, GLsizei(slots.size()), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    for (size_t i = 0; i < slots.size(); ++i)
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, GLint(i), kSize, kSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, slots[i].data());
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GLint(GL_LINEAR_MIPMAP_LINEAR));
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GLint(GL_LINEAR));
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GLint(GL_REPEAT));
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GLint(GL_REPEAT));
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    // Unshared triangles: each vertex knows its triangle's three layers.
+    auto vertexAt = [&](uint32_t x, uint32_t y) {
+        const float px = float(x) * map.spacing, py = float(y) * map.spacing;
+        const float hl = map.vertexHeight(x > 0 ? x - 1 : x, y), hr = map.vertexHeight(x + 1 < map.width ? x + 1 : x, y);
+        const float hd = map.vertexHeight(x, y > 0 ? y - 1 : y), hu = map.vertexHeight(x, y + 1 < map.height ? y + 1 : y);
+        const alamo::Vec3 n = Mat4::normalize({hl - hr, hd - hu, 2 * map.spacing});
+        return vtx({px, py, map.vertexHeight(x, y)}, n, 0, 0, {1, 1, 1, 1});
+    };
+    auto layerAt = [&](uint32_t x, uint32_t y) { return float(std::min<uint8_t>(map.layerIndex[size_t(y) * map.width + x], 63)); };
+    std::vector<GpuVertex> verts;
+    verts.reserve(size_t(map.width - 1) * (map.height - 1) * 6);
+    auto tri = [&](uint32_t ax, uint32_t ay, uint32_t bx, uint32_t by, uint32_t cx, uint32_t cy) {
+        const float la = layerAt(ax, ay), lb = layerAt(bx, by), lc = layerAt(cx, cy);
+        const std::array<std::pair<uint32_t, uint32_t>, 3> corners{{{ax, ay}, {bx, by}, {cx, cy}}};
+        for (int k = 0; k < 3; ++k) {
+            GpuVertex v = vertexAt(corners[size_t(k)].first, corners[size_t(k)].second);
+            v.bone[0] = la, v.bone[1] = lb, v.bone[2] = lc;
+            v.weight[0] = k == 0, v.weight[1] = k == 1, v.weight[2] = k == 2, v.weight[3] = 0;
+            verts.push_back(v);
+        }
+    };
     for (uint32_t y = 0; y + 1 < map.height; ++y)
         for (uint32_t x = 0; x + 1 < map.width; ++x) {
-            const uint32_t a = y * map.width + x, b = a + 1, c = a + map.width, d = c + 1;
-            idx.insert(idx.end(), {a, b, d, a, d, c});
+            tri(x, y, x + 1, y, x + 1, y + 1);
+            tri(x, y, x + 1, y + 1, x, y + 1);
         }
+    std::vector<uint32_t> idx(verts.size());
+    for (size_t i = 0; i < idx.size(); ++i) idx[i] = uint32_t(i);
     terrain_.upload(verts, idx.data(), idx.size(), true);
 }
 
@@ -359,6 +507,8 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUseProgram(program_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
     const alamo::Vec3 light = Mat4::normalize({0.45f, 0.35f, -0.82f});
+    lightDir_ = light;
+    fogColor_ = fog;
     glUniform3fv(uLightDir_, 1, light.data());
     glUniform3fv(uCamPos_, 1, cam.eye.data());
     glUniform3fv(uFogColor_, 1, fog.data());
@@ -379,8 +529,23 @@ void Renderer::setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint te
 
 void Renderer::drawTerrain() {
     if (!terrain_.vao) return;
-    setUniforms(Mat4{}, {1, 1, 1, 1}, 0);
+    glUseProgram(terrainProgram_);
+    auto loc = [&](const char* n) { return glGetUniformLocation(terrainProgram_, n); };
+    glUniformMatrix4fv(loc("uViewProj"), 1, GL_FALSE_, viewProj_.data());
+    glUniform3fv(loc("uLightDir"), 1, lightDir_.data());
+    glUniform3fv(loc("uCamPos"), 1, camPos_.data());
+    glUniform3fv(loc("uFogColor"), 1, fogColor_.data());
+    const GLfloat fogRange[4] = {farPlane_ * 0.45f, farPlane_, 0, 0};
+    glUniform4fv(loc("uFogRange"), 1, fogRange);
+    glUniform4fv(loc("uLayer"), 64, layerParams_.data());
+    glUniform4fv(loc("uLayerTint"), 64, layerTints_.data());
+    glUniform1i(loc("uLayers"), 1);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, terrainLayers_);
     terrain_.draw();
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glUseProgram(program_);
 }
 
 void Renderer::setSkin(const GpuMesh& mesh, const Pose* pose) {

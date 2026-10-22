@@ -33,7 +33,8 @@ redistributed.
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
 | 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
 | 2 | Animated units in the viewer: GPU skinning (rigid, skinned and 4-bone weighted meshes), idle/move/attack `.ALA` per unit | done (first version) |
-| 2 | Particle systems (`0x1500` .ALO), terrain texture splatting | planned |
+| 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
+| 2 | Particle systems (`0x1500` .ALO) | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |

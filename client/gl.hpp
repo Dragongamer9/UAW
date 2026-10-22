@@ -32,7 +32,7 @@ constexpr GLenum GL_SRC_ALPHA = 0x0302, GL_ONE_MINUS_SRC_ALPHA = 0x0303, GL_ONE 
 constexpr GLenum GL_BACK = 0x0405, GL_LEQUAL = 0x0203;
 constexpr GLenum GL_UNSIGNED_BYTE = 0x1401, GL_UNSIGNED_SHORT = 0x1403, GL_UNSIGNED_INT = 0x1405, GL_FLOAT = 0x1406;
 constexpr GLenum GL_RGBA = 0x1908, GL_RGBA8 = 0x8058, GL_RGB = 0x1907;
-constexpr GLenum GL_TEXTURE_2D = 0x0DE1, GL_TEXTURE0 = 0x84C0;
+constexpr GLenum GL_TEXTURE_2D = 0x0DE1, GL_TEXTURE0 = 0x84C0, GL_TEXTURE1 = 0x84C1, GL_TEXTURE_2D_ARRAY = 0x8C1A;
 constexpr GLenum GL_TEXTURE_MIN_FILTER = 0x2801, GL_TEXTURE_MAG_FILTER = 0x2800;
 constexpr GLenum GL_TEXTURE_WRAP_S = 0x2802, GL_TEXTURE_WRAP_T = 0x2803, GL_REPEAT = 0x2901;
 constexpr GLenum GL_LINEAR = 0x2601, GL_LINEAR_MIPMAP_LINEAR = 0x2703;
@@ -90,6 +90,8 @@ constexpr GLenum GL_VENDOR = 0x1F00, GL_RENDERER = 0x1F01, GL_VERSION = 0x1F02;
     X(void, glBindTexture, GLenum, GLuint)                                                               \
     X(void, glDeleteTextures, GLsizei, const GLuint*)                                                    \
     X(void, glTexImage2D, GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*)    \
+    X(void, glTexImage3D, GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
+    X(void, glTexSubImage3D, GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void*) \
     X(void, glTexParameteri, GLenum, GLenum, GLint)                                                      \
     X(void, glGenerateMipmap, GLenum)                                                                    \
     X(void, glActiveTexture, GLenum)                                                                     \
