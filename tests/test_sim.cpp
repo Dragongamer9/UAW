@@ -564,6 +564,54 @@ static void testWalkers() {
     fs::remove_all(root);
 }
 
+// A superweapon: armed after its warm-up, fired at a point, the weapon object's bombardment lands
+// there, and it recharges.
+static void testSuperweapon() {
+    const fs::path root = fs::temp_directory_path() / "uaw_native_test_superweapon";
+    fs::remove_all(root);
+    write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
+    write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
+    write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Structures Name="Silo"><MovementClass>Building</MovementClass><Custom_Hard_XExtent>20</Custom_Hard_XExtent><Tactical_Health>1000</Tactical_Health>
+    <BehaviorType Name="LuaScriptBehaviorType"><Lua_Land_Behaviors> SuperWeaponEnablerBehavior </Lua_Land_Behaviors>
+      <Lua_Script_Data> SWOwnerList = {} SWOwnerList[Find_Object_Type("Silo")]="SILO_WEAPON" </Lua_Script_Data></BehaviorType></X_Structures>
+  <X_Superweapons Name="Silo_Weapon"><CategoryMask> Untargetable, Superweapon </CategoryMask>
+    <BehaviorType Name="TacticalSuperweaponBehaviorType"><TSW_Cooldown_Countdown_Seconds> 20 </TSW_Cooldown_Countdown_Seconds>
+      <TSW_Area_Effect_Radius> 100 </TSW_Area_Effect_Radius><TSW_Warm_Up_Seconds> 10 </TSW_Warm_Up_Seconds></BehaviorType>
+    <BehaviorType Name="OrbitalBombardmentBehaviorType"><Bombardment_Projectile> Proj_Bomb </Bombardment_Projectile>
+      <Bombardment_Number_Of_Salvos> 1 </Bombardment_Number_Of_Salvos><Bombardment_Shots_Per_Salvo> 1 </Bombardment_Shots_Per_Salvo>
+      <Bombardment_Shot_Delay> 1 </Bombardment_Shot_Delay></BehaviorType></X_Superweapons>
+  <Projectile Name="Proj_Bomb"><Max_Speed>100</Max_Speed>
+    <BehaviorType Name="ProjectileBehaviorType"><Projectile_Blast_Area_Damage>500</Projectile_Blast_Area_Damage>
+      <Projectile_Blast_Area_Range>100</Projectile_Blast_Area_Range></BehaviorType></Projectile>
+  <X_Units Name="Grunt"><MovementClass>Infantry</MovementClass><Max_Speed>1.0</Max_Speed><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>300</Tactical_Health></X_Units>
+</Units>)");
+    MegVfs vfs;
+    mountGame(vfs, root);
+    GameDatabase db;
+    db.load(vfs);
+    Map m = openMap();
+    World w(m, db, nullptr, 1, nullptr);
+    const int a = w.addPlayer("Alien", 0, 100), b = w.addPlayer("Novus", 0, 100);
+    const uint32_t silo = w.spawn("Silo", a, {150, 150, 0});
+    const uint32_t near = w.spawn("Grunt", b, {700, 700, 0}), far = w.spawn("Grunt", b, {300, 800, 0});
+    CHECK(w.superweaponOf(*db.find("Silo")) && w.superweaponOf(*db.find("Silo"))->weapon == db.find("Silo_Weapon"));
+    CHECK(!w.superweaponOf(*db.find("Grunt")));
+    w.tick();
+    CHECK(std::fabs(w.superweaponCountdown(silo) - 10) < 0.1f); // warming up
+    CHECK(w.fireSuperweapon(silo, {700, 700, 0}) == OrderResult::NotAllowed);
+    for (int i = 0; i < 10 * 30; ++i) w.tick();
+    CHECK(w.superweaponCountdown(silo) == 0);
+    CHECK(w.fireSuperweapon(silo, {700, 700, 0}) == OrderResult::Ok);
+    CHECK(w.superweaponCountdown(silo) > 19);
+    for (int i = 0; i < 3 * 30; ++i) w.tick();
+    CHECK(!w.unit(near)); // in the blast (500 damage against 300 health)
+    CHECK(w.unit(far) && w.unit(far)->health == 300);         // well outside it
+    CHECK(w.fireSuperweapon(silo, {700, 700, 0}) == OrderResult::NotAllowed); // recharging
+    fs::remove_all(root);
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -575,6 +623,7 @@ int main() {
     testResources(db);
     testAI(db);
     testWalkers();
+    testSuperweapon();
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

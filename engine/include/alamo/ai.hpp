@@ -12,7 +12,8 @@
 //      grows with game time), regrouping when the attack wave is spent;
 //   4. researches the next suite of its tree whenever credits allow (suites that unlock
 //      units first, then the lowest tier, paths in turn);
-//   5. uses its units' ordered abilities when World::abilityTarget finds a worthwhile
+//   5. fires superweapons where they catch the most enemy value;
+//   6. uses its units' ordered abilities when World::abilityTarget finds a worthwhile
 //      target (respecting the data's Unit_Ability_AI_Only_At_Health_Lower hints).
 // Its random choices use its own seeded generator, so matches replay exactly.
 #pragma once
@@ -53,6 +54,7 @@ private:
     void manageReapers();
     void manageResearch();
     void manageAbilities();
+    void manageSuperweapons();
     bool tryConstruct(Unit& builder, const std::string& type);
     bool findSite(const GameObjectType& t, Vec3& out);
     bool coveredByPower(Vec3 p, float extra) const;

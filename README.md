@@ -31,6 +31,7 @@ redistributed.
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
+| 3 | Superweapons (`TacticalSuperweaponBehaviorType`): warm-up and recharge, EMP, gravity bomb, mass drop, magma channel, thermal vacuum, Remix nuke; the AI fires them | done (first version) |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -103,6 +104,7 @@ squad, or another with `--player N`.
 | Select | left click, left-drag box, Shift adds, Tab = all yours | A (hold LB to add), X = all on screen, B = clear |
 | Move / attack | right click (on an enemy = attack) | RB |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
+| Fire superweapon (enabler selected, ready) | V then right click | |
 | Stop / jump to selection | X / Space | |
 | Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
 | Place structure / cancel | left click / right click | A / B |
@@ -323,6 +325,17 @@ pricier half of its units and more factories. Only units with
 simtool "<game>" M25_Grand_Canyon start            # skirmish start for each faction and what it can build
 simtool "<game>" M25_Grand_Canyon opening Novus    # scripted build order with a timeline
 ```
+
+## Superweapons
+
+A superweapon structure names its weapon in its Lua data (`SWOwnerList[Find_Object_Type("Novus_Superweapon_EMP")]
+="NOVUS_SUPERWEAPON_EMP_WEAPON"`). It arms `TSW_Warm_Up_Seconds` after it is finished and recharges for
+`TSW_Cooldown_Countdown_Seconds` after each shot. Firing creates the weapon object at the target, and the object
+does the work through the data: effect generators (Novus EMP stun, Masari thermal vacuum and magma channel, which
+drifts toward the nearest enemy), an orbital bombardment of projectiles in salvos (Hierarchy mass drop, the Remix
+Military nuke), or an object spawned when it collapses (the gravity bomb's singularity). The AI fires each one
+where its radius catches the most enemy build value, less twice the value of its own units there; in the viewer,
+select the structure, press V and right-click the target.
 
 ## Effects and abilities
 

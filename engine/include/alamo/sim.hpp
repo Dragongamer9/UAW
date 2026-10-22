@@ -23,6 +23,7 @@
 #include <set>
 #include <unordered_map>
 #include <string_view>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -155,6 +156,7 @@ struct Unit {
     bool damagedThisTick = false, firedThisTick = false;
     int originalOwner = -1;
     int lifeTicks = -1;                // effect objects: removed at 0
+    int64_t superweaponReadyTick = -1; // superweapon enablers: tick it can fire (-1: not armed yet)
     // Defences that soak damage before health. Shields (ShieldBehaviorType): Shield_Points,
     // regenerating Shield_Refresh_Rate per second, hit with Shield_Armor_Type modifiers.
     // Masari dark-matter armor: up to the DMA_Max attribute, set by Current_DMA_Level effects
@@ -277,6 +279,23 @@ struct Projectile {
     const GameObjectType* type = nullptr;
 };
 
+// A tactical superweapon (TacticalSuperweaponBehaviorType). Its enabler structure names it in
+// Lua_Script_Data (SWOwnerList[Find_Object_Type("Enabler")]="WEAPON"); firing creates the
+// weapon object at the target point, which does the work: effect generators (EMP stun, Masari
+// thermal vacuum), an orbital bombardment of projectiles (Hierarchy mass drop, Remix nuke), or
+// an object spawned when it ends (the Novus gravity bomb's singularity).
+struct SuperweaponSpec {
+    const GameObjectType* weapon = nullptr;
+    float cooldown = 180, warmUp = 180, radius = 150; // seconds; area of effect
+    // ORBITAL_BOMBARDMENT
+    std::vector<const GameObjectType*> projectiles;
+    int salvos = 0, shotsPerSalvo = 0;
+    float shotDelay = 0.5f, salvoDelay = 1, spread = 0;
+    // LIGHTNING_BALL_EFFECT's Spawn_Object_On_Death and TornadoBehaviorType lifetime
+    const GameObjectType* spawnOnEnd = nullptr;
+    float lifetime = 20;              // seconds the weapon object lasts
+};
+
 struct DeathEvent {
     uint32_t id;
     const GameObjectType* type;
@@ -368,6 +387,12 @@ public:
     int researchSlots(int owner) const;
     // Suites the player could start now (prerequisite done, a slot free, under the cap).
     std::vector<const ResearchSuite*> availableResearch(int owner) const;
+
+    // Superweapons. superweaponOf: the weapon a structure type fires (null if none).
+    const SuperweaponSpec* superweaponOf(const GameObjectType& enabler) const;
+    // Seconds until `enabler` can fire (0: ready, <0: not a finished superweapon enabler).
+    float superweaponCountdown(uint32_t enabler) const;
+    OrderResult fireSuperweapon(uint32_t enabler, Vec3 target);
     OrderResult startResearch(int owner, std::string_view path, int index);
     struct TypeAbilities {
         std::vector<GeneratorDef> generators;
@@ -471,6 +496,17 @@ private:
     const EffectLibrary* effectLib_ = nullptr;
     const std::vector<ResearchTree>* trees_ = nullptr;
     std::vector<Unit> effectObjects_;
+    struct SuperweaponEvent {
+        int64_t tick;
+        int owner;
+        const GameObjectType* type; // projectile to drop, or object to create
+        bool projectile;
+        Vec3 point;
+    };
+    std::vector<SuperweaponEvent> superweaponEvents_;
+    mutable std::unordered_map<const GameObjectType*, std::unique_ptr<SuperweaponSpec>> superweapons_;
+    void updateSuperweapons();
+    uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
     std::vector<Unit> pendingObjects_;   // created during a tick, added after it
     struct PendingSpawn { std::string type; int owner; Vec3 position; };
     std::vector<PendingSpawn> pendingSpawns_;

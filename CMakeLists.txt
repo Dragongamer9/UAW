@@ -32,6 +32,7 @@ add_library(alamo
     engine/src/economy.cpp
     engine/src/effects.cpp
     engine/src/abilities.cpp
+    engine/src/superweapons.cpp
     engine/src/luavm.cpp
     engine/src/research.cpp
     engine/src/ai.cpp

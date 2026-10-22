@@ -48,4 +48,4 @@ and every texture its model names.
 
 The AI now builds nearly everything (README, AI section). Left over: research-locked heroes that its
 research order doesn't reach, Novus' top tier (Providence 30,000, Flying Fortress) and some Novus patches,
-and superweapons: built, but check that their abilities fire.
+superweapons are built and fired (README, Superweapons).

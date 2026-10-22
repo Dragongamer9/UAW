@@ -66,6 +66,8 @@ public:
     // Right click / RB: attack an enemy under the point, otherwise move there.
     void command(alamo::World& w, const alamo::Vec3& ground);
     void attackMove(alamo::World& w, const alamo::Vec3& ground);
+    // Fires the first ready superweapon among the selection at `ground`; false if none was ready.
+    bool fireSuperweapon(alamo::World& w, const alamo::Vec3& ground);
     void stop(alamo::World& w);
 
     // Build menu: the first selected own unit that can produce or construct something.

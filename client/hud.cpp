@@ -106,6 +106,11 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
                 textSmall("Weapon range " + fmt("%.0f", first->maxRange()), pad, y, kDim);
                 y += lhs;
             }
+            if (const float sw = w.superweaponCountdown(first->id); sw >= 0) {
+                if (sw == 0) textSmall("Superweapon ready: V, then right-click the target", pad, y, kWarn);
+                else textSmall("Superweapon ready in " + fmt("%.0f", sw) + " s", pad, y, kDim);
+                y += lhs;
+            }
         } else {
             textBig(std::to_string(sel.size()) + " selected", pad, y, kText);
             y += lh;

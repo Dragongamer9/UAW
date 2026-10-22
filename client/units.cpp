@@ -228,6 +228,13 @@ void UnitControl::command(alamo::World& w, const Vec3& ground) {
     moveTo(w, ground);
 }
 
+bool UnitControl::fireSuperweapon(alamo::World& w, const Vec3& ground) {
+    for (uint32_t id : selected_)
+        if (const alamo::Unit* u = w.unit(id); u && u->owner == player_ && w.superweaponCountdown(id) == 0)
+            return w.fireSuperweapon(id, ground) == alamo::OrderResult::Ok;
+    return false;
+}
+
 void UnitControl::attackMove(alamo::World& w, const Vec3& ground) {
     if (selected_.empty()) return;
     w.commandAttackMove(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground);

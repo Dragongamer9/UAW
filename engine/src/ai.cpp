@@ -674,6 +674,34 @@ void SkirmishAI::update() {
     if (tick_ % (kThinkEvery * 4) < kThinkEvery) { // every 2 s
         manageArmy();
         manageResearch();
+        manageSuperweapons();
+    }
+}
+
+void SkirmishAI::manageSuperweapons() {
+    // Fire each ready superweapon where it catches the most enemy value (build cost of what is
+    // inside its radius), less what of ours would be caught; never at nothing.
+    for (const Unit& e : w_.units()) {
+        if (e.owner != player_ || !e.structure || w_.superweaponCountdown(e.id) != 0) continue;
+        const SuperweaponSpec* spec = w_.superweaponOf(*e.type);
+        if (!spec) continue;
+        const float r = spec->radius;
+        Vec3 best{};
+        float bestScore = 0;
+        for (const Unit& c : w_.units()) {
+            if (!w_.enemies(player_, c.owner) || c.owner < 0) continue;
+            float score = 0;
+            for (const Unit& o : w_.units()) {
+                if (dist2(o.position, c.position) > r + o.radius) continue;
+                const float v = std::max(50.f, buildInfo(*o.type, db_).cost);
+                if (w_.enemies(player_, o.owner) && o.owner >= 0) score += v;
+                else if (o.owner == player_) score -= 2 * v;
+            }
+            if (score > bestScore) { bestScore = score; best = c.position; }
+        }
+        // Worth a shot: about a factory's worth of enemy stuff (prices scale with the faction).
+        if (bestScore >= 0.15f * scale_ && w_.fireSuperweapon(e.id, best) == OrderResult::Ok)
+            lastAction_ = "superweapon " + spec->weapon->name;
     }
 }
 

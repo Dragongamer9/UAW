@@ -1108,6 +1108,7 @@ void World::tick() {
     updateEconomy();
     updateResearch();
     updateAbilities();
+    updateSuperweapons();
     for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
     separate();

@@ -513,7 +513,7 @@ int main(int argc, char** argv) {
             double simAccumulator = 0;
             int frames = 0;
             // Mouse drag state for box selection / right-click orders.
-            bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false;
+            bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false, superweaponArmed = false;
             float downX = 0, downY = 0, mouseX = 0, mouseY = 0;
             while (running) {
                 const bool* k = SDL_GetKeyboardState(nullptr);
@@ -535,6 +535,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
+                        else if (e.key.key == SDLK_V) superweaponArmed = true; // next right click fires the selected superweapon
                         else if (e.key.key == SDLK_SPACE && !control.selection().empty()) {
                             float sx = 0, sy = 0;
                             for (uint32_t id : control.selection())
@@ -578,9 +579,10 @@ int main(int argc, char** argv) {
                             rightDown = false;
                             Vec3 g;
                             if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
-                                if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
+                                if (superweaponArmed) control.fireSuperweapon(world, g);
+                                else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
                                 else control.command(world, g);
-                                attackMoveArmed = false;
+                                attackMoveArmed = superweaponArmed = false;
                             }
                         }
                         break;

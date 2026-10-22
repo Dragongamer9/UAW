@@ -485,6 +485,27 @@ bool World::filterPasses(std::string_view f, const Unit& s, int so, const Unit& 
     if (n == "IS_FACTION_MASARI") return so >= 0 && so < int(players_.size()) && iequals(players_[size_t(so)].faction, "Masari");
     if (n == "REGEN_DMA") return t.dma < dmaMax(t) - 0.01f;
     if (n == "IS_SOURCE_FACTION_ALIEN") return so >= 0 && so < int(players_.size()) && iequals(players_[size_t(so)].faction, "Alien");
+    // Filters whose meaning is plain from where the data uses them.
+    const bool immuneToVirus = t.attribute("Is_Immune_To_Virus") != 0 || t.type->number("Is_Immune_To_Virus").value_or(0) != 0;
+    if (n == "RADIATION_FIELD_DAMAGE") return enemy;                       // radiation pools hurt the other side
+    if (n == "VIRUS_INFECT_ENEMY") return enemy && !immuneToVirus;
+    if (n == "VIRUS_INFECT_ALLY") return same && t.id != s.id && !immuneToVirus; // spreading among the infected's friends
+    if (n == "ENEMY_HAS_NOVUS_VIRUS") return enemy && t.attribute("Virus_Level") > 0;
+    if (n == "HAS_VIRUS_LEVEL_1") return t.attribute("Virus_Level") >= 1;
+    if (n == "IS_NOT_IN_VIRAL_REBOOT") return t.attribute("Is_In_Viral_Reboot") == 0;
+    if (n == "CRIPPLING_SHOTS_TARGET" || n == "PARANOIA_FILTER" || n == "WALKER_MIND_MAGNET_TARGET" ||
+        n == "ALATEA_BENEFICIAL_TARGET_ENEMY_FILTER")
+        return enemy && !t.structure;
+    if (n == "VERTIGO_MIND_CONTROL") return enemy && !t.structure && t.attribute("Is_Mind_Controlled") == 0;
+    if (n == "NOVUS_AMPLIFIER_RESONANCE_BEAM_TARGET" || n == "NUFAI_TENDRILS") return enemy;
+    if (n == "ALATEA_BENEFICIAL_TARGET_ALLY_FILTER") return same && !t.structure;
+    if (n == "NOVUS_PATCH_TARGET") return same;
+    if (n == "NOVUS_CONSTRUCTOR_REPAIR") return same && damaged && t.structure && !t.underConstruction;
+    if (n == "TACTICAL_BASE_BUILDER") return isBaseBuilder(*t.type);
+    if (n == "IS_MUTANT_SLAVE") return tn.find("MUTANT_SLAVE") != std::string::npos;
+    if (n == "MASARI_DARK_SUPERWEAPON_RECHARGE_DMA") return same;
+    // The EMP filter only spares the superweapon objects themselves, which are not units here.
+    if (n == "NOVUS_EMP_SUPERWEAPON_STUN_EFFECT_FILTER" || n == "NOT_HAS_BEHAVIOR_DEBRIS" || n == "IS_OWNER_NOT_DEBRIS") return true;
     return false; // unknown filter: don't apply
 }
 
