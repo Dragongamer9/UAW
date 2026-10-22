@@ -41,7 +41,7 @@
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
-//             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
+//             Tab select all yours, . next idle builder, , your army, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera,
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
@@ -817,6 +817,12 @@ int main(int argc, char** argv) {
                         } else if (e.key.key == SDLK_BACKSPACE) control.cancelQueue(world);
                         else if (e.key.key == SDLK_P) placeholders = !placeholders;
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
+                        else if (e.key.key == SDLK_PERIOD) { // next idle builder, camera to it
+                            Vec3 at;
+                            if (control.selectIdleBuilder(world, at)) { cam.x = at[0]; cam.y = at[1]; }
+                            else control.say("No idle builders", world.seconds());
+                        }
+                        else if (e.key.key == SDLK_COMMA) control.selectArmy(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_U) control.unload(world);
                         else if (e.key.key == SDLK_HOME) {

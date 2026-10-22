@@ -165,6 +165,27 @@ bool UnitControl::recallGroup(alamo::World& w, int n) {
     return true;
 }
 
+bool UnitControl::selectIdleBuilder(alamo::World& w, Vec3& at) {
+    std::vector<uint32_t> idle;
+    for (const alamo::Unit& u : w.units())
+        if (u.owner == player_ && !u.structure && !u.inside && !u.moving() && !u.constructing && !w.constructible(u.id).empty())
+            idle.push_back(u.id);
+    if (idle.empty()) return false;
+    std::sort(idle.begin(), idle.end());
+    auto it = std::upper_bound(idle.begin(), idle.end(), lastIdleBuilder_);
+    const uint32_t pick = it == idle.end() ? idle.front() : *it;
+    lastIdleBuilder_ = pick;
+    selected_ = {pick};
+    at = w.unit(pick)->position;
+    return true;
+}
+
+void UnitControl::selectArmy(alamo::World& w) {
+    selected_.clear();
+    for (const alamo::Unit& u : w.units())
+        if (u.owner == player_ && !u.structure && !u.inside && !u.weapons.empty() && w.constructible(u.id).empty()) selected_.insert(u.id);
+}
+
 void UnitControl::selectAll(alamo::World& w) {
     selected_.clear();
     for (const alamo::Unit& u : w.units())

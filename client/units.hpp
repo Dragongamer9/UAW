@@ -79,6 +79,10 @@ public:
     void boxSelect(alamo::World& w, const View& v, float x0, float y0, float x1, float y1, bool add);
     void selectAllVisible(alamo::World& w, const View& v);
     void selectAll(alamo::World& w);
+    // The next idle builder (cycling through them); returns false if none. Its position in `at`.
+    bool selectIdleBuilder(alamo::World& w, alamo::Vec3& at);
+    // Every armed mobile unit (not builders, harvesters or structures).
+    void selectArmy(alamo::World& w);
     // Your units on screen of the same type as the one under the point (double click).
     void selectSameType(alamo::World& w, const View& v, const alamo::Vec3& ground);
     // Control groups 0-9: Ctrl+N stores the selection, N recalls it (false if group N is empty).
@@ -131,6 +135,7 @@ public:
                         const Mat4& xf, const Pose* pose, int depth) const;
 
 private:
+    uint32_t lastIdleBuilder_ = 0;
     int player_;
     std::set<uint32_t> selected_;
     std::set<uint32_t> groups_[10];
