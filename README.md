@@ -40,7 +40,7 @@ redistributed.
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI still sees everything |
 | 4 | Audio | planned: the staged game folder has no audio archives yet |
-| 4 | LAN multiplayer | planned |
+| 4 | LAN multiplayer: deterministic lockstep over TCP (orders only; 0.1 s turns, 0.2 s delay), host/join lobby on the setup screen, checksums to catch desyncs | done (first version): tested with two games on one machine |
 
 ## Mods
 
@@ -100,6 +100,14 @@ setting, right click to step back; Enter or *Start game* plays it. In a game, Es
 opens the pause menu: resume, restart, back to the setup screen, or exit. Fog of war is on unless switched
 off on the setup screen (or `--no-fog`): unexplored ground is dark, explored ground you can't see right now is
 dimmed, and enemies there are hidden (structures you have seen stay on the map).
+
+**LAN games.** On the setup screen, *Host LAN game* opens a game on TCP port 7470 (allow it through the
+firewall); the others click *Join LAN game* and type the host's address (or start with `--join ADDRESS`,
+`--name NAME`; `--host` for the host). Joining players take the open seats; the host picks the map, factions,
+teams and computer players and starts the game. Every machine runs the whole simulation and only the players'
+orders travel: an order runs 0.2-0.3 s after it is given, on every machine at the same tick. Each machine
+reports a checksum of the game state every turn, and the host announces it if the games ever differ. All
+players need the same game files and mods. Network games run at normal speed and can't be paused or saved.
 
 **Saved games.** F5 (or *Save game* in the Esc menu) writes a quick save to the user's preferences folder
 (`%APPDATA%\Dragongamer9\uaw-native\quicksave.uawsave` on Windows); F9, the Esc menu or *Load saved game* on

@@ -428,6 +428,14 @@ public:
     // Order recording: while on, every order method appends a Command (orders given from inside
     // another order are not recorded twice). apply() gives a recorded order again.
     void setRecording(bool on) { recording_ = on; }
+    // Capture (network games): orders are recorded like setRecording but not carried out; they
+    // run when the lockstep turn they were sent for comes (apply()). takeCaptured() empties the log.
+    void setCapture(bool on) { capture_ = on; }
+    std::vector<Command> takeCaptured() {
+        std::vector<Command> out;
+        out.swap(log_);
+        return out;
+    }
     const std::vector<Command>& commandLog() const { return log_; }
     void apply(const Command& c);
     // A checksum of the game state (units, health, positions, credits): equal in two runs that
@@ -614,7 +622,7 @@ private:
     std::vector<PendingTeleport> teleports_;
     void updateBursts();
     void updateGarrisons();
-    bool recording_ = false;
+    bool recording_ = false, capture_ = false;
     int recordDepth_ = 0;
     std::vector<Command> log_;
     friend struct RecordScope;
@@ -699,10 +707,12 @@ StartingForces loadStartingForces(MegVfs& vfs);
 // Records an order (only the outermost one) while World recording is on; used by the order methods.
 struct RecordScope {
     World& w;
+    bool captured = false; // capture mode: recorded, not to be carried out now
     RecordScope(World& world, Command c) : w(world) {
-        if (w.recording_ && w.recordDepth_ == 0) {
+        if ((w.recording_ || w.capture_) && w.recordDepth_ == 0) {
             c.tick = w.tickCount();
             w.log_.push_back(std::move(c));
+            captured = w.capture_;
         }
         ++w.recordDepth_;
     }

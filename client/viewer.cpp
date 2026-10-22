@@ -31,6 +31,9 @@
 //     --menu              (with --screenshot) picture of the setup screen for MAP
 //     --no-fog            no fog of war
 //     --load FILE         continue a saved game (F5 saves, F9 loads the quick save)
+//     --host              open a LAN game (the setup screen waits for players; port 7470)
+//     --join ADDRESS      join a LAN game at ADDRESS[:PORT]; --name NAME shows you by NAME
+//     --players N         (with --host and --screenshot) start once N players (you included) are in
 //     --effect NAME[@S]   (with --screenshot) a particle effect (Particles.xml name or .alo) at the
 //                         camera target, pictured S seconds after it starts (default 0.3)
 //     --slots LIST        every start position in order: you|ai|open[:FACTION[:TEAM]], e.g.
@@ -62,6 +65,7 @@
 #include "menu.hpp"
 #include "particles.hpp"
 #include "savegame.hpp"
+#include "lockstep.hpp"
 
 #include "alamo/ai.hpp"
 #include "alamo/alo.hpp"
@@ -107,6 +111,10 @@ struct Options {
     bool fog = true;       // fog of war (--no-fog)
     std::string load;      // --load FILE: a saved game
     std::string saveAs;    // --save FILE: (screenshots) save the game after --run
+    bool host = false;     // --host: open a LAN game
+    std::string join;      // --join ADDRESS[:PORT]: join one
+    std::string name = "Player";
+    int waitPlayers = 0;   // --host --players N (headless): start once N players are in
     std::string effect;    // --effect NAME[@SECONDS]: (screenshots) a particle effect at the camera target
     std::string slots;     // --slots you:Novus:1,ai:Alien:2,open,...
     bool menu = false;     // start at the skirmish setup screen (no map on the command line)
@@ -173,6 +181,10 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--no-fog") o.fog = false;
         else if (a == "--load") { o.load = next(); o.menu = true; }
         else if (a == "--save") o.saveAs = next();
+        else if (a == "--host") o.host = true;
+        else if (a == "--join") { o.join = next(); o.menu = true; }
+        else if (a == "--name") o.name = next();
+        else if (a == "--players") o.waitPlayers = std::atoi(next());
         else if (a == "--effect") o.effect = next();
         else return false;
     }
@@ -286,7 +298,9 @@ int main(int argc, char** argv) {
         std::string loadPath; // End::Load: the file to load
 
     // One game: load the map, set up the players, play until quit / back to the menu / restart.
+    std::unique_ptr<Lockstep> lockstep; // a LAN game
     auto runSession = [&](const SkirmishSetup& setup, const SaveGame* save) -> End {
+        Lockstep* ls = lockstep && lockstep->started() ? lockstep.get() : nullptr;
         opt.map = setup.map;
         Map map = loadTed(vfs.read(mapPath(opt.map)));
         renderer.setTerrain(map);
@@ -446,16 +460,48 @@ int main(int argc, char** argv) {
         std::vector<SkirmishAI> ais;
         if (opt.units && !opt.squads && !opt.battle && opt.ai)
             for (const Player& p : world.players())
-                if (p.faction != "Neutral" && (p.id != opt.player - 1 || opt.spectate || setup.human() < 0))
-                    ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
+                if (p.faction != "Neutral") {
+                    // Computer slots; your own too when spectating. Other people's slots stay theirs.
+                    const PlayerSlot* slot = size_t(p.id) < setup.slots.size() ? &setup.slots[size_t(p.id)] : nullptr;
+                    const bool computer = !slot || slot->kind == PlayerSlot::Kind::Computer;
+                    const bool mine = p.id == opt.player - 1;
+                    if (computer || (mine && (opt.spectate || setup.human() < 0)))
+                        ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
+                }
         // Orders given outside the simulation step (the player's) are recorded for saved games.
         auto stepWorld = [&]() {
             world.setRecording(false);
+            world.setCapture(false);
             for (auto& ai : ais) ai.update();
             world.tick();
-            world.setRecording(true);
+            world.setRecording(!ls);
+            world.setCapture(ls != nullptr);
         };
-        world.setRecording(true);
+        world.setRecording(!ls);
+        world.setCapture(ls != nullptr);
+        // One tick, if the network allows it (LAN games: the turn's orders must be known; at a turn's
+        // first tick its orders run). Returns false when it has to wait.
+        int64_t turnBegun = -1;
+        uint64_t waitingSince = 0; // LAN: when the simulation last had to wait for the others (0 = not waiting)
+        auto advance = [&]() -> bool {
+            if (ls) {
+                const uint64_t t = world.tickCount();
+                if (!ls->canRun(t)) return false;
+                if (t % Lockstep::kTurnTicks == 0 && int64_t(t) != turnBegun) {
+                    turnBegun = int64_t(t);
+                    const std::vector<alamo::Command> orders = ls->beginTurn(t, world.stateHash());
+                    world.setCapture(false);
+                    for (const alamo::Command& c : orders) world.apply(c);
+                }
+            }
+            stepWorld();
+            return true;
+        };
+        auto pumpNetwork = [&]() {
+            if (!ls) return;
+            ls->submit(world.takeCaptured(), world.tickCount());
+            ls->poll();
+        };
         if (world.players().empty())
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
@@ -540,7 +586,9 @@ int main(int argc, char** argv) {
             static const bool noParticles = std::getenv("UAW_NO_PARTICLES") != nullptr;
             if (!noParticles) effects.draw(renderer, view);
             hud.draw(renderer, world, control, db, text, padConnected, &view);
-            if (paused && !pause.open) hud.centreText(renderer, "Paused");
+            if (ls && !ls->problem().empty()) hud.centreText(renderer, ls->problem());
+            else if (ls && waitingSince && SDL_GetTicks() - waitingSince > 600) hud.centreText(renderer, "Waiting for the other players...");
+            else if (paused && !pause.open) hud.centreText(renderer, "Paused");
             else if (opt.speed != 1) hud.centreText(renderer, opt.speed > 1 ? "Speed x" + std::to_string(int(opt.speed)) : "Speed x0.5", true);
             if (pause.open) pause.draw(renderer);
         };
@@ -592,13 +640,26 @@ int main(int argc, char** argv) {
             };
             if (opt.battle) census();
             for (int t = 1; t <= ticks; ++t) {
-                stepWorld();
+                if (ls) {
+                    pumpNetwork();
+                    const uint64_t waited = SDL_GetTicks();
+                    while (!advance()) {
+                        pumpNetwork();
+                        SDL_Delay(1);
+                        if (SDL_GetTicks() - waited > 15000 || !ls->problem().empty()) break;
+                    }
+                    if (SDL_GetTicks() - waited > 15000) { std::printf("network: stalled at tick %llu\n", (unsigned long long)world.tickCount()); break; }
+                    if (!ls->problem().empty()) { std::printf("network: %s\n", ls->problem().c_str()); break; }
+                } else {
+                    stepWorld();
+                }
                 if (ticks - t < 30 * 20) { // particles for the last 20 s, so the picture shows effects in flight
                     effects.watch(world, control);
                     effects.update(1.f / kTicksPerSecond);
                 }
                 if (opt.battle && t % (5 * kTicksPerSecond) == 0) census();
             }
+            std::printf("state at tick %llu: %016llx\n", (unsigned long long)world.tickCount(), (unsigned long long)world.stateHash());
             if (opt.haveOrder) {
                 size_t moving = 0;
                 for (const Unit& u : world.units()) moving += u.owner == control.player() && u.moving();
@@ -700,6 +761,8 @@ int main(int argc, char** argv) {
                             else if (control.abilityArmed()) control.cancelAbility();
                             else if (hud.researchOpen) hud.researchOpen = false;
                             else pause.open = true;
+                        } else if (e.key.key == SDLK_F5 && ls) {
+                            control.say("Network games can't be saved", world.seconds());
                         } else if (e.key.key == SDLK_F5) {
                             const std::string path = saveFolder() + "quicksave.uawsave";
                             control.say(saveTo(path) ? "Game saved" : "Could not save the game", world.seconds());
@@ -886,13 +949,24 @@ int main(int argc, char** argv) {
                 cam.clampTo(map);
 
                 // Fixed-rate simulation, decoupled from the frame rate (stopped while paused).
-                if (!paused && !pause.open) simAccumulator += dt * opt.speed;
+                if (ls) { // network games run at normal speed and can't be paused
+                    opt.speed = 1;
+                    paused = false;
+                }
+                pumpNetwork();
+                if (!paused && (!pause.open || ls)) simAccumulator += dt * opt.speed;
                 int steps = 0;
                 while (simAccumulator >= 1.0 / kTicksPerSecond && steps < 8 * int(std::max(1.f, opt.speed))) {
-                    stepWorld();
+                    if (!advance()) {
+                        simAccumulator = std::min(simAccumulator, 0.2); // waiting for the others: don't race afterwards
+                        if (!waitingSince) waitingSince = SDL_GetTicks();
+                        break;
+                    }
+                    waitingSince = 0;
                     simAccumulator -= 1.0 / kTicksPerSecond;
                     ++steps;
                 }
+                if (ls && !ls->problem().empty() && int(world.seconds()) % 5 == 0) control.say(ls->problem(), world.seconds());
 
                 padConnected = pad != nullptr;
                 if (pad && control.placing()) {
@@ -961,7 +1035,7 @@ int main(int argc, char** argv) {
             }
         }
         std::unique_ptr<SkirmishMenu> menu;
-        End end = !opt.load.empty() ? End::Load : opt.menu ? End::ToMenu : End::Restart;
+        End end = !opt.load.empty() ? End::Load : (opt.menu || opt.host || !opt.join.empty()) ? End::ToMenu : End::Restart;
         if (!opt.load.empty()) loadPath = opt.load;
         SaveGame loaded;
         while (end != End::Quit) {
@@ -990,7 +1064,75 @@ int main(int argc, char** argv) {
                 if (menu->empty()) throw std::runtime_error("no skirmish maps found");
                 bool done = false, quit = false, loadGame = false;
                 menu->quickSave = saveFolder() + "quicksave.uawsave";
-                if (headless) { // a picture of the setup screen
+                // LAN games: host or join (from the command line, or the buttons on the screen).
+                auto startHost = [&]() {
+                    std::string err;
+                    lockstep = Lockstep::host(net::kDefaultPort, err);
+                    if (!lockstep) {
+                        menu->lobbyStatus = "Can't host a game: " + err;
+                        std::fprintf(stderr, "can't host: %s\n", err.c_str());
+                        return;
+                    }
+                    menu->lobby = SkirmishMenu::Lobby::Host;
+                    menu->lobbyId = 0;
+                    for (PlayerSlot& slot : menu->editSetup().slots)
+                        if (slot.kind == PlayerSlot::Kind::Human) slot.netId = 0;
+                };
+                auto startJoin = [&](const std::string& address) {
+                    std::string err;
+                    lockstep = Lockstep::join(address, opt.name, err);
+                    if (!lockstep) {
+                        menu->lobbyStatus = "Can't join: " + err;
+                        std::fprintf(stderr, "can't join %s: %s\n", address.c_str(), err.c_str());
+                        return;
+                    }
+                    menu->lobby = SkirmishMenu::Lobby::Client;
+                };
+                auto leaveLobby = [&]() {
+                    lockstep.reset();
+                    menu->lobby = SkirmishMenu::Lobby::None;
+                    menu->lobbyPlayers.clear();
+                };
+                if (opt.host && !lockstep) startHost();
+                if (!opt.join.empty() && !lockstep) startJoin(opt.join);
+                opt.host = false;
+                opt.join.clear();
+                auto pumpLobby = [&]() {
+                    if (!lockstep) return;
+                    if (lockstep->isHost()) {
+                        lockstep->pollLobby(menu->editSetup());
+                    } else {
+                        SkirmishSetup t = menu->setup();
+                        if (lockstep->pollLobby(t)) menu->takeSetup(t);
+                        if (lockstep->started()) done = true;
+                        if (!lockstep->problem().empty()) {
+                            menu->lobbyStatus = lockstep->problem();
+                            leaveLobby();
+                            return;
+                        }
+                    }
+                    menu->lobbyStatus = lockstep->status();
+                    menu->lobbyPlayers = lockstep->players();
+                    menu->lobbyId = lockstep->id();
+                };
+                if (headless && lockstep) {
+                    // Headless LAN game (tests): the host starts once --players are in; a client waits.
+                    const uint64_t t0 = SDL_GetTicks();
+                    while (!done && SDL_GetTicks() - t0 < 30000) {
+                        pumpLobby();
+                        if (lockstep && lockstep->isHost() && int(lockstep->players().size()) >= std::max(2, opt.waitPlayers)) {
+                            SDL_Delay(200);
+                            pumpLobby();
+                            lockstep->start(menu->setup());
+                            done = true;
+                        }
+                        SDL_Delay(5);
+                    }
+                    if (!done || !lockstep) {
+                        std::printf("network: no game started\n");
+                        break;
+                    }
+                } else if (headless) { // a picture of the setup screen
                     int w, h;
                     SDL_GetWindowSizeInPixels(window, &w, &h);
                     renderer.beginFrame(w, h, Renderer::Camera{{0, 0, 1}, {0, 1, 0}}, 100);
@@ -1007,23 +1149,35 @@ int main(int argc, char** argv) {
                     break;
                 }
                 SDL_SetWindowTitle(window, "Universe at War - Skirmish");
+                SDL_StartTextInput(window);
                 SDL_Gamepad* pad = nullptr;
                 while (!done) {
                     SDL_Event e;
                     while (SDL_PollEvent(&e)) {
                         if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
                         const SkirmishMenu::Result r = menu->handle(e);
-                        if (r == SkirmishMenu::Result::Start) done = true;
-                        if (r == SkirmishMenu::Result::Quit) done = quit = true;
+                        if (r == SkirmishMenu::Result::Start) {
+                            if (lockstep && lockstep->isHost()) lockstep->start(menu->setup());
+                            done = true;
+                        }
+                        if (r == SkirmishMenu::Result::Quit) {
+                            if (lockstep && !lockstep->isHost() && e.type != SDL_EVENT_QUIT) leaveLobby(); // back to the setup screen
+                            else done = quit = true;
+                        }
                         if (r == SkirmishMenu::Result::Load) done = loadGame = true;
+                        if (r == SkirmishMenu::Result::Host) startHost();
+                        if (r == SkirmishMenu::Result::Join) startJoin(menu->joinAddress);
                     }
+                    pumpLobby();
                     int w, h;
                     SDL_GetWindowSizeInPixels(window, &w, &h);
                     renderer.beginFrame(w, h, Renderer::Camera{{0, 0, 1}, {0, 1, 0}}, 100);
                     renderer.endFrame();
                     menu->draw(renderer);
                     SDL_GL_SwapWindow(window);
+                    if (lockstep) SDL_Delay(5);
                 }
+                SDL_StopTextInput(window);
                 if (pad) SDL_CloseGamepad(pad);
                 if (quit) break;
                 if (loadGame) {
@@ -1032,12 +1186,24 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 setup = menu->setup();
-                const int human = setup.human();
+                int human = setup.human();
+                if (lockstep) { // your seat is the one with your connection id
+                    human = -1;
+                    for (size_t k = 0; k < setup.slots.size(); ++k)
+                        if (setup.slots[k].kind == PlayerSlot::Kind::Human && setup.slots[k].netId == lockstep->id()) human = int(k);
+                }
                 opt.player = human >= 0 ? human + 1 : 1;
                 opt.spectate = human < 0;
                 opt.haveCamera = opt.camSet = false;
             }
             end = runSession(setup, nullptr);
+            if (lockstep) { // a LAN game is over for this machine
+                lockstep.reset();
+                if (menu) {
+                    menu->lobby = SkirmishMenu::Lobby::None;
+                    menu->lobbyPlayers.clear();
+                }
+            }
             if (headless) break;
         }
     } catch (const std::exception& e) {

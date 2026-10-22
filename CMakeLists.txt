@@ -123,8 +123,13 @@ if(UAW_BUILD_CLIENT)
     client/menu.cpp
     client/particles.cpp
     client/savegame.cpp
+    client/net.cpp
+    client/lockstep.cpp
     client/font.cpp
     client/gl.cpp)
   target_link_libraries(uaw-viewer PRIVATE alamo SDL3::SDL3)
+  if(WIN32)
+    target_link_libraries(uaw-viewer PRIVATE ws2_32)
+  endif()
   target_include_directories(uaw-viewer PRIVATE third_party)
 endif()

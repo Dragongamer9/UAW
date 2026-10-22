@@ -22,6 +22,13 @@ struct SaveGame {
     std::vector<alamo::Command> commands;
 };
 
+// One order as text (also what LAN games send): "tick kind target owner index x y z name n ids..."
+std::string encodeCommand(const alamo::Command& c);
+bool decodeCommand(const std::string& text, alamo::Command& c);
+// A skirmish setup on one line (LAN lobby).
+std::string encodeSetup(const SkirmishSetup& s);
+bool decodeSetup(const std::string& text, SkirmishSetup& s);
+
 bool writeSave(const std::string& path, const SaveGame& s);
 bool readSave(const std::string& path, SaveGame& s, std::string* error = nullptr);
 

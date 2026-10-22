@@ -122,7 +122,7 @@ void MenuPainter::flush(Renderer& r) {
 // ---------------------------------------------------------------- skirmish setup
 
 namespace {
-enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
+enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kHost = 5, kJoin = 6, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
 }
 
 SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale)
@@ -166,6 +166,15 @@ SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, st
     std::sort(maps_.begin(), maps_.end(), [](const MapEntry& a, const MapEntry& b) { return a.title < b.title; });
     slotsByMap_.resize(maps_.size());
     if (!maps_.empty()) choose(0);
+}
+
+void SkirmishMenu::takeSetup(const SkirmishSetup& s) {
+    for (size_t i = 0; i < maps_.size(); ++i)
+        if (upper(maps_[i].name) == upper(s.map)) {
+            selected_ = i;
+            if (i < scroll_ || i >= scroll_ + visibleRows_) scroll_ = i >= visibleRows_ / 2 ? i - visibleRows_ / 2 : 0;
+        }
+    setup_ = s;
 }
 
 void SkirmishMenu::selectMap(const std::string& name) {
@@ -222,6 +231,27 @@ void SkirmishMenu::cycle(size_t slot, int field) {
 }
 
 SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
+    if (typing_) { // the address to join
+        if (e.type == SDL_EVENT_TEXT_INPUT) typed_ += e.text.text;
+        if (e.type == SDL_EVENT_KEY_DOWN) {
+            if (e.key.key == SDLK_BACKSPACE && !typed_.empty()) typed_.pop_back();
+            if (e.key.key == SDLK_ESCAPE) typing_ = false;
+            if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) {
+                typing_ = false;
+                joinAddress = typed_.empty() ? "127.0.0.1" : typed_;
+                return Result::Join;
+            }
+        }
+        if (e.type == SDL_EVENT_QUIT) return Result::Quit;
+        return Result::None;
+    }
+    if (lobby == Lobby::Client) { // only leaving is up to us
+        if (e.type == SDL_EVENT_QUIT) return Result::Quit;
+        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) return Result::Quit;
+        if (e.type == SDL_EVENT_MOUSE_MOTION) { mouseX_ = e.motion.x; mouseY_ = e.motion.y; }
+        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && paint_.buttonAt(e.button.x, e.button.y) == kQuit) return Result::Quit;
+        return Result::None;
+    }
     auto canStart = [&]() {
         int players = 0;
         for (const PlayerSlot& p : setup_.slots) players += p.kind != PlayerSlot::Kind::Open;
@@ -244,10 +274,23 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
         if (id == kQuit) return Result::Quit;
         if (id == kFog) setup_.fog = !setup_.fog;
         if (id == kLoad) return Result::Load;
+        if (id == kHost && lobby == Lobby::None) return Result::Host;
+        if (id == kJoin && lobby == Lobby::None) {
+            typing_ = true;
+            typed_.clear();
+            return Result::None;
+        }
         if (id >= kMapBase && id < kSlotBase) {
             const size_t i = size_t(id - kMapBase);
             if (i == selected_ && e.button.clicks >= 2 && canStart()) return Result::Start;
             choose(i);
+        }
+        if (id >= kSlotBase && (id - kSlotBase) % 4 == 0 && lobby == Lobby::Host) {
+            const size_t slot = size_t((id - kSlotBase) / 4);
+            if (slot < setup_.slots.size() && setup_.slots[slot].kind == PlayerSlot::Kind::Human) break; // a player's seat
+            if (slot < setup_.slots.size()) // open <-> computer only
+                setup_.slots[slot].kind = setup_.slots[slot].kind == PlayerSlot::Kind::Open ? PlayerSlot::Kind::Computer : PlayerSlot::Kind::Open;
+            break;
         }
         if (id >= kSlotBase) {
             const int n = e.button.button == SDL_BUTTON_RIGHT ? 3 : 1; // right click cycles backwards
@@ -383,7 +426,12 @@ void SkirmishMenu::draw(Renderer& r) {
             const float bh = lh + 4 * s;
             r.drawOverlayRect(c0, y + 4 * s, c0 + 14 * s, y + bh - 4 * s, kSlotColors[k]);
             paint_.text("Position " + std::to_string(k + 1), c0 + 22 * s, y + 2 * s, kText);
-            const char* kind = p.kind == PlayerSlot::Kind::Open ? "Open" : p.kind == PlayerSlot::Kind::Human ? "You" : "Computer";
+            std::string kind = p.kind == PlayerSlot::Kind::Open ? "Open" : p.kind == PlayerSlot::Kind::Human ? "You" : "Computer";
+            if (lobby != Lobby::None && p.kind == PlayerSlot::Kind::Human) {
+                kind = p.netId == lobbyId ? "You" : "Player";
+                for (const auto& [pid, n] : lobbyPlayers)
+                    if (pid == p.netId && p.netId != lobbyId) kind = n;
+            }
             paint_.button(r, kSlotBase + int(k) * 4 + 0, kind, c1, y, c2 - 10 * s, y + bh, p.kind == PlayerSlot::Kind::Human, mouseX_, mouseY_);
             if (p.kind != PlayerSlot::Kind::Open) {
                 paint_.button(r, kSlotBase + int(k) * 4 + 1, factionTitle(p.faction), c2, y, c3 - 10 * s, y + bh, false, mouseX_, mouseY_);
@@ -399,7 +447,20 @@ void SkirmishMenu::draw(Renderer& r) {
     const float bw = 200 * s, bh = lh + 16 * s, by = H - pad - bh;
     int players = 0;
     for (const PlayerSlot& p : setup_.slots) players += p.kind != PlayerSlot::Kind::Open;
-    if (!quickSave.empty() && std::ifstream(quickSave).good())
+    if (lobby == Lobby::None) {
+        paint_.button(r, kHost, "Host LAN game", pad + 260 * s, by, pad + 260 * s + bw, by + bh, false, mouseX_, mouseY_);
+        paint_.button(r, kJoin, "Join LAN game", pad + 276 * s + bw, by, pad + 276 * s + bw * 2, by + bh, false, mouseX_, mouseY_);
+    } else {
+        paint_.text(lobbyStatus, pad, by + (bh - lh) / 2 - lhs, kHot);
+    }
+    if (typing_) {
+        const float tw = 520 * s, th = lh * 3;
+        r.drawOverlayRect(W / 2 - tw / 2, H / 2 - th, W / 2 + tw / 2, H / 2 + th, kPanel);
+        paint_.text("Join a LAN game: the host's address (Enter to join, Esc to cancel)", W / 2 - tw / 2 + 16 * s, H / 2 - th + 12 * s, kDim, false);
+        r.drawOverlayRect(W / 2 - tw / 2 + 16 * s, H / 2 - lh / 2 - 4 * s, W / 2 + tw / 2 - 16 * s, H / 2 + lh / 2 + 4 * s, {0, 0, 0, 0.8f});
+        paint_.text(typed_ + "_", W / 2 - tw / 2 + 24 * s, H / 2 - lh / 2, kText);
+    }
+    if (lobby == Lobby::None && !quickSave.empty() && std::ifstream(quickSave).good())
         paint_.button(r, kLoad, "Load saved game", W - pad - bw * 4 - 48 * s, by, W - pad - bw * 3 - 48 * s, by + bh, false, mouseX_, mouseY_);
     paint_.button(r, kFog, setup_.fog ? "Fog of war: on" : "Fog of war: off", W - pad - bw * 3 - 32 * s, by, W - pad - bw * 2 - 32 * s,
                   by + bh, setup_.fog, mouseX_, mouseY_);

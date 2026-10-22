@@ -306,6 +306,7 @@ std::vector<std::string> World::constructible(uint32_t id) const {
 
 OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
     RecordScope rec_(*this, Command{0, Command::Kind::Queue, {id}, 0, -1, 0, {}, typeName});
+    if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* s = unit(id);
     if (!s) return OrderResult::InvalidUnit;
     const GameObjectType* t = db_.find(typeName);
@@ -336,6 +337,7 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
 
 void World::cancelProduction(uint32_t id) {
     RecordScope rec_(*this, Command{0, Command::Kind::CancelQueue, {id}});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     Unit* s = unit(id);
     if (!s || s->queue.empty()) return;
     if (Player* p = player(s->owner)) p->credits += buildInfo(*s->queue.back(), db_).cost;
@@ -345,6 +347,7 @@ void World::cancelProduction(uint32_t id) {
 
 void World::setRally(uint32_t id, Vec3 p) {
     RecordScope rec_(*this, Command{0, Command::Kind::Rally, {id}, 0, -1, 0, p});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     if (Unit* s = unit(id)) {
         s->rally = p;
         s->hasRally = true;
@@ -371,6 +374,7 @@ bool World::siteClear(const GameObjectType& type, Vec3 site) const {
 
 OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeName, Vec3 site) {
     RecordScope rec_(*this, Command{0, Command::Kind::Construct, {builderId}, 0, -1, 0, site, typeName});
+    if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* b = unit(builderId);
     if (!b) return OrderResult::InvalidUnit;
     const GameObjectType* t = db_.find(typeName);
@@ -614,6 +618,7 @@ Unit* World::unit(uint32_t id) {
 
 void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
     RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, 0, target});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     std::vector<Unit*> group;
     for (uint32_t id : ids)
         if (Unit* u = unit(id); u && !u->inside) {
@@ -655,6 +660,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
 
 void World::commandStop(const std::vector<uint32_t>& ids) {
     RecordScope rec_(*this, Command{0, Command::Kind::Stop, ids});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     for (uint32_t id : ids)
         if (Unit* u = unit(id)) {
             u->path.clear();
@@ -666,6 +672,7 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
 
 void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
     RecordScope rec_(*this, Command{0, Command::Kind::AttackMove, ids, 0, -1, 0, target});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     commandMove(ids, target);
     for (uint32_t id : ids)
         if (Unit* u = unit(id); u && !u->weapons.empty()) u->attackMove = true;
@@ -673,6 +680,7 @@ void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
 
 void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
     RecordScope rec_(*this, Command{0, Command::Kind::Attack, ids, target});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
     const Unit* t = unit(target);
     if (!t) return;
     for (uint32_t id : ids) {

@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -38,6 +39,64 @@ std::string saveFolder() {
         return s;
     }
     return "./";
+}
+
+std::string encodeCommand(const alamo::Command& c) {
+    std::ostringstream out;
+    out << std::setprecision(9) << c.tick << " " << kindName(c.kind) << " " << c.target << " " << c.owner << " " << c.index << " "
+        << c.point[0] << " " << c.point[1] << " " << c.point[2] << " " << (c.name.empty() ? "-" : c.name) << " " << c.ids.size();
+    for (uint32_t id : c.ids) out << " " << id;
+    return out.str();
+}
+
+bool decodeCommand(const std::string& text, alamo::Command& c) {
+    std::istringstream ls(text);
+    std::string kind, name;
+    size_t n = 0;
+    c = alamo::Command{};
+    ls >> c.tick >> kind >> c.target >> c.owner >> c.index >> c.point[0] >> c.point[1] >> c.point[2] >> name >> n;
+    if (!ls || !kindFrom(kind, c.kind) || n > 100000) return false;
+    if (name != "-") c.name = name;
+    for (size_t k = 0; k < n; ++k) {
+        uint32_t id = 0;
+        if (!(ls >> id)) return false;
+        c.ids.push_back(id);
+    }
+    return true;
+}
+
+std::string encodeSetup(const SkirmishSetup& s) {
+    std::ostringstream out;
+    out << s.map << " " << (s.fog ? 1 : 0) << " " << s.slots.size();
+    for (const PlayerSlot& p : s.slots) out << " " << slotKind(p.kind) << ":" << p.faction << ":" << p.team << ":" << p.netId;
+    return out.str();
+}
+
+bool decodeSetup(const std::string& text, SkirmishSetup& s) {
+    std::istringstream ls(text);
+    int fog = 1;
+    size_t n = 0;
+    s = SkirmishSetup{};
+    ls >> s.map >> fog >> n;
+    if (!ls || n > 8) return false;
+    s.fog = fog != 0;
+    for (size_t k = 0; k < n; ++k) {
+        std::string item;
+        if (!(ls >> item)) return false;
+        PlayerSlot p;
+        std::istringstream is(item);
+        std::string kind, faction, team, net;
+        std::getline(is, kind, ':');
+        std::getline(is, faction, ':');
+        std::getline(is, team, ':');
+        std::getline(is, net, ':');
+        p.kind = kind == "human" ? PlayerSlot::Kind::Human : kind == "computer" ? PlayerSlot::Kind::Computer : PlayerSlot::Kind::Open;
+        p.faction = faction;
+        p.team = team.empty() ? -1 : std::atoi(team.c_str());
+        p.netId = net.empty() ? -1 : std::atoi(net.c_str());
+        s.slots.push_back(p);
+    }
+    return true;
 }
 
 bool writeSave(const std::string& path, const SaveGame& s) {

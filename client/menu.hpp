@@ -21,6 +21,7 @@ struct PlayerSlot {
     Kind kind = Kind::Open;
     std::string faction = "Novus";
     int team = -1; // -1: on its own
+    int netId = -1; // LAN games: which connected player controls a Human slot (0 = the host)
 };
 
 struct SkirmishSetup {
@@ -63,11 +64,22 @@ class SkirmishMenu {
 public:
     SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale);
 
-    enum class Result { None, Start, Quit, Load };
+    enum class Result { None, Start, Quit, Load, Host, Join };
     std::string quickSave; // shown as a "Load saved game" button when this file exists
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
     const SkirmishSetup& setup() const { return setup_; }
+    SkirmishSetup& editSetup() { return setup_; } // LAN lobby: the host's changes (players joining)
+    // A setup from the LAN host: map and slots as given (map picked in the list too).
+    void takeSetup(const SkirmishSetup& s);
+
+    // LAN lobby state shown on the screen. Host: the setup can be changed and started; client: it
+    // only shows the host's setup. Player names by connection id.
+    enum class Lobby { None, Host, Client } lobby = Lobby::None;
+    std::string lobbyStatus;
+    std::vector<std::pair<int, std::string>> lobbyPlayers;
+    int lobbyId = -1;          // this machine's connection id
+    std::string joinAddress;   // Result::Join: what was typed
     bool empty() const { return maps_.empty(); }
     // Picks the map by name (case-insensitive) if it is in the list.
     void selectMap(const std::string& name);
@@ -91,6 +103,8 @@ private:
     size_t previewFor_ = size_t(-1);
     float mouseX_ = 0, mouseY_ = 0;
     size_t visibleRows_ = 10;
+    bool typing_ = false;      // entering the address to join
+    std::string typed_;
     void choose(size_t i);
     void cycle(size_t slot, int field);
 };
