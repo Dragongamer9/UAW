@@ -287,6 +287,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
                 }
     };
 
+    // Other ability types (GRAVITY_OVERLOAD, FOO_CORE_HEAL, ...) that name one of the unit's own
+    // generators do their work through it.
+    auto ownGenerator = [&](const std::string& gen) {
+        for (const GeneratorDef& g : generators)
+            if (iequals(g.name, gen)) return true;
+        return false;
+    };
+
     // Fills a spec from an Abilities entry.
     auto fromRaw = [&](AbilitySpec& s, const Raw& r) {
         const auto& kv = r.kv;
@@ -425,7 +433,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         }
         const bool tackle = s.kind == AbilitySpec::Kind::Leap && s.landingDamage > 0;
         if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst && s.kind != AbilitySpec::Kind::Teleport && !tackle)
-            s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator)
+            s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator ||
+                                              ownGenerator(s.generator))
                          ? AbilitySpec::Kind::Generator
                          : AbilitySpec::Kind::Unsupported;
         if (s.abilityType == "SWITCH_TYPE") {
