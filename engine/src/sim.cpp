@@ -461,6 +461,7 @@ void World::updateProduction(Unit& s) {
     const float facing = 0;
     spawn(t->name, owner, s.position, facing); // may reallocate units_
     const std::vector<uint32_t> ids = lastSpawned_; // a squad brings several
+    if (Player* p = player(owner)) p->unitsBuilt += int(ids.size());
     Unit* st = unit(sid);
     if (!st || ids.empty()) return;
     for (size_t i = 0; i < ids.size(); ++i) {
@@ -501,6 +502,7 @@ void World::updateConstruction(Unit& s) {
     s.health = std::min(s.maxHealth, s.health + s.maxHealth * step * 0.95f);
     if (s.buildProgress >= 1) {
         s.underConstruction = false;
+        if (Player* p = player(s.owner)) ++p->structuresBuilt;
         for (Unit& b : units_)
             if (b.constructing == s.id) b.constructing = 0;
     }
@@ -1146,6 +1148,7 @@ void World::removeDead() {
     for (const Unit& u : units_)
         if (!u.alive()) {
             deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_, u.sold, u.facing});
+            if (Player* p = u.sold ? nullptr : player(u.owner)) ++(u.structure ? p->structuresLost : p->unitsLost);
             if (u.structure) navDirty_ = true;
             if (!u.sold) deathSpawn(u);
         }

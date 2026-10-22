@@ -459,9 +459,35 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
     if (!sawPlayer_)
         for (const alamo::Unit& u : w.units())
             if (u.owner == control.player() && u.structure) { sawPlayer_ = true; break; }
+    // Under the banner: what each side built, lost and earned.
+    auto matchStats = [&]() {
+        if (!small_) return;
+        const float W = float(r.width()), lhs2 = small_->lineHeight();
+        float y = float(r.height()) * 0.32f + (font_ ? font_->lineHeight() * 4.2f : 80);
+        const float cols[] = {W / 2 - 360 * s, W / 2 - 160 * s, W / 2 + 40 * s, W / 2 + 200 * s};
+        int rows = 1;
+        for (int p = 0; p < 8 && w.player(p); ++p) rows += w.player(p)->faction != "Neutral";
+        r.drawOverlayRect(cols[0] - 16 * s, y - 8 * s, W / 2 + 360 * s, y + lhs2 * float(rows) + 8 * s, {0, 0, 0, 0.55f});
+        textSmall("Player", cols[0], y, kDim);
+        textSmall("Built: units / bases", cols[1], y, kDim);
+        textSmall("Lost", cols[2], y, kDim);
+        textSmall("Credits earned", cols[3], y, kDim);
+        y += lhs2;
+        for (int p = 0; p < 8 && w.player(p); ++p) {
+            const alamo::Player& pl = *w.player(p);
+            if (pl.faction == "Neutral") continue;
+            const Vec4 c = p == control.player() ? kText : kDim;
+            textSmall(std::to_string(p + 1) + "  " + pl.faction + (alamo::defeated(w, p) ? "  (out)" : ""), cols[0], y, c);
+            textSmall(std::to_string(pl.unitsBuilt) + " / " + std::to_string(pl.structuresBuilt), cols[1], y, c);
+            textSmall(std::to_string(pl.unitsLost) + " / " + std::to_string(pl.structuresLost), cols[2], y, c);
+            textSmall(fmt("%.0f", pl.earned), cols[3], y, c);
+            y += lhs2;
+        }
+    };
     if (!sawPlayer_) {
     } else if (alamo::defeated(w, control.player())) {
         banner(r, "Defeat", {1.f, 0.4f, 0.35f, 1});
+        matchStats();
     } else {
         bool anyEnemy = false, enemyAlive = false;
         for (size_t p = 0; p < 8; ++p) {
@@ -470,7 +496,10 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             anyEnemy = true;
             enemyAlive = enemyAlive || !alamo::defeated(w, int(p));
         }
-        if (anyEnemy && !enemyAlive) banner(r, "Victory", kGood);
+        if (anyEnemy && !enemyAlive) {
+            banner(r, "Victory", kGood);
+            matchStats();
+        }
     }
 
     // --- message line

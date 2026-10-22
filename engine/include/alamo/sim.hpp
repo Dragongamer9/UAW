@@ -215,6 +215,7 @@ struct Player {
     std::vector<Research> researching;
     std::set<std::string> researched;  // suite ids, e.g. "A1"
     int abilitiesUsed = 0;             // statistics
+    int unitsBuilt = 0, structuresBuilt = 0, unitsLost = 0, structuresLost = 0;
     int team = -1;                     // players on the same team (>= 0) are allies
     float incomeBonus = 1;             // handicap: all income times this (computer difficulty)
 };
