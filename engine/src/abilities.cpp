@@ -679,6 +679,16 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
             if (o.alive() && enemies(u.owner, o.owner) && distXY(u.position, o.position) <= 250) { target = u.id; return true; }
         return false;
     }
+    if (s.kind == AbilitySpec::Kind::Burst) {
+        // Worth it with a few enemies close by (the data's Unit_Ability_AI_Required_Targets is 3-4).
+        int n = 0;
+        for (const Unit& o : units_)
+            if (o.alive() && enemies(u.owner, o.owner) && !o.structure && categoriesOk(o) &&
+                distXY(u.position, o.position) - o.radius <= s.burstRadius * 0.8f)
+                ++n;
+        if (n >= 3) target = u.id;
+        return n >= 3;
+    }
     if (s.kind == AbilitySpec::Kind::SelfDestruct) {
         const float r = std::max(s.selfDestructRadius, 10.f) + 20;
         for (const Unit& o : units_)
@@ -787,6 +797,11 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
             const Vec3 p = nav_.nearestPassable({u.position[0] + std::cos(a) * (u.radius * 2 + 12), u.position[1] + std::sin(a) * (u.radius * 2 + 12), 0});
             pendingSpawns_.push_back({s.cloneType, u.owner, p, toTicks(s.cloneLifetime)});
         }
+        return;
+    }
+    if (s.kind == AbilitySpec::Kind::Burst) {
+        for (int k = 0; k < s.burstPulses; ++k)
+            bursts_.push_back({int64_t(ticks_) + s.burstDelay + int64_t(k) * s.burstInterval, u.id, &s});
         return;
     }
     if (s.kind == AbilitySpec::Kind::Leap) {
@@ -970,6 +985,65 @@ void World::projectileImpact(const Projectile& p, const Unit* hit) {
     }
 }
 
+void World::updateBursts() {
+    if (bursts_.empty()) return;
+    std::vector<BurstPulse> later;
+    for (const BurstPulse& b : bursts_) {
+        if (b.tick > int64_t(ticks_)) {
+            later.push_back(b);
+            continue;
+        }
+        Unit* u = unit(b.unit);
+        if (!u || !u->alive() || u->silenced) continue;
+        const AbilitySpec& s = *b.spec;
+        auto ok = [&](const Unit& o) {
+            if (!o.alive() || !enemies(u->owner, o.owner)) return false;
+            if (!s.excluded.empty() && categoriesAny(*o.type, s.excluded)) return false;
+            return distXY(u->position, o.position) - o.radius <= s.burstRadius;
+        };
+        if (!s.projectile) {
+            std::vector<uint32_t> hit;
+            for (const Unit& o : units_)
+                if (ok(o)) hit.push_back(o.id);
+            for (uint32_t id : hit)
+                if (Unit* o = unit(id)) applyDamage(*o, (s.burstDamage + random01() * s.burstRandom) * u->damageCast, s.damageType);
+            continue;
+        }
+        // A spray: one projectile at a random enemy in the radius, or at the ground in it.
+        std::vector<const Unit*> near;
+        for (const Unit& o : units_)
+            if (ok(o) && !o.flying()) near.push_back(&o);
+        Vec3 aim;
+        uint32_t target = 0;
+        if (!near.empty()) {
+            const Unit* t = near[size_t(random01() * float(near.size())) % near.size()];
+            aim = {t->position[0], t->position[1], t->position[2] + std::max(t->radius * 0.6f, 4.f)};
+            target = t->id;
+        } else {
+            const float a = random01() * 6.2831853f, r = std::sqrt(random01()) * s.burstRadius;
+            aim = {u->position[0] + std::cos(a) * r, u->position[1] + std::sin(a) * r, 0};
+            aim[2] = map_.heightAt(aim[0], aim[1]);
+        }
+        Projectile pr;
+        pr.owner = u->owner;
+        pr.shooter = u->id;
+        pr.target = target;
+        pr.position = {u->position[0], u->position[1], u->position[2] + std::max(u->radius * 0.8f, 6.f)};
+        const float speed = std::max(1.f, float(s.projectile->number("Max_Speed").value_or(10)));
+        const float dx = aim[0] - pr.position[0], dy = aim[1] - pr.position[1], dz = aim[2] - pr.position[2];
+        const float len = std::max(std::sqrt(dx * dx + dy * dy + dz * dz), 1e-3f);
+        pr.velocity = {dx / len * speed, dy / len * speed, dz / len * speed};
+        pr.distance = len;
+        pr.damage = float(s.projectile->number("Projectile_Damage").value_or(0)) * u->damageCast;
+        pr.blastDamage = float(s.projectile->number("Projectile_Blast_Area_Damage").value_or(0)) * u->damageCast;
+        pr.blastRange = float(s.projectile->number("Projectile_Blast_Area_Range").value_or(0));
+        pr.damageType = s.damageType;
+        pr.type = s.projectile;
+        projectiles_.push_back(std::move(pr));
+    }
+    bursts_.swap(later);
+}
+
 void World::updateAbilities() {
     for (Unit& u : units_) updateEffects(u);
     for (Unit& o : effectObjects_) updateEffects(o);
@@ -986,6 +1060,7 @@ void World::updateAbilities() {
         autonomousAbilities(u);
         u.damagedThisTick = u.firedThisTick = false;
     }
+    updateBursts();
     // Effect objects: lifetime, then add the ones created this tick.
     for (Unit& o : effectObjects_)
         if (o.lifeTicks > 0 && --o.lifeTicks == 0) o.health = 0;

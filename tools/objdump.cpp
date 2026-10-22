@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 locks.abilities.insert(l.abilities.begin(), l.abilities.end());
                 locks.effects.insert(l.effects.begin(), l.effects.end());
             }
-            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones"};
+            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones", "burst"};
             if (argc > 3) {
                 const GameObjectType* o = db.find(argv[3]);
                 if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }

@@ -399,6 +399,11 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   ability's `Activation_Max_Range`.
 * **Clones** (`SPAWN_CLONES`): `Spawn_Clones_Count` copies of `Spawn_Clones_Type` appear next to the
   unit and vanish after `Spawn_Clones_Lifetime_Seconds`.
+* **Bursts**: `Spray_Projectiles_Ability` (the Antimatter tank's vent, `POINT_BLANK_AE`) fires
+  `Projectile_Count` shots `Projectile_Fire_Interval` apart at enemies within `Projectile_Radius`;
+  `Dervish_Spin_Attack_Ability` damages everything within `Attack_Radius` after `Spin_Up_Seconds`,
+  `AOE_Damage_Per_Second` plus up to `AOE_Additional_Random_Damage` twice a second. The AI uses both
+  with three or more enemies close by.
 
 ## Research
 

@@ -127,6 +127,7 @@ struct AbilitySpec {
         SelfDestruct,   // SELF_DESTRUCT: blow up, damaging what is around
         Weapon,         // Radiation_Weapon_Ability: a beam, simulated as the unit's weapon (combat.cpp)
         SpawnClones,    // SPAWN_CLONES: temporary copies appear around the unit (SpawnClonesBehaviorType)
+        Burst,          // point-blank area attack over time: projectile sprays, the Dervish spin
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name
@@ -166,6 +167,12 @@ struct AbilitySpec {
     std::string cloneType;
     int cloneCount = 0;
     float cloneLifetime = 15;           // seconds
+    // Burst: pulses around the unit after a delay. Each pulse either fires the projectile at an
+    // enemy within the radius (Spray_Projectiles_Ability) or damages every enemy in it
+    // (Dervish_Spin_Attack_Ability: burstDamage plus up to burstRandom more).
+    float burstRadius = 0;
+    int burstPulses = 0, burstInterval = 0, burstDelay = 0; // ticks
+    float burstDamage = 0, burstRandom = 0;
 };
 
 // Effect generators defined on an object type.

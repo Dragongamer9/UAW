@@ -506,6 +506,14 @@ private:
     std::vector<SuperweaponEvent> superweaponEvents_;
     mutable std::unordered_map<const GameObjectType*, std::unique_ptr<SuperweaponSpec>> superweapons_;
     void updateSuperweapons();
+    // Burst abilities in progress (AbilitySpec::Kind::Burst): one entry per pulse still to come.
+    struct BurstPulse {
+        int64_t tick;
+        uint32_t unit;
+        const AbilitySpec* spec;
+    };
+    std::vector<BurstPulse> bursts_;
+    void updateBursts();
     uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
     std::vector<Unit> pendingObjects_;   // created during a tick, added after it
     struct PendingSpawn { std::string type; int owner; Vec3 position; int lifeTicks = -1; };

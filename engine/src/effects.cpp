@@ -330,6 +330,26 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.kind = AbilitySpec::Kind::Leap;
         } else if (iequals(r.kind, "Radiation_Weapon_Ability")) {
             s.kind = AbilitySpec::Kind::Weapon;
+        } else if (iequals(r.kind, "Spray_Projectiles_Ability")) {
+            if (const std::string* v = lookup(kv, "Projectile_Type")) s.projectile = db.find(trim(*v));
+            if (s.projectile) {
+                s.kind = AbilitySpec::Kind::Burst;
+                s.burstPulses = std::max(1, int(num(lookup(kv, "Projectile_Count"), 1)));
+                s.burstInterval = std::max(1, int(num(lookup(kv, "Projectile_Fire_Interval"), 0.2f) * 30));
+                s.burstRadius = num(lookup(kv, "Projectile_Radius"), s.maxRange > 0 ? s.maxRange : 150);
+                s.burstDelay = int(num(lookup(kv, "Damage_Frame_Number"), 0)); // frames of the warm-up
+                if (const std::string* dt = s.projectile->find("Damage_Type")) s.damageType = trim(*dt);
+            }
+        } else if (iequals(r.kind, "Dervish_Spin_Attack_Ability")) {
+            s.kind = AbilitySpec::Kind::Burst;
+            s.burstRadius = num(lookup(kv, "Attack_Radius"), 100);
+            s.burstDelay = int(num(lookup(kv, "Spin_Up_Seconds"), 0) * 30);
+            s.burstInterval = 15; // twice a second, like its arc generator
+            s.burstPulses = std::max(1, int(num(lookup(kv, "Attack_Duration_Seconds"), 3) * 2));
+            s.burstDamage = num(lookup(kv, "AOE_Damage_Per_Second"), 0) / 2;
+            s.burstRandom = num(lookup(kv, "AOE_Additional_Random_Damage"), 0);
+            if (const std::string* v = lookup(kv, "Damage_Type")) s.damageType = trim(*v);
+            if (s.burstDamage + s.burstRandom <= 0) s.kind = AbilitySpec::Kind::Unsupported;
         }
     };
 
@@ -360,7 +380,7 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
                 s.autonomous = false; // a button: ordered
             }
         }
-        if (s.kind != AbilitySpec::Kind::Attack)
+        if (s.kind != AbilitySpec::Kind::Attack && s.kind != AbilitySpec::Kind::Burst)
             s.kind = !s.generator.empty() && (s.abilityType == "EFFECT_GENERATOR" || s.kind == AbilitySpec::Kind::Generator)
                          ? AbilitySpec::Kind::Generator
                          : AbilitySpec::Kind::Unsupported;

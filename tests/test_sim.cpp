@@ -612,6 +612,43 @@ static void testSuperweapon() {
     fs::remove_all(root);
 }
 
+static void testBurst() {
+    const fs::path root = fs::temp_directory_path() / "uaw_native_test_burst";
+    fs::remove_all(root);
+    write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
+    write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
+    write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Units Name="Spinner"><MovementClass>Infantry</MovementClass><Max_Speed>1.0</Max_Speed><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>300</Tactical_Health>
+    <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Spin_Unit"><Type> DERVISH_SPIN_ATTACK </Type>
+      <Recharge_Seconds> 30 </Recharge_Seconds><GUI_Activated_Ability_Name> Spin </GUI_Activated_Ability_Name></Unit_Ability></Unit_Abilities_Data>
+    <Abilities SubObjectList="Yes"><Dervish_Spin_Attack_Ability Name="Spin"><Activation_Style>USER_INPUT</Activation_Style>
+      <Attack_Duration_Seconds> 2.0 </Attack_Duration_Seconds><Attack_Radius> 100.0 </Attack_Radius>
+      <AOE_Damage_Per_Second> 40.0 </AOE_Damage_Per_Second><Spin_Up_Seconds> 1.0 </Spin_Up_Seconds></Dervish_Spin_Attack_Ability></Abilities></X_Units>
+  <X_Units Name="Grunt"><MovementClass>Infantry</MovementClass><Max_Speed>1.0</Max_Speed><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>300</Tactical_Health></X_Units>
+</Units>)");
+    MegVfs vfs;
+    mountGame(vfs, root);
+    GameDatabase db;
+    db.load(vfs);
+    Map m = openMap();
+    World w(m, db, nullptr, 1, nullptr);
+    const int a = w.addPlayer("Novus", 0, 100), b = w.addPlayer("Alien", 0, 100);
+    const uint32_t s = w.spawn("Spinner", a, {500, 500, 0});
+    const uint32_t near = w.spawn("Grunt", b, {550, 500, 0}), far = w.spawn("Grunt", b, {800, 500, 0});
+    w.tick();
+    CHECK(w.unit(s)->abilities.size() == 1);
+    CHECK(w.useAbility(s, 0) == OrderResult::Ok);
+    for (int i = 0; i < 20; ++i) w.tick();
+    CHECK(w.unit(near)->health == 300); // still spinning up
+    for (int i = 0; i < 3 * 30; ++i) w.tick();
+    CHECK(std::fabs(w.unit(near)->health - 220) < 1); // 40 per second for two seconds
+    CHECK(w.unit(far)->health == 300);
+    CHECK(w.useAbility(s, 0) == OrderResult::NotAllowed); // recharging
+    fs::remove_all(root);
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -624,6 +661,7 @@ int main() {
     testAI(db);
     testWalkers();
     testSuperweapon();
+    testBurst();
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
