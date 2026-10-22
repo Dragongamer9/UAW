@@ -684,6 +684,7 @@ int main(int argc, char** argv) {
         PauseMenu pause(vfs, uiScale);
         pause.soundOn = audio && audio->volume > 0;
         pause.musicOn = audio && audio->musicVolume > 0;
+        pause.fullGraphics = renderer.detail();
         bool paused = false;
         if (!lineupMode) hud.setMap(renderer, map, vfs);
         hud.researchOpen = opt.research;
@@ -895,6 +896,10 @@ int main(int argc, char** argv) {
                         case PauseMenu::Result::Music:
                             if (audio) audio->musicVolume = audio->musicVolume > 0 ? 0.f : 0.6f;
                             pause.musicOn = audio && audio->musicVolume > 0;
+                            break;
+                        case PauseMenu::Result::Graphics:
+                            renderer.setDetail(!renderer.detail());
+                            pause.fullGraphics = renderer.detail();
                             break;
                         case PauseMenu::Result::None: break;
                         }

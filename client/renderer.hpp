@@ -107,6 +107,12 @@ public:
     void drawWater();
     // Models drawn after this are cut off above height z (1e9 = no cut): buildings rising as they are built.
     void setClipHeight(float z);
+    // Sun shadows and normal maps on (the default unless UAW_NO_SHADOWS / UAW_NO_BUMPS) or off.
+    bool detail() const { return shadowsOn_ || bumpsOn_; }
+    void setDetail(bool on) {
+        shadowsOn_ = bumpsOn_ = on;
+        if (!on) shadowReady_ = false;
+    }
     // Seconds of game time, for scrolling textures (UVScrollRate) and the water's drift.
     void setTime(float seconds) { time_ = seconds; }
     // The owner's colour for models drawn after this (their *Colorize meshes); white = none.
