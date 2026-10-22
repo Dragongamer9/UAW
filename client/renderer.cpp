@@ -410,7 +410,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 gm->meshes.push_back(gpu);
             }
         }
-        if (gm->meshes.empty()) throw std::runtime_error("no visible meshes");
+        if (gm->meshes.empty() && m.proxies.empty()) throw std::runtime_error("no visible meshes"); // particle-only models (foo fighters) are fine
         for (const alamo::Proxy& px : m.proxies) {
             const alamo::Mat34 bw = px.bone < m.bones.size() ? m.boneWorld(px.bone) : alamo::Mat34{};
             gm->proxies.push_back({px.name, alamo::transformPoint(bw, {0, 0, 0}), px.hidden || (px.bone < m.bones.size() && !m.bones[px.bone].visible)});

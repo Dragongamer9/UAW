@@ -49,6 +49,13 @@ struct WeaponSpec {
     float damage = 0;
     float blastDamage = 0, blastRange = 0;
     float maxFlight = 500;
+    // Attack_Category_Restrictions: categories this weapon won't fire at ("Flying | Resource",
+    // "~Flying" = air only). Points into the type's data (stable), or null.
+    const std::string* restrictions = nullptr;
+    // Foo Core (FooCoreBehaviorType): the damage is done by the core's foo fighters, which fly out
+    // to the target; fooFighters of them, each hitting for `damage` every recharge.
+    int fooFighters = 0;
+    float fooHeal = 0;                          // heal mode: health given per fighter per recharge
 
     float damagePerSecond() const;              // for tooltips/balancing checks
 };

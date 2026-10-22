@@ -144,6 +144,22 @@ static Data testData(const fs::path& root) {
     <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Short</Projectile_Types>
       <Targeting_Max_Attack_Distance>100</Targeting_Max_Attack_Distance></BehaviorType>
     <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Setup"><Type>DEPLOY</Type></Unit_Ability></Unit_Abilities_Data></X_Units>
+  <X_Units Name="AAGun"><MovementClass>Infantry</MovementClass><Tactical_Health>100</Tactical_Health>
+    <Attack_Category_Restrictions> ~Flying </Attack_Category_Restrictions>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Short</Projectile_Types>
+      <Targeting_Max_Attack_Distance>100</Targeting_Max_Attack_Distance></BehaviorType></X_Units>
+  <X_Units Name="Machine"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>1000</Tactical_Health><CategoryMask>Medium</CategoryMask></X_Units>
+  <X_Units Name="FooBall"><MovementClass>Flying</MovementClass><Tactical_Health>75</Tactical_Health>
+    <Attack_Category_Restrictions> Organic </Attack_Category_Restrictions>
+    <BehaviorType Name="FooFighterBehaviorType"><Foo_Fighter_Damage_Type>Damage_Default</Foo_Fighter_Damage_Type>
+      <Foo_Fighter_Damage_Amount>0.5</Foo_Fighter_Damage_Amount><Foo_Fighter_Damage_Interval>0.1</Foo_Fighter_Damage_Interval>
+      <Foo_Fighter_Heal_Friendly_Amount>0.5</Foo_Fighter_Heal_Friendly_Amount><Foo_Fighter_Heal_Friendly_Interval>0.1</Foo_Fighter_Heal_Friendly_Interval>
+    </BehaviorType></X_Units>
+  <X_Units Name="Saucer"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>400</Tactical_Health>
+    <BehaviorType Name="FooCoreBehaviorType"><Foo_Core_Fighter_Type_Name>FooBall</Foo_Core_Fighter_Type_Name>
+      <Foo_Core_Attack_Range>200</Foo_Core_Attack_Range></BehaviorType></X_Units>
   <X_Units Name="Mirror"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
     <Tactical_Health>100</Tactical_Health>
     <BehaviorType Name="ShieldBehaviorType"><Shield_Points>100</Shield_Points><Shield_Refresh_Rate>30</Shield_Refresh_Rate></BehaviorType>
@@ -278,6 +294,37 @@ static void testTeleport(const Data& d) {
     CHECK(w.unit(b)->position[0] < 210); // still charging up
     for (int i = 0; i < 20; ++i) w.tick();
     CHECK(std::fabs(w.unit(b)->position[0] - 500) < 15 && std::fabs(w.unit(b)->position[1] - 300) < 15);
+}
+
+static void testRestrictionsAndFoo(const Data& d) {
+    const Map m = openMap();
+    {
+        World w(m, d.db);
+        w.setEffectLibrary(&d.lib);
+        const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+        w.spawn("AAGun", a, {200, 200, 0});
+        const uint32_t ground = w.spawn("Dummy", b, {260, 200, 0});
+        for (int i = 0; i < 90; ++i) w.tick();
+        CHECK(w.unit(ground)->health == w.unit(ground)->maxHealth); // an anti-air gun leaves ground units alone
+    }
+    {
+        World w(m, d.db);
+        w.setEffectLibrary(&d.lib);
+        const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+        const uint32_t saucer = w.spawn("Saucer", a, {200, 200, 0});
+        CHECK(w.unit(saucer)->weapons.size() == 1 && w.unit(saucer)->weapons[0].spec.fooFighters == 3);
+        const uint32_t man = w.spawn("Dummy", b, {300, 200, 0});    // organic: the fighters won't
+        const uint32_t tank = w.spawn("Machine", b, {300, 260, 0});
+        for (int i = 0; i < 30; ++i) w.tick();
+        CHECK(w.unit(man)->health == w.unit(man)->maxHealth);
+        CHECK(std::fabs(w.unit(tank)->health - (1000 - 15)) < 2.5f); // 3 fighters x 0.5 x 10 a second
+        // Heal mode: they mend a hurt friendly machine instead.
+        w.unit(saucer)->fooHeal = true;
+        const uint32_t mine = w.spawn("Machine", a, {200, 260, 0});
+        w.unit(mine)->health = 500;
+        for (int i = 0; i < 30; ++i) w.tick();
+        CHECK(w.unit(mine)->health > 510);
+    }
 }
 
 static void testDeploy(const Data& d) {
@@ -574,6 +621,7 @@ int main() {
     testTeleport(d);
     testRedirect(d);
     testDeploy(d);
+    testRestrictionsAndFoo(d);
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);

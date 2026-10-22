@@ -135,6 +135,7 @@ struct AbilitySpec {
         Elsewhere,      // done by another system (construction) or campaign-only (retreat, hostile territory)
         Unload,         // EJECT_GARRISONED on a transport: everyone out (garrison.cpp)
         Teleport,       // Teleport_Move_Ability: after a delay the unit appears at the chosen point
+        FooMode,        // FOO_CORE_HEAL: the saucer's fighters switch between attacking and repairing
         Deploy,         // DEPLOY: the weapon only fires once the unit has stood still long enough to set up
     };
     Kind kind = Kind::Unsupported;

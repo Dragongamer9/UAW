@@ -66,6 +66,33 @@ std::optional<WeaponSpec> weaponFrom(const GameObjectType& t, const GameDatabase
     return w;
 }
 
+// Foo Cores (the Alien saucer): FooCoreBehaviorType sends out Foo_Core_Max_Fighters fighters (3
+// docking bones on the model) of Foo_Core_Fighter_Type_Name, each doing Foo_Fighter_Damage_Amount
+// every Foo_Fighter_Damage_Interval to targets within Foo_Core_Attack_Range. The fighters can't be
+// attacked, so they are simulated as one instant-hit weapon on the core.
+std::optional<WeaponSpec> fooFrom(const GameObjectType& t, const GameDatabase& db) {
+    const std::string* name = t.find("Foo_Core_Fighter_Type_Name");
+    if (!name) return std::nullopt;
+    const GameObjectType* f = db.find(trim(*name));
+    if (!f) return std::nullopt;
+    const double amount = f->number("Foo_Fighter_Damage_Amount").value_or(0);
+    if (amount <= 0) return std::nullopt;
+    WeaponSpec w;
+    w.source = &t;
+    w.fooFighters = std::max(1, int(t.number("Foo_Core_Max_Fighters").value_or(3)));
+    w.maxRange = float(t.number("Foo_Core_Attack_Range").value_or(200));
+    w.rechargeTicks = std::max(1, toTicks(f->number("Foo_Fighter_Damage_Interval").value_or(0.1)));
+    w.damage = float(amount) * float(w.fooFighters);
+    // Healing: Foo_Fighter_Heal_Friendly_Amount every Foo_Fighter_Heal_Friendly_Interval, per fighter.
+    const double healEvery = std::max(0.03, f->number("Foo_Fighter_Heal_Friendly_Interval").value_or(0.2));
+    w.fooHeal = float(f->number("Foo_Fighter_Heal_Friendly_Amount").value_or(0) * double(w.rechargeTicks) / 30.0 / healEvery);
+    w.projectileSpeed = 1e6f;
+    w.maxFlight = w.maxRange + 100;
+    if (const std::string* dt = f->find("Foo_Fighter_Damage_Type")) w.damageType = trim(*dt);
+    w.restrictions = f->find("Attack_Category_Restrictions");
+    return w;
+}
+
 // Beam weapons (RadiationManagerBehaviorType, fired by a Radiation_Weapon_Ability): the beam
 // sweeps for Radiation_Sweep_Duration_In_Secs dealing Radiation_Direct_Damage every tick, then
 // rests for Radiation_Cooldown_In_Secs. Simulated as an instant-hit weapon with that cycle;
@@ -137,6 +164,7 @@ std::vector<WeaponSpec> weaponsFor(const GameObjectType& unit, const GameDatabas
     std::vector<WeaponSpec> out;
     if (auto w = weaponFrom(unit, db)) out.push_back(*w);
     else if (auto b = beamFrom(unit)) out.push_back(*b);
+    else if (auto f = fooFrom(unit, db)) out.push_back(*f);
     if (const std::string* hps = unit.find("Attached_Hard_Points")) {
         // "HP_Type, bone" pairs, possibly across lines.
         const auto items = splitList(*hps);
@@ -147,6 +175,13 @@ std::vector<WeaponSpec> weaponsFor(const GameObjectType& unit, const GameDatabas
             else if (auto b = beamFrom(*hp)) out.push_back(*b);
         }
     }
+    // What each weapon won't fire at: its own carrier's restrictions, else the unit's.
+    const std::string* own = unit.find("Attack_Category_Restrictions");
+    for (WeaponSpec& w : out)
+        if (!w.restrictions) {
+            const std::string* r = w.source ? w.source->find("Attack_Category_Restrictions") : nullptr;
+            w.restrictions = r ? r : own;
+        }
     return out;
 }
 

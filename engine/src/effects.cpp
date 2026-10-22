@@ -487,6 +487,15 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability") ||
              up(s.name).find("RETREAT_FROM_TACTICAL") != std::string::npos))
             s.kind = AbilitySpec::Kind::Elsewhere;
+        if (type.find("Foo_Core_Fighter_Type_Name")) {
+            if (s.abilityType == "FOO_CORE_HEAL" || iequals(s.abilityType, "FooCore_Heal_Ability")) {
+                s.kind = AbilitySpec::Kind::FooMode;
+                s.needsTarget = false;
+                s.autonomous = false;
+            } else if (iequals(s.abilityType, "FooCore_Activation_Ability")) {
+                s.kind = AbilitySpec::Kind::Weapon; // the fighters' attack: the core's weapon (combat.cpp)
+            }
+        }
         if (s.abilityType == "DEPLOY") { // passive: sets up when standing, packs up to move
             s.kind = AbilitySpec::Kind::Deploy;
             s.autonomous = true;
@@ -516,6 +525,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         }
         if (s.kind == AbilitySpec::Kind::Unsupported && iequals(s.abilityType, "Hostile_Territory_Ability"))
             s.kind = AbilitySpec::Kind::Elsewhere; // global conquest only
+        if (type.find("Foo_Core_Fighter_Type_Name") && iequals(s.abilityType, "FooCore_Activation_Ability"))
+            s.kind = AbilitySpec::Kind::Weapon; // the fighters' attack: the core's weapon (combat.cpp)
         out.push_back(std::move(s));
     }
     // Masari elemental modes: every unit with two or more Elemental_Object_Types can switch.

@@ -1,6 +1,8 @@
 // Particle system parser (see particles.hpp). Property meanings were worked out by comparing the
 // game's 1,245 particle files: emission rates, lifetimes and size/colour tables line up with
 // what the effects look like in the game (explosion flashes, rising smoke, flying dirt).
+#include <cstdio>
+#include <cstdlib>
 #include "alamo/particles.hpp"
 
 #include <algorithm>
@@ -168,6 +170,15 @@ ParticleSystemDef parseParticleSystem(std::span<const uint8_t> data) {
                         for (const Chunk& list : chunks(part.body))
                             if (list.id == 0 && list.container) p = readProps(list.body);
                 }
+                if (std::getenv("UAW_PARTICLE_DUMP")) {
+                    std::fprintf(stderr, "%s block %u type 0x%x:", e.name.c_str(), block.id, type);
+                    for (const auto& [k, v] : p.values) {
+                        std::fprintf(stderr, " [0x%x]", k);
+                        const auto f = floats(v);
+                        for (size_t q = 0; q < f.size() && q < 12; ++q) std::fprintf(stderr, " %g", f[q]);
+                    }
+                    std::fprintf(stderr, "\n");
+                }
                 switch (block.id) {
                 case 1: { // spawner
                     e.spawnerType = type;
@@ -228,9 +239,22 @@ ParticleSystemDef parseParticleSystem(std::span<const uint8_t> data) {
                         break;
                     }
                     case 0x0f:
+                        e.size.clear(); // a table wins over a constant
                         table(p.v(0x12c), 2, [&](const float* r) { e.size.push_back({r[0], r[1]}); });
                         break;
+                    case 0x07: { // constant size, start to end (when there is no size table)
+                        const auto a = p.v(0xc8), b = p.v(0xc9);
+                        if (e.size.empty() && !a.empty()) e.size = {{0.f, a[0]}, {1.f, b.empty() ? a[0] : b[0]}};
+                        break;
+                    }
+                    case 0x08: { // constant colour, start to end (when there is no colour table)
+                        const auto a = p.v(0xc8), b = p.v(0xc9);
+                        if (e.color.empty() && a.size() == 4)
+                            e.color = {{0.f, Vec4{a[0], a[1], a[2], a[3]}}, {1.f, b.size() == 4 ? Vec4{b[0], b[1], b[2], b[3]} : Vec4{a[0], a[1], a[2], a[3]}}};
+                        break;
+                    }
                     case 0x11:
+                        e.color.clear();
                         table(p.v(0x12c), 5, [&](const float* r) { e.color.push_back({r[0], Vec4{r[1], r[2], r[3], r[4]}}); });
                         break;
                     case 0x12:

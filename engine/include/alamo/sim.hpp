@@ -152,6 +152,8 @@ struct Unit {
     float rangeScale = 1, rangeAdd = 0;
     float abilityRate = 1;             // ability recharge speed multiplier
     std::vector<std::pair<std::string, float>> armorMods; // ModifyArmor: damage type -> added modifier
+    bool fooHeal = false;
+    uint32_t fooTarget = 0;            // who the fighters are mending (heal mode; for drawing)              // Foo Core: fighters heal friends instead of attacking
     int deployNeed = 0, deployed = 0;  // DEPLOY units: ticks of standing still before the weapon fires
     bool immobile = false, disarmed = false, silenced = false; // DisableBehavior / DisableAbility
     bool damagedThisTick = false, firedThisTick = false;
@@ -541,6 +543,18 @@ private:
     void separate();
     void updateTargeting(Unit& u);
     void fireWeapons(Unit& u);
+    bool fooHealing(Unit& u, Unit::WeaponState& w); // Foo Core in heal mode: fighters mend a friend
+public:
+    // Whether weapon w may fire at t (Attack_Category_Restrictions: no anti-air guns at ground units...).
+    bool canHit(const Unit::WeaponState& w, const Unit& t) const {
+        return !w.spec.restrictions || !categoriesAny(*t.type, *w.spec.restrictions);
+    }
+    bool canHitAny(const Unit& u, const Unit& t) const {
+        for (const Unit::WeaponState& w : u.weapons)
+            if (canHit(w, t)) return true;
+        return false;
+    }
+private:
     void updateProjectiles();
     void applyDamage(Unit& victim, float amount, const std::string& damageType);
     void removeDead();

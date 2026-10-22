@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 locks.abilities.insert(l.abilities.begin(), l.abilities.end());
                 locks.effects.insert(l.effects.begin(), l.effects.end());
             }
-            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones", "burst", "elsewhere", "unload", "teleport", "deploy"};
+            static const char* kKind[] = {"generator", "attack", "unsupported", "switch", "leap", "self-destruct", "beam weapon", "spawn clones", "burst", "elsewhere", "unload", "teleport", "foo mode", "deploy"};
             if (argc > 3 && std::string_view(argv[3]).substr(0, 5) == "type:") { // who has abilities of a type
                 const std::string want = std::string(argv[3]).substr(5);
                 for (const GameObjectType& o : db.objects())

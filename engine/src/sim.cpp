@@ -728,7 +728,7 @@ void World::updateTargeting(Unit& u) {
 
     if (u.attackOrder) {
         const Unit* t = unit(u.attackOrder);
-        if (!t) {
+        if (!t || !canHitAny(u, *t)) {
             u.attackOrder = 0;
             u.path.clear();
         } else {
@@ -750,13 +750,14 @@ void World::updateTargeting(Unit& u) {
 
     // Keep shooting the current target while it stays (roughly) in range.
     const Unit* current = unit(u.target);
-    if (!current || edgeDistance(*current) > range + 20 || (current->cloaked && enemies(u.owner, current->owner))) {
+    if (!current || edgeDistance(*current) > range + 20 || (current->cloaked && enemies(u.owner, current->owner)) ||
+        !canHitAny(u, *current)) {
         u.target = 0;
         float best = 1e30f;
         for (const Unit& o : units_) {
             if (!o.alive() || !enemies(u.owner, o.owner) || o.cloaked || o.inside) continue;
             const float d = edgeDistance(o);
-            if (d <= range && d < best) {
+            if (d <= range && d < best && canHitAny(u, o)) {
                 if (fog_ && !visibleTo(u.owner, o.position)) {
                     // Big targets: seen when the side facing the attacker is.
                     const float dx = u.position[0] - o.position[0], dy = u.position[1] - o.position[1];
@@ -897,8 +898,12 @@ void World::fireWeapons(Unit& u) {
     for (Unit::WeaponState& w : u.weapons) {
         if (w.cooldown > 0) --w.cooldown;
         if (u.disarmed || packed) { w.pulsesLeft = 0; continue; }
+        if (u.fooHeal && w.spec.fooFighters > 0) {
+            if (w.cooldown == 0 && fooHealing(u, w)) w.cooldown = w.spec.rechargeTicks;
+            continue;
+        }
         const float d = t ? dist2d(u.position, t->position) - t->radius : 1e30f;
-        const bool inRange = t && d <= u.weaponRange(w) && d + t->radius >= w.spec.minRange;
+        const bool inRange = t && d <= u.weaponRange(w) && d + t->radius >= w.spec.minRange && canHit(w, *t);
         if (w.pulsesLeft == 0) {
             if (w.cooldown > 0 || !inRange) continue;
             w.pulsesLeft = w.spec.pulseCount; // start a burst
@@ -948,6 +953,26 @@ void World::fireWeapons(Unit& u) {
         w.pulseTimer = w.spec.pulseDelayTicks;
         if (w.pulsesLeft == 0) w.cooldown = int(std::lround(float(w.spec.rechargeTicks) / u.fireRate));
     }
+}
+
+bool World::fooHealing(Unit& u, Unit::WeaponState& w) {
+    // The most hurt friend in range that the fighters may work on (not the categories they
+    // won't touch, e.g. Organic: they repair machines).
+    Unit* best = nullptr;
+    float worst = 0.999f;
+    const float range = u.weaponRange(w);
+    for (Unit& o : units_) {
+        if (!o.alive() || o.id == u.id || o.inside || o.underConstruction || enemies(u.owner, o.owner) || o.owner != u.owner) continue;
+        const float f = o.health / std::max(1.f, o.maxHealth);
+        if (f >= worst || dist2d(u.position, o.position) - o.radius > range) continue;
+        if (!canHit(w, o)) continue;
+        worst = f;
+        best = &o;
+    }
+    if (!best) return false;
+    best->health = std::min(best->maxHealth, best->health + w.spec.fooHeal * float(w.spec.fooFighters));
+    u.fooTarget = best->id;
+    return true;
 }
 
 void World::applyDamage(Unit& victim, float amount, const std::string& damageType) {

@@ -776,6 +776,7 @@ void SkirmishAI::manageAbilities() {
         for (size_t i = 0; i < u.abilities.size(); ++i) {
             const AbilitySpec& s = ta.abilities[u.abilities[i].index];
             if (s.autonomous || u.abilities[i].cooldown > 0 || s.kind == AbilitySpec::Kind::Unsupported || u.leaping) continue;
+            if (s.kind == AbilitySpec::Kind::FooMode) continue; // saucers keep attacking
             if (s.aiHealthBelow > 0 && u.health >= s.aiHealthBelow * u.maxHealth) continue;
             if (s.kind == AbilitySpec::Kind::Switch) {
                 // Masari: dark (ice) mode's armor when hurt, light (fire) mode's damage otherwise.

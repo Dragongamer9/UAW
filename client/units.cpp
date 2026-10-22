@@ -478,6 +478,50 @@ bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
     return u.structure && seenStructures_.count(u.id);
 }
 
+// A Foo Core's fighters: swarming the target (or the friend they mend), else hovering by the core.
+void UnitControl::drawFooFighters(Renderer& r, alamo::World& w, const alamo::Unit& u, float time) const {
+    const alamo::Unit::WeaponState* foo = nullptr;
+    for (const alamo::Unit::WeaponState& ws : u.weapons)
+        if (ws.spec.fooFighters > 0) foo = &ws;
+    if (!foo || u.underConstruction) return;
+    const alamo::GameObjectType* ft = nullptr;
+    if (const std::string* n = u.type->find("Foo_Core_Fighter_Type_Name")) ft = w.db().find(alamo::trim(*n));
+    const GpuModel* m = nullptr;
+    if (ft)
+        if (const std::string* mn = ft->find("Land_Model_Name"); mn && !alamo::trim(*mn).empty()) m = r.model(alamo::trim(*mn));
+    const float scale = ft ? float(ft->number("Scale_Factor").value_or(1.0)) : 1.f;
+    // Where they are: at work on someone in range, or home.
+    const alamo::Unit* at = nullptr;
+    if (u.fooHeal) at = w.unit(u.fooTarget);
+    else if (const alamo::Unit* t = w.unit(u.target); t && foo->cooldown > 0) at = t;
+    if (at && std::hypot(at->position[0] - u.position[0], at->position[1] - u.position[1]) > u.weaponRange(*foo) + at->radius + 30) at = nullptr;
+    const alamo::Vec3 c = at ? at->position : u.position;
+    const float orbit = at ? std::max(at->radius * 0.9f, 8.f) : std::max(u.radius * 0.7f, 6.f);
+    const float lift = at ? std::max(at->radius * 0.8f, 8.f) : u.radius * 0.5f + 4;
+    for (int k = 0; k < foo->spec.fooFighters; ++k) {
+        const float a = time * (at ? 4.f : 1.2f) + 6.2831853f * float(k) / float(foo->spec.fooFighters) + float(u.id);
+        const float z = c[2] + lift + std::sin(time * 3.f + float(k)) * (at ? 3.f : 1.f);
+        const Mat4 xf = Mat4::translate(c[0] + std::cos(a) * orbit, c[1] + std::sin(a) * orbit, z);
+        // The fighter is all particles: the model's Idle / Attack / Heal proxy.
+        const char* want = !at ? "IDLE" : u.fooHeal ? "HEAL" : "ATTACK";
+        const std::string* proxy = nullptr;
+        if (m)
+            for (const GpuModel::Proxy& px : m->proxies) {
+                std::string up = px.name;
+                for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                if (up.find(want) != std::string::npos) { proxy = &px.name; break; }
+            }
+        if (effects && proxy) {
+            // "pp_..._m" is a stub; the effect itself is the name without "_m".
+            std::string fx = *proxy;
+            if (fx.size() > 2 && (fx.compare(fx.size() - 2, 2, "_m") == 0 || fx.compare(fx.size() - 2, 2, "_M") == 0)) fx.resize(fx.size() - 2);
+            effects->follow((uint64_t(u.id) << 8 | uint64_t(0xF0 + k)) | (1ull << 63), fx, {xf.at(0, 3), xf.at(1, 3), xf.at(2, 3)}, scale);
+        }
+        else
+            r.drawBox(xf * Mat4::scale(2.5f), u.fooHeal ? Vec4{0.4f, 1, 0.5f, 1} : Vec4{1, 0.5f, 0.9f, 1});
+    }
+}
+
 void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     // Scrap piles: the model when available, else a gold heap that shrinks as it is mined.
     for (const alamo::ResourceNode& n : w.resources()) {
@@ -535,6 +579,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
             if (u.underConstruction) r.setClipHeight(1e9f);
             if (!u.hardpoints.empty()) drawHardpoints(r, u, *u.type, *model, xf, pose, 0);
+            drawFooFighters(r, w, u, time);
             // Attached effects (engine glows, flames, lightning cores) near the camera.
             if (effects && !model->proxies.empty() && !u.underConstruction) {
                 const alamo::Vec3& cp = r.cameraPosition();

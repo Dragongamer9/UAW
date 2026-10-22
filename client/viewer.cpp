@@ -447,13 +447,16 @@ int main(int argc, char** argv) {
                 const GameObjectType* t = db.find(name);
                 if (!t) { std::printf("spawn: no type %s\n", name.c_str()); continue; }
                 bool placed = false;
+                Vec3 where{};
                 for (int tries = 0; tries < 64 && !placed; ++tries, ++k) {
                     const float ring = 260 + 110 * float(k / 8), a = toCentre + (float(k % 8) - 3.5f) * 0.42f;
                     const Vec3 p{base[0] + std::cos(a) * ring, base[1] + std::sin(a) * ring, 0};
                     if (!world.siteClear(*t, p)) continue;
                     placed = world.spawn(t->name, me, p, toCentre) != 0;
+                    where = p;
                 }
-                std::printf("spawn: %s %s\n", name.c_str(), placed ? "placed" : "no room");
+                if (placed) std::printf("spawn: %s placed at %.0f,%.0f\n", name.c_str(), where[0], where[1]);
+                else std::printf("spawn: %s no room\n", name.c_str());
             }
         }
         // Computer opponents (and your side with --spectate) for a skirmish start.

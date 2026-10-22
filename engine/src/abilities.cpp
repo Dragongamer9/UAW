@@ -816,6 +816,11 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
         unload(u.id);
         return;
     }
+    if (s.kind == AbilitySpec::Kind::FooMode) {
+        u.fooHeal = !u.fooHeal;
+        u.fooTarget = 0;
+        return;
+    }
     if (s.kind == AbilitySpec::Kind::Teleport) {
         u.path.clear();
         u.speed = 0;
@@ -935,7 +940,7 @@ void World::autonomousAbilities(Unit& u) {
         if (a.cooldown > 0 || u.silenced || u.underConstruction || u.inside || !ta.abilities[a.index].autonomous) continue;
         if (abilityLocked(u, ta.abilities[a.index])) continue;
         const AbilitySpec& spec = ta.abilities[a.index];
-        if (spec.kind == AbilitySpec::Kind::Deploy || spec.kind == AbilitySpec::Kind::Elsewhere) continue; // not used, just there
+        if (spec.kind == AbilitySpec::Kind::Deploy || spec.kind == AbilitySpec::Kind::Elsewhere || spec.kind == AbilitySpec::Kind::Weapon) continue; // not used, just there
         if (spec.kind == AbilitySpec::Kind::Generator) { // still channelling the last one
             bool running = false;
             for (const auto& g : u.generators)
