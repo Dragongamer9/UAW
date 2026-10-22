@@ -9,6 +9,8 @@
 //   objdump <game-root> scripts [all]      the game's Lua scripts: how many load, and the engine API
 //                                           they call (globals and methods no script defines)
 //   objdump <game-root> scripts run NAME... run scripts (and what they require) with no engine API
+//   objdump <game-root> scripts trace NAME  run a behaviour script against stand-ins and list every
+//                                           engine function and method it reaches, in order
 //   objdump <game-root> warnings
 // <game-root> is the folder containing Data/MegaFiles.xml.
 #include "common.hpp"
@@ -49,7 +51,7 @@ static std::string num(std::optional<double> v) {
 
 // Engine API inventory of the game's scripts: every global a script reads that no script assigns
 // (and the VM doesn't provide), and every name called as a method (obj:Name() or obj.Name()).
-static int scriptApi(MegVfs& vfs, bool all) {
+static int scriptApi(MegVfs& vfs, bool all, std::set<std::string>* engineOut = nullptr) {
     std::map<std::string, std::set<std::string>> globals, methods; // name -> scripts using it
     std::set<std::string> defined;
     size_t compiled = 0, source = 0, failed = 0;
@@ -64,7 +66,7 @@ static int scriptApi(MegVfs& vfs, bool all) {
         else main = compileLua(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &err), ++source;
         if (!main) {
             ++failed;
-            std::printf("  failed: %s (%s)\n", path.c_str(), err.c_str());
+            if (!engineOut) std::printf("  failed: %s (%s)\n", path.c_str(), err.c_str());
             continue;
         }
         const std::string script = up.substr(13);
@@ -117,6 +119,11 @@ static int scriptApi(MegVfs& vfs, bool all) {
             }
     }
     for (const std::string& n : provided) defined.insert(n);
+    if (engineOut) { // just the engine's globals, for the tracer
+        for (const auto& [n, users] : globals)
+            if (!defined.count(n)) engineOut->insert(n);
+        return 0;
+    }
     // Functions scripts define and call on their own tables (Behavior_Init, ...) are theirs, not the engine's.
     auto print = [&](const char* what, const std::map<std::string, std::set<std::string>>& m) {
         std::vector<std::pair<size_t, std::string>> v;
@@ -135,6 +142,66 @@ static int scriptApi(MegVfs& vfs, bool all) {
     return failed ? 1 : 0;
 }
 
+// A behaviour script against stand-ins: every engine global and every method on what they return
+// is recorded and answers with another stand-in, so the script runs as far as it can.
+static int scriptTrace(MegVfs& vfs, const std::string& name) {
+    ScriptLibrary lib(vfs);
+    LuaVM vm;
+    vm.stepBudget = 2'000'000;
+    lib.install(vm);
+    std::vector<std::string> order;
+    std::map<std::string, int> seen;
+    auto note = [&](const std::string& what) {
+        if (!seen[what]++) order.push_back(what);
+    };
+    // A stand-in: indexing it gives a function that notes "label.key" and returns a stand-in.
+    std::function<LuaValue(const std::string&)> probe = [&](const std::string& label) {
+        LuaValue t = LuaValue::newTable();
+        t.t->meta = std::make_shared<LuaTable>();
+        t.t->meta->set(LuaValue::string("__index"), LuaValue::function([&, label](const std::vector<LuaValue>& a) {
+            const std::string key = a.size() > 1 ? a[1].str() : "?";
+            return std::vector<LuaValue>{LuaValue::function([&, label, key](const std::vector<LuaValue>&) {
+                note(label + "." + key + "()");
+                return std::vector<LuaValue>{probe(key + "()")};
+            })};
+        }));
+        t.t->meta->set(LuaValue::string("__call"), LuaValue::function([&, label](const std::vector<LuaValue>&) {
+            note(label + "()");
+            return std::vector<LuaValue>{probe(label + "()")};
+        }));
+        return t;
+    };
+    std::set<std::string> engine; // globals no script defines: the engine's
+    scriptApi(vfs, false, &engine);
+    vm.onMissingGlobal = [&](const std::string& g) {
+        if (!engine.count(g)) return LuaValue(); // a script's own global, not set yet
+        note(g);
+        return probe(g);
+    };
+    vm.setGlobal("Object", probe("Object"));
+    { // the engine names the object's behaviours (Lua_Land_Behaviors) for Init_Behaviors
+        LuaValue list = LuaValue::newTable();
+        list.t->set(LuaValue::number(1), LuaValue::string(name));
+        vm.setGlobal("BehaviorList", list);
+    }
+    std::string err;
+    if (!lib.load(vm, name, &err)) std::printf("load: %s\n", err.empty() ? "failed" : err.c_str());
+    std::string fns;
+    for (const auto& [k, v] : vm.globals().fields)
+        if (v.type == LuaValue::Type::Function) fns += " " + k.str();
+    std::printf("script functions:%s\n", fns.c_str());
+    for (const char* fn : {"Base_Definitions", "Init_Behaviors", "main", "First_Service", "Does_Object_Need_Behavior_Service", "Service", "Service"}) {
+        const LuaValue f = vm.globals().get(LuaValue::string(fn));
+        if (f.isNil()) continue;
+        note(std::string("--- engine calls ") + fn + "()");
+        vm.call(f, {});
+        if (vm.failed()) note(std::string("--- ") + fn + ": " + vm.lastError());
+    }
+    std::printf("%s: %zu things reached\n", name.c_str(), order.size());
+    for (const std::string& o : order) std::printf("  %4d  %s\n", seen[o], o.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
@@ -142,6 +209,7 @@ int main(int argc, char** argv) {
     try {
         MegVfs vfs;
         auto missing = tools::mountWithMods(vfs, argv[1], modArg);
+        if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "trace") return scriptTrace(vfs, argv[4]);
         if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "run") {
             ScriptLibrary lib(vfs);
             int bad = 0;

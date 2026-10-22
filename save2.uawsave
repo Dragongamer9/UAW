@@ -1,0 +1,20 @@
+UAWSAVE 1
+map M25_GRAND_CANYON
+fog 1
+options 1 1 1
+slot human Novus -1
+slot computer Alien -1
+slot human Masari -1
+slot open Military -1
+slot open Novus -1
+slot open Alien -1
+slot open Masari -1
+slot open Military -1
+mod Community_Patch_4_Stable
+mod Human_Resurgence_v1.02
+mod Universe_at_Remix_v2.8
+player 1 0
+camera 1398.43335 4898.44824 900 136.585556 52
+tick 1350
+cmd 6 move 0 -1 0 3000 3000 53.4179688 - 2 5 6
+end

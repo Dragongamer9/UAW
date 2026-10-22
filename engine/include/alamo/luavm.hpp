@@ -102,6 +102,9 @@ public:
     LuaTable& globals() { return *globals_; }
 
     uint64_t stepBudget = 20'000'000;    // instructions per run/call before giving up
+    // Called with the name when a script reads a global that is nil; what it returns is read instead
+    // (tracing what a script expects).
+    std::function<LuaValue(const std::string&)> onMissingGlobal;
     bool failed() const { return failed_; }
     const std::string& lastError() const { return error_; }
 

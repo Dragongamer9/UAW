@@ -78,6 +78,6 @@ before the Remix Material Center's units (Hailfire, Armored Assault Tank, Provid
 
 - A Lua scripting host: the engine API the game's own scripts call (unit behaviours, the skirmish AI
   scripts, story missions, the GUI scripts). `objdump <game> scripts` lists it: 623 globals and 1,743
-  method names. The VM side is done (metatables, coroutines, a source compiler, the standard library
-  but `require`).
+  method names. The VM side is done (metatables, coroutines, a source compiler, the standard library,
+  `require`); the behaviour call order is worked out in [SCRIPTING.md](SCRIPTING.md).
 - The campaign (story maps, Global Conquest).

@@ -588,7 +588,10 @@ std::vector<LuaValue> LuaVM::execute(const std::shared_ptr<LuaClosure>& cl, std:
         case 2: reg(A) = LuaValue::boolean(B != 0); if (C) ++pc; break;             // LOADBOOL
         case 3: for (uint32_t k = A; k <= B; ++k) reg(k) = LuaValue(); break;       // LOADNIL
         case 4: reg(A) = B < cl->upvalues.size() ? *cl->upvalues[B] : LuaValue(); break; // GETUPVAL
-        case 5: reg(A) = Bx < K.size() ? globals_->get(K[Bx]) : LuaValue(); break;  // GETGLOBAL
+        case 5:                                                                      // GETGLOBAL
+            reg(A) = Bx < K.size() ? globals_->get(K[Bx]) : LuaValue();
+            if (onMissingGlobal && reg(A).isNil() && Bx < K.size()) reg(A) = onMissingGlobal(K[Bx].str());
+            break;
         case 6: { LuaValue t = reg(B); reg(A) = index(t, RK(C)); break; }           // GETTABLE
         case 7: if (Bx < K.size()) globals_->set(K[Bx], reg(A)); break;             // SETGLOBAL
         case 8: if (B < cl->upvalues.size()) *cl->upvalues[B] = reg(A); break;      // SETUPVAL
