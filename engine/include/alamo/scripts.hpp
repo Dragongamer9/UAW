@@ -20,12 +20,17 @@ public:
     // missing or fails (the message in `error`).
     bool load(LuaVM& vm, const std::string& name, std::string* error = nullptr);
     size_t size() const { return paths_.size(); }
+    // Globals some script reads that no script assigns and the VM doesn't define: the engine's
+    // (worked out once, from every script's instructions).
+    const std::set<std::string>& engineGlobals();
     const std::map<std::string, std::string>& scripts() const { return paths_; } // NAME -> path
 
 private:
     MegVfs& vfs_;
     std::map<std::string, std::string> paths_; // upper-case base name -> VFS path
     std::map<const LuaVM*, std::set<std::string>> loaded_;
+    std::set<std::string> engine_;
+    bool engineDone_ = false;
 };
 
 } // namespace alamo

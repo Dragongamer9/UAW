@@ -54,4 +54,32 @@ bool ScriptLibrary::load(LuaVM& vm, const std::string& name, std::string* error)
     return ok;
 }
 
+const std::set<std::string>& ScriptLibrary::engineGlobals() {
+    if (engineDone_) return engine_;
+    engineDone_ = true;
+    std::set<std::string> read, assigned;
+    for (const auto& [name, path] : paths_) {
+        const std::vector<uint8_t> bytes = vfs_.read(path);
+        const auto main = !bytes.empty() && bytes[0] == 0x1b
+                              ? loadLuaChunk(bytes)
+                              : compileLua(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+        if (!main) continue;
+        std::vector<const LuaProto*> todo{main.get()};
+        while (!todo.empty()) {
+            const LuaProto& p = *todo.back();
+            todo.pop_back();
+            for (const auto& c : p.protos) todo.push_back(c.get());
+            for (const uint32_t i : p.code) {
+                const uint32_t op = i & 0x3F, bx = i >> 14;
+                if ((op == 5 || op == 7) && bx < p.constants.size() && p.constants[bx].isString())
+                    (op == 5 ? read : assigned).insert(p.constants[bx].s);
+            }
+        }
+    }
+    LuaVM vm;
+    for (const std::string& n : read)
+        if (!assigned.count(n) && vm.global(n).isNil()) engine_.insert(n);
+    return engine_;
+}
+
 } // namespace alamo

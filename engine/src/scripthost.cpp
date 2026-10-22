@@ -519,8 +519,8 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         say("created " + typeName);
         return Values{I.object(id)};
     });
-    vm.onMissingGlobal = [say](const std::string& g) {
-        say("unknown engine global " + g);
+    vm.onMissingGlobal = [say, this](const std::string& g) {
+        if (log && library_.engineGlobals().count(g)) say("unknown engine global " + g); // not a script's own, unset yet
         return LuaValue();
     };
 
