@@ -727,6 +727,36 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
     }
 }
 
+int World::targetPriority(const Unit& u, const Unit& t) const {
+    if (!priorities_) return 1000;
+    auto sit = prioritySetOf_.find(u.type);
+    if (sit == prioritySetOf_.end()) {
+        const std::string* name = u.type->find("Targeting_Priority_Set");
+        sit = prioritySetOf_.emplace(u.type, name ? priorities_->find(*name) : nullptr).first;
+    }
+    const TargetPrioritySet* set = sit->second;
+    if (!set) return 1000;
+    const auto key = std::make_pair(static_cast<const void*>(set), static_cast<const void*>(t.type));
+    if (auto it = priorityCache_.find(key); it != priorityCache_.end()) return it->second;
+    int p = 1000;
+    std::string name = t.type->name;
+    for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
+    if ((!set->categoryRestrictions.empty() && categoriesAny(*t.type, set->categoryRestrictions)) ||
+        std::find(set->typeExclusions.begin(), set->typeExclusions.end(), name) != set->typeExclusions.end()) {
+        p = -1;
+    } else {
+        bool byType = false;
+        for (const auto& [what, pri] : set->priorities) // the type itself is the most specific
+            if (what == name) { p = pri; byType = true; }
+        if (!byType) {
+            for (const auto& [what, pri] : set->priorities)
+                if (pri < p && categoriesAny(*t.type, what)) p = pri;
+            if (p == 1000 && !set->categoryExclusions.empty() && categoriesAny(*t.type, set->categoryExclusions)) p = -1;
+        }
+    }
+    return priorityCache_[key] = p;
+}
+
 void World::updateTargeting(Unit& u) {
     if (u.weapons.empty()) return;
     if (u.inside) { u.target = 0; return; } // riders don't fight
@@ -755,23 +785,31 @@ void World::updateTargeting(Unit& u) {
         }
     }
 
-    // Keep shooting the current target while it stays (roughly) in range.
+    // Keep shooting the current target while it stays (roughly) in range; every half second look for
+    // a better one (Targeting_Priority_Set: preferred kinds first, then the current target, then one
+    // nearly dead, then the nearest).
     const Unit* current = unit(u.target);
-    if (!current || edgeDistance(*current) > range + 20 || (current->cloaked && enemies(u.owner, current->owner)) ||
-        !canHitAny(u, *current)) {
+    const bool lost = !current || edgeDistance(*current) > range + 20 || (current->cloaked && enemies(u.owner, current->owner)) ||
+                      !canHitAny(u, *current);
+    if (lost || (ticks_ + u.id) % 15 == 0) {
+        const uint32_t was = lost ? 0 : u.target;
         u.target = 0;
-        float best = 1e30f;
+        double best = 1e300;
         for (const Unit& o : units_) {
             if (!o.alive() || !enemies(u.owner, o.owner) || o.cloaked || o.inside) continue;
             const float d = edgeDistance(o);
-            if (d <= range && d < best && canHitAny(u, o)) {
+            if (d > range || !canHitAny(u, o)) continue;
+            const int pri = targetPriority(u, o);
+            if (pri < 0) continue; // never picked on its own
+            const double score = double(pri) * 1e5 + (o.id == was ? 0 : 5e4) + (o.health < 0.2f * o.maxHealth ? 0 : 2e4) + double(d);
+            if (score < best) {
                 if (fog_ && !visibleTo(u.owner, o.position)) {
                     // Big targets: seen when the side facing the attacker is.
                     const float dx = u.position[0] - o.position[0], dy = u.position[1] - o.position[1];
                     const float len = std::max(std::hypot(dx, dy), 1e-3f), k = std::min(o.radius, len) / len;
                     if (!visibleTo(u.owner, {o.position[0] + dx * k, o.position[1] + dy * k, 0})) continue;
                 }
-                best = d;
+                best = score;
                 u.target = o.id;
             }
         }

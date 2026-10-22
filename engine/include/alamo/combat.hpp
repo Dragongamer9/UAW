@@ -34,6 +34,26 @@ private:
 // Reads Data/XML/DamageToArmor.xml; an empty table if the file is missing.
 DamageTable loadDamageTable(MegVfs& vfs);
 
+// Targeting priority sets (GroundUnitTargetingPriorities.xml), named by a unit's
+// Targeting_Priority_Set: which enemies it picks on its own. Lower priority numbers first; enemies
+// not listed come after the listed ones; exclusions are never picked on its own (but may still be
+// attacked when ordered); restrictions are never attacked at all.
+struct TargetPrioritySet {
+    std::vector<std::pair<std::string, int>> priorities; // category or type name (upper case)
+    std::string categoryExclusions, categoryRestrictions; // category lists as written
+    std::vector<std::string> typeExclusions;              // upper case
+};
+class TargetPriorities {
+public:
+    void set(const std::string& name, TargetPrioritySet s);
+    const TargetPrioritySet* find(const std::string& name) const;
+    size_t size() const { return sets_.size(); }
+
+private:
+    std::unordered_map<std::string, TargetPrioritySet> sets_; // by upper-case name
+};
+TargetPriorities loadTargetPriorities(MegVfs& vfs);
+
 struct WeaponSpec {
     const GameObjectType* source = nullptr;     // unit or hardpoint carrying the weapon
     const GameObjectType* projectile = nullptr;

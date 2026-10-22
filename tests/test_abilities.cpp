@@ -177,6 +177,10 @@ static Data testData(const fs::path& root) {
     <Tactical_Health>400</Tactical_Health>
     <BehaviorType Name="FooCoreBehaviorType"><Foo_Core_Fighter_Type_Name>FooBall</Foo_Core_Fighter_Type_Name>
       <Foo_Core_Attack_Range>200</Foo_Core_Attack_Range></BehaviorType></X_Units>
+  <X_Units Name="Picky"><MovementClass>Infantry</MovementClass><Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Short</Projectile_Types>
+      <Targeting_Priority_Set>Prefer_Machines</Targeting_Priority_Set>
+      <Targeting_Max_Attack_Distance>100</Targeting_Max_Attack_Distance></BehaviorType></X_Units>
   <X_Units Name="Mirror"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
     <Tactical_Health>100</Tactical_Health>
     <BehaviorType Name="ShieldBehaviorType"><Shield_Points>100</Shield_Points><Shield_Refresh_Rate>30</Shield_Refresh_Rate></BehaviorType>
@@ -342,6 +346,30 @@ static void testRestrictionsAndFoo(const Data& d) {
         for (int i = 0; i < 30; ++i) w.tick();
         CHECK(w.unit(mine)->health > 510);
     }
+}
+
+static void testPriorities(const Data& d) {
+    const Map m = openMap();
+    TargetPriorities pri;
+    TargetPrioritySet set;
+    set.priorities = {{"MEDIUM", 1}, {"SMALL", 3}};
+    set.typeExclusions = {"AAGUN"};
+    pri.set("Prefer_Machines", set);
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    w.setTargetPriorities(&pri);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t picky = w.spawn("Picky", a, {200, 200, 0});
+    const uint32_t man = w.spawn("Dummy", b, {240, 200, 0});     // nearer, but Small
+    const uint32_t tank = w.spawn("Machine", b, {200, 255, 0});  // Medium: preferred
+    w.tick();
+    CHECK(w.targetPriority(*w.unit(picky), *w.unit(tank)) == 1 && w.targetPriority(*w.unit(picky), *w.unit(man)) == 3);
+    CHECK(w.unit(picky)->target == tank);
+    const uint32_t gun = w.spawn("AAGun", b, {200, 190, 0});      // excluded: not picked on its own
+    w.unit(tank)->health = 0;
+    for (int i = 0; i < 20; ++i) w.tick();
+    CHECK(w.unit(picky)->target == man);
+    CHECK(w.targetPriority(*w.unit(picky), *w.unit(gun)) == -1);
 }
 
 static void testDeploy(const Data& d) {
@@ -674,6 +702,7 @@ int main() {
     testTeleport(d);
     testRedirect(d);
     testDeploy(d);
+    testPriorities(d);
     testSubstitute(d);
     testPlacement(d);
     testRestrictionsAndFoo(d);

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <sstream>
 
 namespace alamo {
@@ -152,6 +153,45 @@ DamageTable loadDamageTable(MegVfs& vfs) {
         }
     }
     return table;
+}
+
+void TargetPriorities::set(const std::string& name, TargetPrioritySet s) { sets_[upper(name)] = std::move(s); }
+
+const TargetPrioritySet* TargetPriorities::find(const std::string& name) const {
+    auto it = sets_.find(upper(trim(name)));
+    return it == sets_.end() ? nullptr : &it->second;
+}
+
+TargetPriorities loadTargetPriorities(MegVfs& vfs) {
+    TargetPriorities out;
+    for (const char* path : {"Data\\XML\\GroundUnitTargetingPriorities.xml"}) {
+        std::vector<MegVfs::Version> layers;
+        try { layers = vfs.readAllLayers(path); } catch (const std::exception&) { continue; }
+        for (const auto& v : layers) { // bottom to top: a mod's set replaces the one below
+            XmlDocument doc;
+            try { doc = parseXml(std::string(v.data.begin(), v.data.end())); } catch (const std::exception&) { continue; }
+            std::vector<const XmlNode*> found;
+            for (const auto& top : doc.root.children) {
+                if (iequals(top->tag, "Priority_Set")) found.push_back(top.get());
+                for (const XmlNode* c : top->childrenNamed("Priority_Set")) found.push_back(c);
+            }
+            for (const XmlNode* c : found) {
+                const std::string* name = c->attr("Name");
+                if (!name) continue;
+                TargetPrioritySet s;
+                if (const XmlNode* p = c->child("Attack_Priorities")) {
+                    const auto items = splitList(p->text);
+                    for (size_t i = 0; i + 1 < items.size(); i += 2) s.priorities.push_back({upper(items[i]), std::atoi(items[i + 1].c_str())});
+                }
+                if (const XmlNode* e = c->child("Category_Exclusions")) s.categoryExclusions = trim(e->text);
+                if (const XmlNode* e = c->child("Category_Restrictions")) s.categoryRestrictions = trim(e->text);
+                if (const XmlNode* e = c->child("Type_Exclusions"))
+                    for (const std::string& t : splitList(e->text)) s.typeExclusions.push_back(upper(t));
+                out.set(*name, std::move(s));
+            }
+        }
+    }
+    return out;
 }
 
 float WeaponSpec::damagePerSecond() const {

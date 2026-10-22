@@ -494,6 +494,10 @@ public:
 
     // Effects and abilities. Without a library, abilities and generators do nothing.
     void setEffectLibrary(const EffectLibrary* lib) { effectLib_ = lib; }
+    void setTargetPriorities(const TargetPriorities* p) { priorities_ = p; }
+    // How much u wants to pick t on its own (Targeting_Priority_Set): lower first; 1000 for an
+    // enemy its set doesn't list; -1 when its set excludes t (only attacked when ordered).
+    int targetPriority(const Unit& u, const Unit& t) const;
     const EffectLibrary* effectLibrary() const { return effectLib_; }
     // Research trees (loadResearchTrees). Each player starts with its faction's locks; without
     // trees nothing is locked and research is unavailable.
@@ -622,6 +626,9 @@ private:
     const GameDatabase& db_;
     NavGrid nav_;
     const DamageTable* damage_;
+    const TargetPriorities* priorities_ = nullptr;
+    mutable std::map<std::pair<const void*, const void*>, int> priorityCache_; // (set, target type) -> priority
+    mutable std::unordered_map<const GameObjectType*, const TargetPrioritySet*> prioritySetOf_;
     const TechTree* tech_;
     NavGrid baseNav_;                  // terrain only; nav_ adds structure footprints
     bool navDirty_ = false;
@@ -708,6 +715,7 @@ struct GameRules {
     EffectLibrary effectLibrary;
     std::vector<ResearchTree> research;
     Balance balance = Balance::defaults();
+    TargetPriorities priorities;
     void load(MegVfs& vfs);                 // missing parts stay empty
     void configure(World& w) const;
 };

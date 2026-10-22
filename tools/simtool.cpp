@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
         if (st.size() < 2) { std::cerr << "map needs 2 start positions\n"; return 1; }
         const std::string cmd = argv[3];
         std::printf("tech tree: %zu buildable objects\n", tech.size());
+        std::printf("targeting priority sets: %zu\n", rules.priorities.size());
 
         const StartingForces forces = loadStartingForces(vfs);
         std::printf("resource piles on the map: %zu\n", World(map, db).resources().size());

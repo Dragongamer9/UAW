@@ -1243,6 +1243,7 @@ void GameRules::load(MegVfs& vfs) {
     effectLibrary.load(vfs);
     research = loadResearchTrees(vfs);
     balance = loadBalance(vfs);
+    priorities = loadTargetPriorities(vfs);
 }
 
 void GameRules::configure(World& w) const {
@@ -1250,6 +1251,7 @@ void GameRules::configure(World& w) const {
     w.setEffectLibrary(&effectLibrary);
     w.setResearchTrees(&research);
     w.setBalance(balance);
+    w.setTargetPriorities(&priorities);
 }
 
 } // namespace alamo
