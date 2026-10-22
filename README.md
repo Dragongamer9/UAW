@@ -5,6 +5,9 @@ A clean-room, native 64-bit reimplementation of the Alamo engine as used by
 game data from your own install. No Petroglyph assets are included or
 redistributed.
 
+**Download:** every push builds Windows and Linux versions; open the newest green run under the repository's
+**Actions** tab and download `uaw-native-windows-x64` (or `-linux-x64`) from its **Artifacts** (signed in to GitHub).
+
 **Playing:** put `uaw-viewer.exe` in the game folder (the one with `Data\MegaFiles.xml`) or next to it and
 double-click it. The skirmish setup screen opens: pick a map, players, factions and teams, and start. In a
 game, F10 shows every key; Esc opens the menu (save, load, sound, graphics, restart). All mods in
