@@ -21,6 +21,15 @@ Hierarchy 19, Novus 17, Masari 17, Military 13 wins of 36; 6 draws. Matchups are
 over the Military, Masari 10-2 over Novus); the Military's result swings most with its multiplier
 (1.7 gave 8 wins, 2.0 gave 23). Results swing a lot between seeds and maps, so use 2+ of each.
 
+## Check the sound against the real game files
+
+Sound effects and music (client/audio.cpp) are written against the game's XML (1,405 SFX events, 110
+music events) but the staged copy has no samples: only synthetic sounds and the two speech mp3s in
+Patch.meg were played. With the full install: run `UAW_AUDIO_LOG=1 uaw-viewer` and look for "no sample"
+/ "no music" lines (samples are looked up by file name in every archive and loose folder; localized
+speech also as NAME_ENG.mp3), and listen for levels: SFX `Min/Max_Volume`, music `Volume_Percent`,
+and the distance fade in `Audio::place`.
+
 ## 🚩 Missing art (not shipped by the game or any mod)
 
 Checked 2026-10-22 against the base archives, Community Patch 4, Human Resurgence 1.02 and
