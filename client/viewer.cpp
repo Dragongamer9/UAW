@@ -1267,6 +1267,23 @@ int main(int argc, char** argv) {
                 if (!menu) {
                     menu = std::make_unique<SkirmishMenu>(vfs, db, modNames, uiScale);
                     if (!opt.map.empty()) menu->selectMap(opt.map);
+                    else if (!headless) { // the last game's setup (map, players, options)
+                        std::ifstream last(saveFolder() + "lastsetup.txt");
+                        std::string line;
+                        SkirmishSetup prev;
+                        if (std::getline(last, line) && decodeSetup(line, prev)) {
+                            menu->selectMap(prev.map);
+                            if (alamo::iequals(menu->setup().map, prev.map) && menu->setup().slots.size() == prev.slots.size()) {
+                                bool human = false;
+                                for (PlayerSlot& p : prev.slots) { // a LAN game's other people become computers
+                                    p.netId = -1;
+                                    if (p.kind == PlayerSlot::Kind::Human && human) p.kind = PlayerSlot::Kind::Computer;
+                                    human = human || p.kind == PlayerSlot::Kind::Human;
+                                }
+                                menu->takeSetup(prev);
+                            }
+                        }
+                    }
                 }
                 if (menu->empty()) throw std::runtime_error("no skirmish maps found");
                 bool done = false, quit = false, loadGame = false;
@@ -1365,6 +1382,7 @@ int main(int argc, char** argv) {
                         const SkirmishMenu::Result r = menu->handle(e);
                         if (r == SkirmishMenu::Result::Start) {
                             if (lockstep && lockstep->isHost()) lockstep->start(menu->setup());
+                            std::ofstream(saveFolder() + "lastsetup.txt") << encodeSetup(menu->setup()) << "\n";
                             done = true;
                         }
                         if (r == SkirmishMenu::Result::Quit) {
