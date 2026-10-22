@@ -86,6 +86,9 @@ public:
 
     const Mat4& viewProj() const { return viewProj_; }
 
+    // A texture from RGBA rows (top row first), linear filtered, clamped; the caller owns it.
+    GLuint uploadTexture(const std::vector<uint8_t>& rgba, int width, int height);
+
     // Reads the current back buffer as RGBA rows, top row first.
     std::vector<uint8_t> readPixels(int width, int height);
 

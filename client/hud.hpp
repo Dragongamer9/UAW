@@ -14,17 +14,35 @@ public:
     Hud(alamo::MegVfs& vfs, float uiScale);
 
     void draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::GameDatabase& db,
-              const alamo::StringTable& text, bool gamepad);
+              const alamo::StringTable& text, bool gamepad, const View* view = nullptr);
+
+    // Minimap: built once per map from its terrain layers and heights.
+    void setMap(Renderer& r, const alamo::Map& map, alamo::MegVfs& vfs);
+    // World ground point under a minimap pixel, or false if the pixel is outside the minimap.
+    bool minimapAt(float x, float y, alamo::Vec3& out) const;
 
     // Pixel rectangle of menu item i from the last draw (for mouse clicks), or false.
     bool menuItemAt(float x, float y, int& index) const;
     bool hasFont() const { return font_ != nullptr; }
+
+    // Research panel (T): the faction's tree, click a suite to start it.
+    bool researchOpen = false;
+    bool researchAt(float x, float y, std::string& path, int& index) const;
 
 private:
     std::unique_ptr<Font> font_, small_;
     float scale_;
     struct Rect { float x0, y0, x1, y1; };
     std::vector<Rect> itemRects_;
+    const alamo::Map* map_ = nullptr;
+    GLuint minimapTex_ = 0;
+    Rect minimap_{0, 0, 0, 0}; // last drawn
+    void banner(Renderer& r, const std::string& text, const alamo::Vec4& color);
+    struct SuiteRect { Rect r; std::string path; int index; };
+    std::vector<SuiteRect> suiteRects_;
+    void drawResearch(Renderer& r, alamo::World& w, const UnitControl& control, const alamo::StringTable& text,
+                      std::vector<GpuVertex>& big, std::vector<GpuVertex>& small);
+    void drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, const View* view, float top);
 };
 
 } // namespace uaw

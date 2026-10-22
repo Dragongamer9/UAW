@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 #include <map>
+
+#include "alamo/ai.hpp"
+#include "alamo/assets.hpp"
 
 namespace uaw {
 
@@ -40,6 +44,191 @@ Hud::Hud(alamo::MegVfs& vfs, float uiScale) : scale_(uiScale) {
     }
 }
 
+void Hud::setMap(Renderer& r, const alamo::Map& map, alamo::MegVfs& vfs) {
+    map_ = &map;
+    // Layer colours, shaded by slope (light from the north-west), impassable ground darker.
+    const std::vector<alamo::Vec3> colors = alamo::terrainLayerColors(vfs, map);
+    constexpr int N = 256;
+    std::vector<uint8_t> px(size_t(N) * N * 4);
+    for (int py = 0; py < N; ++py)
+        for (int pxl = 0; pxl < N; ++pxl) {
+            const float wx = (float(pxl) + 0.5f) / N * map.sizeX(), wy = (1 - (float(py) + 0.5f) / N) * map.sizeY();
+            const uint32_t vx = std::min(map.width - 1, uint32_t(wx / map.spacing + 0.5f));
+            const uint32_t vy = std::min(map.height - 1, uint32_t(wy / map.spacing + 0.5f));
+            const uint8_t li = map.layerIndex[size_t(vy) * map.width + vx];
+            alamo::Vec3 c = li < colors.size() ? colors[li] : alamo::Vec3{0.5f, 0.5f, 0.5f};
+            const float dx = map.heightAt(wx + 20, wy) - map.heightAt(wx - 20, wy), dy = map.heightAt(wx, wy + 20) - map.heightAt(wx, wy - 20);
+            float shade = std::clamp(1.0f + (-dx + dy) * 0.012f, 0.55f, 1.35f);
+            if (!map.vertexFlags.empty() && !(map.vertexFlags[size_t(vy) * map.width + vx] & 0x01)) shade *= 0.6f;
+            for (int k = 0; k < 3; ++k) px[(size_t(py) * N + pxl) * 4 + k] = uint8_t(std::clamp(c[k] * shade * 255.f, 0.f, 255.f));
+            px[(size_t(py) * N + pxl) * 4 + 3] = 255;
+        }
+    minimapTex_ = r.uploadTexture(px, N, N);
+}
+
+bool Hud::minimapAt(float x, float y, alamo::Vec3& out) const {
+    if (!map_ || x < minimap_.x0 || x > minimap_.x1 || y < minimap_.y0 || y > minimap_.y1) return false;
+    out = {(x - minimap_.x0) / (minimap_.x1 - minimap_.x0) * map_->sizeX(),
+           (1 - (y - minimap_.y0) / (minimap_.y1 - minimap_.y0)) * map_->sizeY(), 0};
+    out[2] = map_->heightAt(out[0], out[1]);
+    return true;
+}
+
+void Hud::drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, const View* view, float top) {
+    if (!map_ || !minimapTex_) return;
+    const float s = scale_, size = 210 * s, pad = 10 * s, W = float(r.width());
+    const float aspect = map_->sizeX() / std::max(1.f, map_->sizeY());
+    const float mw = aspect >= 1 ? size : size * aspect, mh = aspect >= 1 ? size / aspect : size;
+    minimap_ = {W - pad - mw, top + pad, W - pad, top + pad + mh};
+    const Rect& m = minimap_;
+    r.drawOverlayRect(m.x0 - 3 * s, m.y0 - 3 * s, m.x1 + 3 * s, m.y1 + 3 * s, kPanel);
+    const Vec4 white{1, 1, 1, 1};
+    const GpuVertex a{m.x0, m.y0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1}, b{m.x1, m.y0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1},
+                    c{m.x1, m.y1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1}, d{m.x0, m.y1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1};
+    (void)white;
+    r.drawOverlayTriangles({a, b, c, a, c, d}, minimapTex_);
+    auto toMap = [&](float wx, float wy, float& x, float& y) {
+        x = m.x0 + std::clamp(wx / map_->sizeX(), 0.f, 1.f) * (m.x1 - m.x0);
+        y = m.y1 - std::clamp(wy / map_->sizeY(), 0.f, 1.f) * (m.y1 - m.y0);
+    };
+    // Units and structures: yours blue, enemies red, others grey; structures bigger.
+    std::vector<GpuVertex> dots;
+    auto quad = [&](float x0, float y0, float x1, float y1, const Vec4& col) {
+        const GpuVertex p0{x0, y0, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]}, p1{x1, y0, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]},
+                        p2{x1, y1, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]}, p3{x0, y1, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]};
+        dots.insert(dots.end(), {p0, p1, p2, p0, p2, p3});
+    };
+    for (const alamo::Unit& u : w.units()) {
+        float x, y;
+        toMap(u.position[0], u.position[1], x, y);
+        const Vec4 col = u.owner == control.player() ? Vec4{0.3f, 0.65f, 1.f, 1}
+                         : w.enemies(control.player(), u.owner) && u.owner >= 0 ? Vec4{1.f, 0.3f, 0.25f, 1}
+                                                                                 : Vec4{0.75f, 0.75f, 0.75f, 1};
+        const float h = (u.structure ? 3.f : 1.6f) * s;
+        quad(x - h, y - h, x + h, y + h, col);
+    }
+    // The camera's view of the ground.
+    if (view) {
+        const float sx[4] = {0, float(view->width), float(view->width), 0}, sy[4] = {0, 0, float(view->height), float(view->height)};
+        float px[4], py[4];
+        bool ok = true;
+        for (int i = 0; i < 4; ++i) {
+            alamo::Vec3 g;
+            if (!view->groundAt(*map_, sx[i], sy[i], g)) {
+                // Above the horizon: a point far along the top edge's direction instead.
+                if (!view->groundAt(*map_, sx[i], float(view->height) * 0.45f, g)) { ok = false; break; }
+            }
+            toMap(g[0], g[1], px[i], py[i]);
+        }
+        if (ok)
+            for (int i = 0; i < 4; ++i) {
+                const int j = (i + 1) % 4;
+                const float dx = px[j] - px[i], dy = py[j] - py[i], len = std::max(std::hypot(dx, dy), 1e-3f);
+                const float nx = -dy / len * s, ny = dx / len * s;
+                const Vec4 col{1, 1, 1, 0.9f};
+                const GpuVertex q0{px[i] + nx, py[i] + ny, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]},
+                                q1{px[j] + nx, py[j] + ny, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]},
+                                q2{px[j] - nx, py[j] - ny, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]},
+                                q3{px[i] - nx, py[i] - ny, 0, 0, 0, 1, 0, 0, col[0], col[1], col[2], col[3]};
+                dots.insert(dots.end(), {q0, q1, q2, q0, q2, q3});
+            }
+    }
+    r.drawOverlayTriangles(dots, 0);
+}
+
+void Hud::banner(Renderer& r, const std::string& text, const Vec4& color) {
+    if (!font_) return;
+    const float W = float(r.width()), H = float(r.height()), s = scale_;
+    const float tw = font_->width(text), lh = font_->lineHeight();
+    const float scale = 3; // big letters: the font scaled through the overlay
+    const float x = W / 2 - tw * scale / 2, y = H * 0.32f;
+    r.drawOverlayRect(0, y - lh * 0.6f, W, y + lh * scale + lh * 0.6f, {0, 0, 0, 0.55f});
+    std::vector<GpuVertex> v;
+    font_->append(v, text, 0, 0, color);
+    for (GpuVertex& g : v) {
+        g.px = x + g.px * scale;
+        g.py = y + g.py * scale;
+    }
+    r.drawOverlayTriangles(v, font_->texture());
+    (void)s;
+}
+
+bool Hud::researchAt(float x, float y, std::string& path, int& index) const {
+    if (!researchOpen) return false;
+    for (const SuiteRect& sr : suiteRects_)
+        if (x >= sr.r.x0 && x <= sr.r.x1 && y >= sr.r.y0 && y <= sr.r.y1) {
+            path = sr.path;
+            index = sr.index;
+            return true;
+        }
+    return false;
+}
+
+void Hud::drawResearch(Renderer& r, alamo::World& w, const UnitControl& control, const alamo::StringTable& text,
+                       std::vector<GpuVertex>& big, std::vector<GpuVertex>& small) {
+    suiteRects_.clear();
+    const alamo::ResearchTree* tree = w.researchTree(control.player());
+    const alamo::Player* me = w.player(control.player());
+    if (!tree || !me || !font_ || !small_) return;
+    const float W = float(r.width()), H = float(r.height()), s = scale_, pad = 12 * s;
+    const float lh = font_->lineHeight(), lhs = small_->lineHeight();
+    // Paths side by side.
+    std::vector<std::string> paths;
+    for (const auto& su : tree->suites)
+        if (std::find(paths.begin(), paths.end(), su.path) == paths.end()) paths.push_back(su.path);
+    const float colW = std::min(360 * s, (W - 4 * pad) / float(std::max<size_t>(paths.size(), 1)));
+    const float panelW = colW * float(paths.size()) + 2 * pad, x0 = (W - panelW) / 2, y0 = H * 0.14f;
+    size_t rows = 0;
+    for (const auto& p : paths) {
+        size_t n = 0;
+        for (const auto& su : tree->suites) n += su.path == p;
+        rows = std::max(rows, n);
+    }
+    const float panelH = lh * 2.4f + float(rows) * (2 * lhs + 6 * s) + pad * 2;
+    r.drawOverlayRect(x0, y0, x0 + panelW, y0 + panelH, {0.03f, 0.05f, 0.07f, 0.92f});
+    r.drawOverlayRect(x0, y0, x0 + panelW, y0 + 2 * s, kEdge);
+    const int done = int(me->researched.size()), busy = int(me->researching.size());
+    font_->append(big, "Research  (" + std::to_string(done) + " of " + std::to_string(alamo::World::kMaxResearchSuites) + " suites)", x0 + pad, y0 + pad, kEdge);
+    small_->append(small, "Click a suite to start it; T closes", x0 + panelW - pad - small_->width("Click a suite to start it; T closes"), y0 + pad + 4 * s, kDim);
+    const auto available = w.availableResearch(control.player());
+    for (size_t c = 0; c < paths.size(); ++c) {
+        const float cx = x0 + pad + float(c) * colW;
+        float cy = y0 + pad + lh * 1.4f;
+        std::string branch;
+        for (const auto& su : tree->suites)
+            if (su.path == paths[c]) { branch = su.branch; break; }
+        small_->append(small, "Path " + paths[c] + "  " + branch, cx, cy, kText);
+        cy += lhs * 1.3f;
+        for (const auto& su : tree->suites) {
+            if (su.path != paths[c]) continue;
+            const bool isDone = me->researched.count(su.id()) > 0;
+            const alamo::Player::Research* running = nullptr;
+            for (const auto& rr : me->researching)
+                if (rr.suite == &su) running = &rr;
+            const bool canStart = std::find(available.begin(), available.end(), &su) != available.end();
+            const Vec4 col = isDone ? kGood : running ? Vec4{1, 0.85f, 0.35f, 1} : canStart ? kText : kDim;
+            std::string title = su.title;
+            if (const std::string* t = text.get(su.title)) title = *t;
+            if (title.empty()) title = su.id();
+            if (title.size() > 34) title = title.substr(0, 33) + "...";
+            const Rect rc{cx - 4 * s, cy - 2 * s, cx + colW - pad, cy + 2 * lhs + 2 * s};
+            if (canStart) {
+                r.drawOverlayRect(rc.x0, rc.y0, rc.x1, rc.y1, {0.35f, 0.75f, 0.95f, 0.12f});
+                suiteRects_.push_back({rc, su.path, su.index});
+            }
+            small_->append(small, std::to_string(su.index) + ". " + title, cx, cy, col);
+            std::string sub = isDone ? "researched" : fmt("%.0f credits, ", su.cost) + fmt("%.0f s", su.seconds);
+            if (running) {
+                const float total = std::max(1.f, su.seconds * alamo::kTicksPerSecond);
+                sub = fmt("researching %.0f%%", 100 * (1 - float(running->ticksLeft) / total));
+            }
+            small_->append(small, "    " + sub, cx, cy + lhs, isDone || running ? col : kDim);
+            cy += 2 * lhs + 6 * s;
+        }
+    }
+    (void)busy;
+}
+
 bool Hud::menuItemAt(float x, float y, int& index) const {
     for (size_t i = 0; i < itemRects_.size(); ++i) {
         const Rect& r = itemRects_[i];
@@ -52,7 +241,7 @@ bool Hud::menuItemAt(float x, float y, int& index) const {
 }
 
 void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::GameDatabase& db,
-               const alamo::StringTable& text, bool gamepad) {
+               const alamo::StringTable& text, bool gamepad, const View* view) {
     itemRects_.clear();
     const float W = float(r.width()), H = float(r.height()), s = scale_, pad = 10 * s;
     std::vector<GpuVertex> big, small;
@@ -80,6 +269,7 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
     char clock[32];
     std::snprintf(clock, sizeof clock, "%d:%02d", secs / 60, secs % 60);
     if (font_) textBig(clock, W - pad - font_->width(clock), pad / 2, kDim);
+    drawMinimap(r, w, control, view, lh + pad);
 
     // --- bottom panel: selection and build menu
     const auto& sel = control.selection();
@@ -120,6 +310,20 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             for (const auto& [name, n] : counts) {
                 if (y > H - lhs - pad) break;
                 textSmall(std::to_string(n) + " x " + name, pad, y, kDim);
+                y += lhs;
+            }
+        }
+
+        // Abilities of the selection (F1..F8).
+        const auto abilities = control.abilities(w);
+        if (!abilities.empty() && y + lhs < H - pad) {
+            y += 4 * s;
+            for (size_t i = 0; i < abilities.size() && y + lhs < H - pad; ++i) {
+                const AbilityButton& b = abilities[i];
+                const bool armed = control.armedAbility() == b.name;
+                std::string line = "F" + std::to_string(i + 1) + "  " + b.label;
+                if (!b.ready) line += fmt("  (%.0f s)", std::ceil(b.cooldown));
+                textSmall(line, pad, y, armed ? kWarn : b.ready ? kGood : kDim);
                 y += lhs;
             }
         }
@@ -174,6 +378,20 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         }
     }
 
+    // --- end of the match
+    if (alamo::defeated(w, control.player())) {
+        banner(r, "Defeat", {1.f, 0.4f, 0.35f, 1});
+    } else {
+        bool anyEnemy = false, enemyAlive = false;
+        for (size_t p = 0; p < 8; ++p) {
+            if (!w.player(int(p))) break;
+            if (int(p) == control.player() || !w.enemies(control.player(), int(p))) continue;
+            anyEnemy = true;
+            enemyAlive = enemyAlive || !alamo::defeated(w, int(p));
+        }
+        if (anyEnemy && !enemyAlive) banner(r, "Victory", kGood);
+    }
+
     // --- message line
     const float age = w.seconds() - control.messageTime();
     if (!control.message().empty() && age < 4 && font_) {
@@ -186,6 +404,15 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
 
     if (font_) r.drawOverlayTriangles(big, font_->texture());
     if (small_) r.drawOverlayTriangles(small, small_->texture());
+    if (researchOpen) {
+        // On top of everything else (its own pass so the panel covers the text below it).
+        std::vector<GpuVertex> rb, rs;
+        drawResearch(r, w, control, text, rb, rs);
+        if (font_) r.drawOverlayTriangles(rb, font_->texture());
+        if (small_) r.drawOverlayTriangles(rs, small_->texture());
+    } else {
+        suiteRects_.clear();
+    }
 }
 
 } // namespace uaw

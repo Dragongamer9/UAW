@@ -21,7 +21,7 @@ redistributed.
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
 | 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
 | 3 | Economy: tech tree (`ProductionDependencies.xml`), players with credits and pop cap, structures that block ground, construction by builders, production queues, upgrades, skirmish start forces | done (first version) |
-| 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points | done |
+| 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points, minimap (click to jump), research panel, ability keys, superweapon countdown, victory/defeat | done |
 | 1 | Mods: every mod in `Game\Mods` is layered on top of the base game by default and merged entry by entry (objects, tech tree, factions, damage table, strings, skirmish starts) | done: Community Patch 4 + Human Resurgence 1.02 + Universe at Remix 2.8 load together (3,746 objects, 235 buildable entries) |
 | 3 | Military (human) faction in skirmish via the mods: Bunker + Build Bot start, base building | done |
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
@@ -107,6 +107,9 @@ squad, or another with `--player N`.
 | Move / attack | right click (on an enemy = attack) | RB |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Fire superweapon (enabler selected, ready) | V then right click | |
+| Abilities of the selection | F1-F8 (targeted ones: then right click the target) | |
+| Research panel | T (click a suite to start it) | |
+| Jump the camera | click the minimap | |
 | Stop / jump to selection | X / Space | |
 | Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
 | Place structure / cancel | left click / right click | A / B |

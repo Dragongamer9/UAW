@@ -1,6 +1,7 @@
 #include "units.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 
 namespace uaw {
@@ -226,6 +227,86 @@ void UnitControl::command(alamo::World& w, const Vec3& ground) {
     }
     attackOrder_ = false;
     moveTo(w, ground);
+}
+
+std::vector<AbilityButton> UnitControl::abilities(alamo::World& w) const {
+    std::vector<AbilityButton> out;
+    for (uint32_t id : selected_) {
+        const alamo::Unit* u = w.unit(id);
+        if (!u || u->owner != player_) continue;
+        const alamo::World::TypeAbilities& ta = w.abilitiesOf(*u->type);
+        for (const alamo::Unit::AbilityState& st : u->abilities) {
+            const alamo::AbilitySpec& s = ta.abilities[st.index];
+            if (s.autonomous || s.kind == alamo::AbilitySpec::Kind::Unsupported) continue;
+            if (w.abilityLocked(*u, s)) continue;
+            auto it = std::find_if(out.begin(), out.end(), [&](const AbilityButton& b) { return b.name == s.name; });
+            if (it == out.end()) {
+                AbilityButton b;
+                b.name = s.name;
+                // "Novus_Hacker_Download_Ability" -> "Hacker Download"
+                std::string l = s.name;
+                for (const char* drop : {"_Ability", "_ability", "_Unit_Ability"})
+                    if (const size_t p = l.rfind(drop); p != std::string::npos && p + std::strlen(drop) == l.size()) l.resize(p);
+                for (const char* fac : {"Novus_", "Alien_", "Masari_", "Military_"})
+                    if (l.rfind(fac, 0) == 0) l = l.substr(std::strlen(fac));
+                for (char& c : l) if (c == '_') c = ' ';
+                b.label = l;
+                b.wantsObject = s.needsTarget;
+                b.wantsPoint = !s.needsTarget && (s.kind == alamo::AbilitySpec::Kind::Leap || s.maxRange > 0);
+                b.cooldown = 1e9f;
+                out.push_back(b);
+                it = out.end() - 1;
+            }
+            it->ready = it->ready || st.cooldown <= 0;
+            it->cooldown = std::min(it->cooldown, st.cooldown / float(alamo::kTicksPerSecond));
+        }
+    }
+    if (out.size() > 8) out.resize(8);
+    return out;
+}
+
+void UnitControl::fireAbility(alamo::World& w, const std::string& name, uint32_t target, const Vec3& point) {
+    int used = 0, tooFar = 0;
+    for (uint32_t id : std::vector<uint32_t>(selected_.begin(), selected_.end())) {
+        const alamo::Unit* u = w.unit(id);
+        if (!u || u->owner != player_) continue;
+        const alamo::World::TypeAbilities& ta = w.abilitiesOf(*u->type);
+        for (size_t i = 0; i < u->abilities.size(); ++i) {
+            if (ta.abilities[u->abilities[i].index].name != name || u->abilities[i].cooldown > 0) continue;
+            const alamo::OrderResult r = w.useAbility(id, i, target, point);
+            if (r == alamo::OrderResult::Ok) ++used;
+            else if (r == alamo::OrderResult::NotAllowed) ++tooFar;
+            break;
+        }
+    }
+    if (!used) say(tooFar ? "Out of range or not ready" : "No target", w.seconds());
+}
+
+void UnitControl::useAbility(alamo::World& w, size_t button) {
+    const auto list = abilities(w);
+    if (button >= list.size()) return;
+    const AbilityButton& b = list[button];
+    if (!b.ready) {
+        say(b.label + " ready in " + std::to_string(int(b.cooldown + 0.99f)) + " s", w.seconds());
+        return;
+    }
+    if (b.wantsObject || b.wantsPoint) {
+        armedAbility_ = b.name;
+        say(b.label + ": right-click the target", w.seconds());
+        return;
+    }
+    fireAbility(w, b.name, 0, {});
+}
+
+void UnitControl::targetAbility(alamo::World& w, const Vec3& ground) {
+    const std::string name = armedAbility_;
+    armedAbility_.clear();
+    if (name.empty()) return;
+    // The unit nearest the click (any side; the ability's own filters decide), else the ground.
+    uint32_t target = 0;
+    for (uint32_t id : w.unitsNear(ground, 25))
+        if (const alamo::Unit* u = w.unit(id); u && !selected_.count(id)) { target = id; break; }
+    fireAbility(w, name, target, ground);
 }
 
 bool UnitControl::fireSuperweapon(alamo::World& w, const Vec3& ground) {

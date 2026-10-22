@@ -683,6 +683,20 @@ void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const ala
     drawOverlayTriangles({a, b, d, a, d, e}, 0);
 }
 
+GLuint Renderer::uploadTexture(const std::vector<uint8_t>& rgba, int width, int height) {
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F); // GL_CLAMP_TO_EDGE
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return tex;
+}
+
 std::vector<uint8_t> Renderer::readPixels(int width, int height) {
     std::vector<uint8_t> px(size_t(width) * height * 4);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);

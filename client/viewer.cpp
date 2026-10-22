@@ -24,11 +24,14 @@
 //     --screenshot FILE   render one frame to a PNG and exit (works headless)
 //     --order X,Y         (with --screenshot) select your squad and order it to X,Y
 //     --run SECONDS       (with --screenshot) simulate this long before the picture
+//     --select NAME       (with --screenshot) select your units whose type name contains NAME
+//     --research          open the research panel
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
 //             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
-//             P stand-in boxes, Esc quit
+//             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
+//             V + right click fires a selected superweapon, minimap click moves the camera, Esc quit
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
 //   build     select a structure or builder: 1-9 / click the menu (D-pad left/right + down on a gamepad);
 //             builders then place the structure with a click / A (right click / B cancels);
@@ -79,6 +82,8 @@ struct Options {
     bool squads = false, demo = false, ai = true, spectate = false;
     std::vector<std::string> spawns;
     std::string lineup;
+    bool research = false; // open the research panel (screenshots)
+    std::string select;    // (screenshots) select your units whose type contains this
     std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
@@ -133,6 +138,8 @@ bool parse(int argc, char** argv, Options& o) {
             o.camSet = o.haveCamera = std::sscanf(next(), "%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3], &o.cam[4]) == 5;
         else if (a == "--battle") o.battle = true;
         else if (a == "--lineup") o.lineup = next();
+        else if (a == "--research") o.research = true;
+        else if (a == "--select") o.select = next();
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -425,6 +432,8 @@ int main(int argc, char** argv) {
         bool placeholders = true;
         View view;
         Hud hud(vfs, std::max(0.75f, float(opt.height) / 900.f));
+        if (!lineupMode) hud.setMap(renderer, map, vfs);
+        hud.researchOpen = opt.research;
         bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
@@ -437,7 +446,7 @@ int main(int argc, char** argv) {
                 scene.draw(renderer, placeholders);
             control.draw(renderer, world, world.seconds());
             renderer.endFrame();
-            hud.draw(renderer, world, control, db, text, padConnected);
+            hud.draw(renderer, world, control, db, text, padConnected, &view);
         };
 
         if (headless) {
@@ -494,6 +503,28 @@ int main(int argc, char** argv) {
                 for (const Unit& u : world.units()) moving += u.owner == control.player() && u.moving();
                 std::printf("after %.1f s: %zu of your units still moving\n", world.seconds(), moving);
             }
+            if (!opt.select.empty()) {
+                // Select your units whose type name contains the text; camera on them.
+                control.clear();
+                float sx = 0, sy = 0;
+                int n = 0;
+                std::string want = opt.select;
+                for (char& c : want) c = char(std::toupper(static_cast<unsigned char>(c)));
+                for (const Unit& u : world.units()) {
+                    std::string name = u.type->name;
+                    for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
+                    if (u.owner != control.player() || name.find(want) == std::string::npos) continue;
+                    control.clickSelect(world, u.position, true);
+                    sx += u.position[0];
+                    sy += u.position[1];
+                    ++n;
+                }
+                if (n && !opt.camSet) {
+                    cam.x = sx / float(n);
+                    cam.y = sy / float(n);
+                }
+                std::printf("selected %d units matching %s\n", n, opt.select.c_str());
+            }
             int w, h;
             SDL_GetWindowSizeInPixels(window, &w, &h);
             drawFrame(w, h);
@@ -525,7 +556,11 @@ int main(int argc, char** argv) {
                     case SDL_EVENT_KEY_DOWN:
                         if (e.key.key == SDLK_ESCAPE) {
                             if (control.placing()) control.cancelPlacement();
+                            else if (control.abilityArmed()) control.cancelAbility();
+                            else if (hud.researchOpen) hud.researchOpen = false;
                             else running = false;
+                        } else if (e.key.key >= SDLK_F1 && e.key.key <= SDLK_F8) {
+                            control.useAbility(world, size_t(e.key.key - SDLK_F1));
                         } else if (e.key.key >= SDLK_1 && e.key.key <= SDLK_9 && !control.placing()) {
                             const auto items = control.menu(world, db, text);
                             const size_t i = size_t(e.key.key - SDLK_1);
@@ -536,6 +571,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
                         else if (e.key.key == SDLK_V) superweaponArmed = true; // next right click fires the selected superweapon
+                        else if (e.key.key == SDLK_T) hud.researchOpen = !hud.researchOpen;
                         else if (e.key.key == SDLK_SPACE && !control.selection().empty()) {
                             float sx = 0, sy = 0;
                             for (uint32_t id : control.selection())
@@ -548,8 +584,17 @@ int main(int argc, char** argv) {
                     case SDL_EVENT_MOUSE_BUTTON_DOWN:
                         if (e.button.button == SDL_BUTTON_LEFT) {
                             int item;
+                            Vec3 mm;
+                            std::string rpath;
+                            int rindex = 0;
                             if (control.placing()) {
                                 control.place(world);
+                            } else if (hud.researchAt(e.button.x, e.button.y, rpath, rindex)) {
+                                const OrderResult rr = world.startResearch(control.player(), rpath, rindex);
+                                control.say(rr == OrderResult::Ok ? "Research started" : rr == OrderResult::NotEnoughCredits ? "Not enough credits" : "Can't research that now", world.seconds());
+                            } else if (hud.minimapAt(e.button.x, e.button.y, mm)) {
+                                cam.x = mm[0];
+                                cam.y = mm[1];
                             } else if (hud.menuItemAt(e.button.x, e.button.y, item)) {
                                 const auto items = control.menu(world, db, text);
                                 if (size_t(item) < items.size()) control.activate(world, items[size_t(item)]);
@@ -579,7 +624,8 @@ int main(int argc, char** argv) {
                             rightDown = false;
                             Vec3 g;
                             if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
-                                if (superweaponArmed) control.fireSuperweapon(world, g);
+                                if (control.abilityArmed()) control.targetAbility(world, g);
+                                else if (superweaponArmed) control.fireSuperweapon(world, g);
                                 else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
                                 else control.command(world, g);
                                 attackMoveArmed = superweaponArmed = false;

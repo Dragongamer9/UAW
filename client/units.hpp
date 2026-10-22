@@ -47,6 +47,15 @@ struct MenuItem {
     bool affordable = true;
 };
 
+// One ordered ability of the selection (F1..F8), grouped by name across the selected units.
+struct AbilityButton {
+    std::string name;      // Unit_Ability name
+    std::string label;     // readable
+    bool ready = false;    // at least one selected unit can use it now
+    float cooldown = 0;    // seconds until the soonest one is ready
+    bool wantsObject = false, wantsPoint = false; // targeting: a unit, a place, or neither (self)
+};
+
 class UnitControl {
 public:
     explicit UnitControl(int player) : player_(player) {}
@@ -70,6 +79,15 @@ public:
     // Fires the first ready superweapon among the selection at `ground`; false if none was ready.
     bool fireSuperweapon(alamo::World& w, const alamo::Vec3& ground);
     void stop(alamo::World& w);
+
+    // Ordered abilities of the selection; use() fires those that need no target at once, and
+    // arms the others: the next right click picks the target (unit under the cursor or ground).
+    std::vector<AbilityButton> abilities(alamo::World& w) const;
+    void useAbility(alamo::World& w, size_t button);
+    bool abilityArmed() const { return !armedAbility_.empty(); }
+    const std::string& armedAbility() const { return armedAbility_; }
+    void cancelAbility() { armedAbility_.clear(); }
+    void targetAbility(alamo::World& w, const alamo::Vec3& ground); // with the armed ability
 
     // Build menu: the first selected own unit that can produce or construct something.
     uint32_t menuOwner(alamo::World& w) const;
@@ -102,6 +120,8 @@ private:
     std::string placingType_;
     uint32_t placingBuilder_ = 0;
     alamo::Vec3 ghost_{};
+    std::string armedAbility_;
+    void fireAbility(alamo::World& w, const std::string& name, uint32_t target, const alamo::Vec3& point);
     std::string message_;
     float messageTime_ = -100;
 };
