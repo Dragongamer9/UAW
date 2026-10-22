@@ -561,7 +561,40 @@ float SkirmishAI::armyValue(const std::vector<uint32_t>& army) const {
     return v;
 }
 
+bool SkirmishAI::sees(const Unit& e) const {
+    return !w_.fogOfWar() || w_.visibleTo(player_, e.position);
+}
+
+void SkirmishAI::updateIntel() {
+    if (!w_.fogOfWar()) return;
+    World& w = w_;
+    for (const Unit& e : w_.units()) {
+        if (!w_.enemies(player_, e.owner) || e.owner < 0 || e.inside) continue;
+        // At the start: where the enemies' bases are (start positions are no secret).
+        if ((!intelReady_ && e.structure) || (sees(e) && !e.cloaked)) {
+            if (e.structure) knownStructures_[e.id] = e.position;
+            else knownUnits_[e.id] = unitStrength(e);
+        }
+    }
+    intelReady_ = true;
+    // Forget what is gone: dead, or not where it was when we look there again.
+    for (auto it = knownStructures_.begin(); it != knownStructures_.end();) {
+        const Unit* u = w.unit(it->first);
+        const bool gone = !u || !u->alive() || (w_.visibleTo(player_, it->second) && !w_.enemies(player_, u->owner));
+        it = gone ? knownStructures_.erase(it) : std::next(it);
+    }
+    for (auto it = knownUnits_.begin(); it != knownUnits_.end();) {
+        const Unit* u = w.unit(it->first);
+        it = !u || !u->alive() || !w_.enemies(player_, u->owner) ? knownUnits_.erase(it) : std::next(it);
+    }
+}
+
 float SkirmishAI::enemyStrength() const {
+    if (w_.fogOfWar()) { // what it has seen of the enemy's forces
+        float v = 0;
+        for (const auto& [id, s] : knownUnits_) v += s;
+        return v;
+    }
     float v = 0;
     for (const Unit& u : w_.units())
         if (w_.enemies(player_, u.owner) && !u.structure && !u.underConstruction) v += unitStrength(u);
@@ -588,7 +621,7 @@ void SkirmishAI::manageArmy() {
             if (s.owner != player_ || !s.structure) continue;
             for (uint32_t id : w_.unitsNear(s.position, 650)) {
                 const Unit* e = w_.unit(id);
-                if (!e || !w_.enemies(player_, e->owner) || e->owner < 0) continue;
+                if (!e || !w_.enemies(player_, e->owner) || e->owner < 0 || !sees(*e) || e->cloaked) continue;
                 w_.commandAttackMove(army, e->position);
                 lastAction_ = "defend";
                 return;
@@ -620,14 +653,34 @@ void SkirmishAI::manageArmy() {
     }
     // Attacking: pick the nearest enemy structure (else any enemy unit) to the army.
     const Unit* target = attackTarget_ ? w_.unit(attackTarget_) : nullptr;
-    if (!target) {
+    if (!target || (w_.fogOfWar() && !target->structure && !sees(*target))) {
+        target = nullptr;
         float best = 1e30f;
         for (int pass = 0; pass < 2 && !target; ++pass)
             for (const Unit& e : w_.units()) {
                 if (!w_.enemies(player_, e.owner) || (pass == 0 && !e.structure)) continue;
+                if (w_.fogOfWar() && !(e.structure ? knownStructures_.count(e.id) != 0 : sees(e) && !e.cloaked)) continue;
                 const float d = dist2(e.position, centroid);
                 if (d < best) { best = d; target = &e; }
             }
+        if (!target && w_.fogOfWar()) {
+            // Nothing known: sweep the map, a 3x3 grid of points, moving on when the army gets close to
+            // one or after 40 s; every unit attack-moves there.
+            const float sx = w_.map().sizeX(), sy = w_.map().sizeY();
+            static const int order[9] = {4, 0, 2, 8, 6, 1, 5, 7, 3};
+            auto leg = [&](int k) {
+                const int c = order[k % 9];
+                return Vec3{sx * (1 + 2 * float(c % 3)) / 6, sy * (1 + 2 * float(c / 3)) / 6, 0};
+            };
+            const float now = w_.seconds();
+            if (scoutLeg_ == 0 || dist2(centroid, leg(scoutLeg_ - 1)) < 400 || now - scoutSince_ > 40) {
+                w_.commandAttackMove(army, leg(scoutLeg_));
+                ++scoutLeg_;
+                scoutSince_ = now;
+                lastAction_ = "scout";
+            }
+            return;
+        }
         if (!target) { attacking_ = false; return; }
         attackTarget_ = target->id;
         w_.commandAttackMove(army, target->position);
@@ -670,6 +723,7 @@ void SkirmishAI::manageReapers() {
 void SkirmishAI::update() {
     if (++tick_ % kThinkEvery != player_ % kThinkEvery) return; // stagger players
     if (defeated(w_, player_)) return;
+    updateIntel();
     static const double profile = std::getenv("UAW_PROFILE") ? std::atof(std::getenv("UAW_PROFILE")) : 0;
     using Clock = std::chrono::steady_clock;
     const char* names[8];
@@ -716,6 +770,7 @@ void SkirmishAI::manageSuperweapons() {
         float bestScore = 0;
         for (const Unit& c : w_.units()) {
             if (!w_.enemies(player_, c.owner) || c.owner < 0) continue;
+            if (w_.fogOfWar() && !(c.structure ? knownStructures_.count(c.id) != 0 : sees(c))) continue; // aims at what it knows
             float score = 0;
             for (const Unit& o : w_.units()) {
                 if (dist2(o.position, c.position) > r + o.radius) continue;

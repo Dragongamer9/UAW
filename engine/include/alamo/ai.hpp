@@ -22,6 +22,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <map>
 #include <unordered_set>
 #include <vector>
 
@@ -64,6 +65,15 @@ private:
     uint32_t rand(uint32_t n);
     float armyValue(const std::vector<uint32_t>& army) const;
     float enemyStrength() const;
+    // Fog of war: what this player knows. Enemy structures seen (and the enemies' starting
+    // buildings, as start positions are known), enemy units seen, until it learns they are gone.
+    void updateIntel();
+    bool sees(const Unit& e) const;
+    bool intelReady_ = false;
+    std::map<uint32_t, Vec3> knownStructures_;
+    std::map<uint32_t, float> knownUnits_; // id -> strength when last seen
+    int scoutLeg_ = 0;
+    float scoutSince_ = 0;
     float wealth() const;
     float typeStrength(const GameObjectType& t) const; // sqrt(health x dps), cached
 

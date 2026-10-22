@@ -774,6 +774,7 @@ void World::updateTargeting(Unit& u) {
             u.path.clear(); // hold and fight
         } else if (u.path.empty() && dist2d(u.position, u.goal) > std::max(u.radius * 2, 20.f)) {
             u.path = planPath(u, u.goal); // area clear: carry on
+            if (u.path.empty()) u.attackMove = false; // can't get there: stop trying (every tick)
         } else if (u.path.empty()) {
             u.attackMove = false; // arrived
         }
