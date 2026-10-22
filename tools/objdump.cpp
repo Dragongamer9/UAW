@@ -9,6 +9,7 @@
 //   objdump <game-root> scripts [all]      the game's Lua scripts: how many load, and the engine API
 //                                           they call (globals and methods no script defines)
 //   objdump <game-root> scripts run NAME... run scripts (and what they require) with no engine API
+//   objdump <game-root> scripts list NAME [FUNCTION]  disassemble a script (or one global function)
 //   objdump <game-root> scripts trace NAME  run a behaviour script against stand-ins and list every
 //                                           engine function and method it reaches, in order
 //   objdump <game-root> warnings
@@ -202,6 +203,82 @@ static int scriptTrace(MegVfs& vfs, const std::string& name) {
     return 0;
 }
 
+// luac -l style listing of a compiled (or compiled-from-source) script; functions are named after
+// the global they are stored in when they are.
+static void listProto(const LuaProto& p, const std::string& name, int depth) {
+    static const char* ops[] = {"MOVE", "LOADK", "LOADBOOL", "LOADNIL", "GETUPVAL", "GETGLOBAL", "GETTABLE", "SETGLOBAL",
+                                "SETUPVAL", "SETTABLE", "NEWTABLE", "SELF", "ADD", "SUB", "MUL", "DIV", "MOD", "POW", "UNM",
+                                "NOT", "LEN", "CONCAT", "JMP", "EQ", "LT", "LE", "TEST", "TESTSET", "CALL", "TAILCALL",
+                                "RETURN", "FORLOOP", "FORPREP", "TFORLOOP", "SETLIST", "CLOSE", "CLOSURE", "VARARG"};
+    auto k = [&](uint32_t i) -> std::string {
+        if (i >= p.constants.size()) return "?";
+        const LuaValue& v = p.constants[i];
+        return v.isString() ? "\"" + v.s + "\"" : v.type == LuaValue::Type::Nil ? "nil" : v.str();
+    };
+    auto rk = [&](uint32_t x) { return (x & 0x100) ? k(x & 0xFF) : "R" + std::to_string(x); };
+    const std::string pad(size_t(depth) * 2, ' ');
+    std::printf("%sfunction %s (%u params%s, %u upvalues, %zu instructions)\n", pad.c_str(), name.c_str(), p.params,
+                p.varargFlags ? ", vararg" : "", p.upvalues, p.code.size());
+    std::vector<std::string> childNames(p.protos.size());
+    for (size_t pc = 0; pc < p.code.size(); ++pc) {
+        const uint32_t i = p.code[pc], op = i & 0x3F, A = (i >> 6) & 0xFF, C = (i >> 14) & 0x1FF, B = (i >> 23) & 0x1FF, Bx = i >> 14;
+        const int sBx = int(Bx) - 131071;
+        std::string args;
+        switch (op) {
+        case 1: case 5: case 7: args = "R" + std::to_string(A) + " " + k(Bx); break;
+        case 6: args = "R" + std::to_string(A) + " = R" + std::to_string(B) + "[" + rk(C) + "]"; break;
+        case 9: args = "R" + std::to_string(A) + "[" + rk(B) + "] = " + rk(C); break;
+        case 11: args = "R" + std::to_string(A) + " = R" + std::to_string(B) + ":" + rk(C); break;
+        case 12: case 13: case 14: case 15: case 16: case 17: case 23: case 24: case 25:
+            args = std::to_string(A) + " " + rk(B) + " " + rk(C); break;
+        case 22: case 31: case 32: args = "R" + std::to_string(A) + " -> " + std::to_string(int(pc) + 1 + sBx); break;
+        case 36: {
+            args = "R" + std::to_string(A) + " function #" + std::to_string(Bx);
+            // CLOSURE ... then SETGLOBAL of the same register: a named global function
+            size_t q = pc + 1 + (Bx < p.protos.size() ? p.protos[Bx]->upvalues : 0);
+            if (q < p.code.size() && (p.code[q] & 0x3F) == 7 && ((p.code[q] >> 6) & 0xFF) == A && Bx < childNames.size())
+                if (const uint32_t kk = p.code[q] >> 14; kk < p.constants.size()) childNames[Bx] = p.constants[kk].str();
+            break;
+        }
+        default: args = std::to_string(A) + " " + std::to_string(B) + " " + std::to_string(C);
+        }
+        std::printf("%s  %4zu  %-9s %s\n", pad.c_str(), pc, op < 38 ? ops[op] : "?", args.c_str());
+    }
+    for (size_t c = 0; c < p.protos.size(); ++c)
+        listProto(*p.protos[c], childNames[c].empty() ? name + "/#" + std::to_string(c) : childNames[c], depth + 1);
+}
+
+static int scriptList(MegVfs& vfs, const std::string& name, const std::string& only) {
+    ScriptLibrary lib(vfs);
+    std::string key = name;
+    for (char& c : key) c = char(std::toupper(static_cast<unsigned char>(c)));
+    auto it = lib.scripts().find(key);
+    if (it == lib.scripts().end()) { std::printf("no script %s\n", name.c_str()); return 1; }
+    const std::vector<uint8_t> bytes = vfs.read(it->second);
+    std::string err;
+    auto main = !bytes.empty() && bytes[0] == 0x1b ? loadLuaChunk(bytes, &err)
+                                                   : compileLua(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &err);
+    if (!main) { std::printf("%s: %s\n", it->second.c_str(), err.c_str()); return 1; }
+    if (only.empty()) { listProto(*main, it->second, 0); return 0; }
+    // Only the function stored in global `only` (searched through the main function's closures).
+    for (size_t pc = 0; pc < main->code.size(); ++pc) {
+        const uint32_t i = main->code[pc];
+        if ((i & 0x3F) != 36) continue;
+        const uint32_t A = (i >> 6) & 0xFF, Bx = i >> 14;
+        if (Bx >= main->protos.size()) continue;
+        const size_t q = pc + 1 + main->protos[Bx]->upvalues;
+        if (q < main->code.size() && (main->code[q] & 0x3F) == 7 && ((main->code[q] >> 6) & 0xFF) == A) {
+            const uint32_t kk = main->code[q] >> 14;
+            if (kk < main->constants.size() && main->constants[kk].str() == only) {
+                listProto(*main->protos[Bx], only, 0);
+                return 0;
+            }
+        }
+    }
+    std::printf("no global function %s in %s\n", only.c_str(), name.c_str());
+    return 1;
+}
+
 int main(int argc, char** argv) {
     const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
@@ -210,6 +287,7 @@ int main(int argc, char** argv) {
         MegVfs vfs;
         auto missing = tools::mountWithMods(vfs, argv[1], modArg);
         if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "trace") return scriptTrace(vfs, argv[4]);
+        if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "list") return scriptList(vfs, argv[4], argc > 5 ? argv[5] : "");
         if (cmd == "scripts" && argc > 4 && std::string(argv[3]) == "run") {
             ScriptLibrary lib(vfs);
             int bad = 0;

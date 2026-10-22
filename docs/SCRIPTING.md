@@ -1,6 +1,7 @@
 # The game's Lua scripts: what a scripting host has to provide
 
-Notes for the scripting host (not written yet). Everything here was found by running the game's own
+Notes for the scripting host. A first version exists: `BehaviorHost` (`alamo/scripthost.hpp`),
+tried with `simtool <game> <MAP> script <ObjectType>`. Not yet switched on in games. Everything here was found by running the game's own
 scripts against stand-ins with `objdump <game> scripts trace NAME`. Each engine global, and each
 method called on what it returns, is recorded and answers with another stand-in.
 
@@ -74,3 +75,29 @@ The engine re-implements the economy behaviours natively (Reapers, Matter Engine
 collectors and supply depots; see `engine/src/economy.cpp`). Those are the first candidates to switch
 over to their scripts once the host exists, because the native versions give a result to compare
 against.
+
+## The host so far (`engine/src/scripthost.cpp`)
+
+Per object: its own `LuaVM`, `Object` bound to it, `BehaviorList`, its `Lua_Script_Data` run first, then
+`Base_Definitions()`, `Init_Behaviors()`, `First_Service()` once, and `main()` as a coroutine resumed
+ten times a second (when `main` returns because nothing needs service, a `PumpEvents` loop takes its
+place so events still arrive). Threads from `Create_Thread` are coroutines resumed on the same beat.
+
+Engine side provided: `GetEvent` (with `Params`, `Reset`), `ThreadValue` (per coroutine, with
+`Set`, `Reset`), `Thread.Is_Pumping_Thread`, `GetThreadID`, `Create_Thread` (with `Kill`),
+`GetCurrentTime`, `GameRandom` (deterministic per object), `Math`, `Script`, `Find_Object_Type`,
+`Create_Generic_Object`, the script message hooks. Objects: `Get_ID`, `Is_Valid`, `Get_Owner`,
+`Get_Type`, `Get_Position`, `Get_Distance`, `Get_Health`, `Can_Move`, `Despawn`, `Is_Category`,
+`Is_Powered`, `Event_Object_In_Range` / `Cancel_...`, `Register_Signal_Handler` / `Unregister_...`
+(`OBJECT_OWNER_CHANGED` is raised). Players: `Get_ID`, `Is_Human`, `Is_AI_Player`, `Give_Money`,
+`Get_Credits`, `Get_Faction_Name`, `Is_Enemy`. Types: `Get_Name`, `Get_Type_Value`. Unknown methods
+answer nil and are logged once.
+
+Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds), then
+calls `Set_Depot` / `Set_Drone_Search_Radius` on them (not there yet). `AlienReaperTurret` and
+`SuperWeaponEnablerBehavior` run their loops without errors. Next: the drone methods, player scripts
+(`Get_Script().Call_Function`), and a switch to run the scripts in real games in place of the native
+copies.
+
+The VM needed one fix for this: `coroutine.running()` now returns the running coroutine (it gave
+nil), which the framework uses to tell the pumping thread from the others.

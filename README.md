@@ -42,7 +42,7 @@ game, F10 shows every key; Esc opens the menu (save, load, sound, graphics, rest
 | 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
 | 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails, effects attached to model bones (engine glows, flames) | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
 | 2 | Foliage: alpha-tested grass, leaves and bushes | done |
-| 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
+| 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | started: the behaviour framework runs (events, threads, first object/player API); `NovusInputStation.lua` launches its drones in `simtool ... script`; not used in games yet ([docs/SCRIPTING.md](docs/SCRIPTING.md)) |
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war, computer difficulty, starting credits), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI plays by it too: it knows the enemy start bases and what it has seen, and sweeps the map when it has lost track |
 | 4 | Audio: the game's SFX events (`SFXEventFiles.xml`, 1,405 events with presets), samples found by name anywhere in the game's files (.wav PCM/ADPCM and .mp3 via dr_wav/dr_mp3), placed sounds fading with distance and panned; unit select/move/attack replies, weapon fire, deaths, finished units and buildings, looping engine hums and ambient loops of the six nearest things in view; music (`MusicEvents.xml`, 110 events) by faction and map environment, battle music while you fight, win/lose pieces, streamed | done (first version); only checked with synthetic sounds and two speech files, as the staged copy has no SFX samples or music |
@@ -310,6 +310,7 @@ simtool "<game>" M25_Grand_Canyon opening Novus          # one faction builds ev
 simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someone is defeated
 simtool "<game>" M25_Grand_Canyon game Novus:1,Masari:1,Alien:2,Military:2 30   # 2 v 2 (or FFA without teams)
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
+simtool "<game>" M25_Grand_Canyon script Novus_Input_Station   # an object running its own Lua behaviours
 ```
 
 A 25-minute match takes 30-50 seconds to simulate. `UAW_AI_LOG=1` prints every AI decision; `UAW_FOG=1` plays

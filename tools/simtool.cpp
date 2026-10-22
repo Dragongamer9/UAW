@@ -4,6 +4,7 @@
 //   simtool <game-root> <MAP> game F[:TEAM],... [MINUTES] [SEED]   AI free-for-all or team game
 #include "common.hpp"
 #include "alamo/ai.hpp"
+#include "alamo/scripthost.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/sim.hpp"
@@ -90,6 +91,43 @@ int main(int argc, char** argv) {
 
         const StartingForces forces = loadStartingForces(vfs);
         std::printf("resource piles on the map: %zu\n", World(map, db).resources().size());
+        if (cmd == "script" && argc > 4) {
+            // An object running its own Lua behaviours: placed beside player 1's start, then one of
+            // player 1's units walks onto it. Prints the credits and what the scripts did.
+            World w(map, db, &dmg, 1, &tech);
+            rules.configure(w);
+            addSkirmishPlayer(w, db, "Novus", st[0], &forces);
+            addSkirmishPlayer(w, db, "Alien", st[1], &forces);
+            const Vec3 at{st[0][0] + 120, st[0][1], st[0][2]};
+            const uint32_t obj = w.spawn(argv[4], 1, at); // owned by the other side, as map pickups are neutral-ish
+            const GameObjectType* t = db.find(argv[4]);
+            if (!obj || !t) { std::printf("cannot place %s\n", argv[4]); return 1; }
+            ScriptLibrary lib(vfs);
+            BehaviorHost host(w, lib);
+            host.log = [](const std::string& m) { std::printf("  script: %s\n", m.c_str()); };
+            std::string err;
+            const auto behaviors = BehaviorHost::behaviorsOf(*t);
+            std::printf("%s runs:", argv[4]);
+            for (const auto& b : behaviors) std::printf(" %s", b.c_str());
+            std::printf("\n");
+            if (!host.attach(obj, behaviors, &err)) { std::printf("attach failed: %s\n", err.c_str()); return 1; }
+            uint32_t walker = 0;
+            for (const Unit& u : w.units())
+                if (u.owner == 0 && !u.structure && u.maxSpeed > 0) { walker = u.id; break; }
+            const float before = w.players()[0].credits;
+            const size_t unitsBefore = w.units().size();
+            std::printf("player 1 credits %.0f; unit %u walks to the object\n", before, walker);
+            if (walker) w.commandMove({walker}, at);
+            for (int tick = 0; tick < 30 * 40; ++tick) {
+                w.tick();
+                host.update();
+            }
+            const Unit* o = w.unit(obj);
+            std::printf("after 40 s: player 1 credits %.0f (%+.0f), object %s, %zu script(s) running, %+d objects\n",
+                        w.players()[0].credits, w.players()[0].credits - before, o && o->alive() ? "still there" : "gone",
+                        host.running(), int(w.units().size()) - int(unitsBefore));
+            return 0;
+        }
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
             rules.configure(w);

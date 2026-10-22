@@ -66,7 +66,7 @@ bool rawEquals(const LuaValue& a, const LuaValue& b) {
 // Each coroutine runs its function on a thread of its own; resume and yield hand control back
 // and forth under one mutex, so exactly one thread runs Lua at any time and the VM needs no other
 // locking. A coroutine dropped while suspended is woken with `kill` and unwinds.
-struct LuaCoroutine {
+struct LuaCoroutine : std::enable_shared_from_this<LuaCoroutine> {
     LuaValue fn;
     std::function<std::vector<LuaValue>(const LuaValue&, std::vector<LuaValue>)> call; // runs fn (the VM's call)
     enum class State { Suspended, Running, Normal, Dead } state = State::Suspended;
@@ -366,7 +366,13 @@ LuaVM::LuaVM() : globals_(std::make_shared<LuaTable>()) {
             return std::vector<LuaValue>{LuaValue::string(names[int(a[0].co->state)])};
         }));
         co.t->set(LuaValue::string("running"), LuaValue::function([](const std::vector<LuaValue>&) {
-            return std::vector<LuaValue>{LuaValue()}; // the running coroutine isn't handed out as a value
+            LuaValue v; // nil on the main thread
+            if (currentCoroutine)
+                if (auto self = currentCoroutine->weak_from_this().lock()) {
+                    v.type = LuaValue::Type::Thread;
+                    v.co = std::move(self);
+                }
+            return std::vector<LuaValue>{v};
         }));
         co.t->set(LuaValue::string("wrap"), LuaValue::function([make](const std::vector<LuaValue>& a) {
             const LuaValue c = a.empty() ? LuaValue() : make(a[0]);
