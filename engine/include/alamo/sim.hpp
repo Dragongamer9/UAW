@@ -61,6 +61,7 @@ struct Unit {
     bool attackMove = false;   // heading to `goal` but stopping to fight anything in range
     bool patrol = false;       // attack-moving back and forth between patrolFrom and patrolTo
     Vec3 patrolFrom{}, patrolTo{};
+    uint32_t guarding = 0;     // a friendly unit it follows and defends (0 = none)
     uint32_t target = 0;       // what the weapons are currently shooting at
     int repathTicks = 0;
     bool moving() const { return !path.empty(); }
@@ -307,7 +308,7 @@ struct Projectile {
 struct Command {
     enum class Kind : uint8_t {
         Move, Stop, AttackMove, Attack, Queue, CancelQueue, Rally, Construct, Superweapon, Research, Ability, Board, Unload,
-        Sell, Patrol, // new kinds go last (saved games name them, but keep the order anyway)
+        Sell, Patrol, Guard, // new kinds go last (saved games name them, but keep the order anyway)
     };
     uint64_t tick = 0;              // given before this tick ran
     Kind kind = Kind::Move;
@@ -403,6 +404,8 @@ public:
     void commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target);
     // Attack-move to `target`, then back to where each unit was, and so on until given another order.
     void commandPatrol(const std::vector<uint32_t>& ids, Vec3 target);
+    // Follow a friendly unit, keeping close, fighting what comes near (until another order).
+    void commandGuard(const std::vector<uint32_t>& ids, uint32_t friendId);
     // Chase and shoot a specific unit until it dies.
     void commandAttack(const std::vector<uint32_t>& ids, uint32_t target);
 

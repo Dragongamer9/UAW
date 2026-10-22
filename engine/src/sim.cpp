@@ -670,6 +670,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queu
         u->attackOrder = 0;
         u->attackMove = false;
         u->patrol = false;
+        u->guarding = 0;
         u->goal = slots[best];
         u->harvest = Unit::Harvest::None;
         if (u->flowTicks > 0) { u->flowGoal = slots[best]; continue; } // flowing: carries on there afterwards
@@ -704,8 +705,23 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
             u->attackOrder = 0;
             u->attackMove = false;
             u->patrol = false;
+            u->guarding = 0;
             u->harvest = Unit::Harvest::None;
         }
+}
+
+void World::commandGuard(const std::vector<uint32_t>& ids, uint32_t friendId) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Guard, ids, friendId});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
+    const Unit* f = unit(friendId);
+    if (!f) return;
+    std::vector<uint32_t> mobile;
+    for (uint32_t id : ids)
+        if (const Unit* u = unit(id); u && id != friendId && !u->structure && !u->inside && !enemies(u->owner, f->owner)) mobile.push_back(id);
+    if (mobile.empty()) return;
+    commandMove(mobile, f->position); // nested: not recorded on its own
+    for (uint32_t id : mobile)
+        if (Unit* u = unit(id)) u->guarding = friendId;
 }
 
 void World::commandPatrol(const std::vector<uint32_t>& ids, Vec3 target) {
@@ -743,6 +759,7 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
         u->attackOrder = target;
         u->attackMove = false;
         u->patrol = false;
+        u->guarding = 0;
         u->target = target;
         u->repathTicks = 0;
     }
@@ -1388,6 +1405,19 @@ void World::tick() {
     mark();
     for (Unit& u : units_) {
         updateFlow(u);
+        // Guarding: when idle and the friend has moved off, follow (every half second).
+        if (u.guarding && (ticks_ + u.id) % 15 == 0) {
+            const Unit* f = unit(u.guarding);
+            if (!f || !f->alive() || f->inside) {
+                u.guarding = 0;
+            } else if (!u.target && !u.attackOrder) {
+                const float keep = std::max(60.f, f->radius + u.radius + 40);
+                if (dist2d(u.position, f->position) > keep && (u.path.empty() || dist2d(u.goal, f->position) > keep)) {
+                    u.goal = f->position;
+                    u.path = planPath(u, f->position);
+                }
+            }
+        }
         // Arrived with Shift-queued moves left: on to the next.
         if (!u.queuedMoves.empty() && !u.moving() && !u.attackMove && !u.attackOrder && !u.inside) {
             u.goal = u.queuedMoves.front();
@@ -1425,6 +1455,7 @@ void World::apply(const Command& c) {
     case Command::Kind::Stop: commandStop(c.ids); break;
     case Command::Kind::AttackMove: commandAttackMove(c.ids, c.point); break;
     case Command::Kind::Patrol: commandPatrol(c.ids, c.point); break;
+    case Command::Kind::Guard: commandGuard(c.ids, c.target); break;
     case Command::Kind::Attack: commandAttack(c.ids, c.target); break;
     case Command::Kind::Queue: queueProduction(first, c.name); break;
     case Command::Kind::CancelQueue: cancelProduction(first); break;

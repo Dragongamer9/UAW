@@ -224,6 +224,7 @@ void Hud::drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVert
         {"Move / attack", "right click (Shift: queue a move)"},
         {"Attack-move", "G then right click, or A + right click"},
         {"Patrol", "P then right click (back and forth, fighting)"},
+        {"Guard", "Ctrl + right click a friendly unit"},
         {"Stop / camera to selection", "X / Space"},
         {"Abilities", "F1-F8 (targeted: then right click)"},
         {"Build menu", "1-9 or click; Backspace cancels last"},

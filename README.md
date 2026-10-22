@@ -157,6 +157,7 @@ squad, or another with `--player N`.
 | Cancel last queued item | Backspace | left stick click |
 | Rally point (structure selected) | right click | RB |
 | Patrol (attack-move back and forth) | P then right click | |
+| Guard a friendly unit (follow and defend it) | Ctrl + right click on it | |
 | Full screen / window | F11 or Alt+Enter | |
 | Toggle stand-in boxes | F12 | Y |
 | Game speed / pause | `[` `]` / Pause | |

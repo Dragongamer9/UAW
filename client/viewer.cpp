@@ -1115,7 +1115,8 @@ int main(int argc, char** argv) {
                                 else if (superweaponArmed) control.fireSuperweapon(world, g);
                                 else if (patrolArmed) control.patrol(world, g);
                                 else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
-                                else control.command(world, g, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
+                                else control.command(world, g, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT],
+                                                     k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]);
                                 attackMoveArmed = superweaponArmed = patrolArmed = false;
                             }
                         }

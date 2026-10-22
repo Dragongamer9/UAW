@@ -276,8 +276,18 @@ void UnitControl::place(alamo::World& w) {
     }
 }
 
-void UnitControl::command(alamo::World& w, const Vec3& ground, bool queued) {
+void UnitControl::command(alamo::World& w, const Vec3& ground, bool queued, bool guard) {
     if (selected_.empty()) return;
+    if (guard) // Ctrl + right click on a friendly unit: follow and defend it
+        for (uint32_t id : w.unitsNear(ground, 10))
+            if (const alamo::Unit* u = w.unit(id); u && !u->structure && !selected_.count(id) && !w.enemies(player_, u->owner)) {
+                w.commandGuard(std::vector<uint32_t>(selected_.begin(), selected_.end()), id);
+                say("Guarding", w.seconds());
+                lastOrder_ = u->position;
+                lastOrderTime_ = w.seconds();
+                attackOrder_ = false;
+                return;
+            }
     // Selected structures take the click as their rally point.
     bool anyMobile = false;
     for (uint32_t id : selected_)

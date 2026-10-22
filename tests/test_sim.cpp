@@ -383,6 +383,23 @@ static void testCombat(const GameDatabase& db) {
         CHECK(!pw.unit(guard)->patrol);
     }
 
+    // Guard: keeps near the friend as it moves.
+    {
+        World gw(m, db, &table, 3);
+        const uint32_t vip = gw.spawn("Gunner", 0, {100, 500, 0});
+        const uint32_t escort = gw.spawn("Gunner", 0, {100, 560, 0});
+        gw.commandGuard({escort}, vip);
+        CHECK(gw.unit(escort)->guarding == vip);
+        gw.commandMove({vip}, {450, 500, 0});
+        for (int i = 0; i < 25 * 30; ++i) gw.tick();
+        const Unit* v = gw.unit(vip);
+        const Unit* e = gw.unit(escort);
+        CHECK(std::hypot(v->position[0] - 450, v->position[1] - 500) < 15);
+        CHECK(std::hypot(e->position[0] - v->position[0], e->position[1] - v->position[1]) < 120);
+        gw.commandStop({escort});
+        CHECK(gw.unit(escort)->guarding == 0);
+    }
+
     // Same seed, same battle.
     auto battle = [&](uint64_t seed) {
         World b(m, db, &table, seed);
