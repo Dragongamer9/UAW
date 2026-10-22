@@ -648,13 +648,14 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                 if (const GpuModel* m = r.model(alamo::trim(*name)))
                     top = std::max(2.f, m->boundsMax[2] * float(u.type->number("Scale_Factor").value_or(1.0)) * std::clamp(u.buildProgress, 0.f, 1.f));
             const float fx = u.footprintX * 2, fy = u.footprintY * 2;
-            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::scale3(fx, fy, 1.5f), {0.45f, 0.5f, 0.55f, 1});
-            const Vec4 band{0.5f, 0.9f, 1.f, 1};
-            const float z = u.position[2] + top, t = 1.2f;
-            r.drawBox(Mat4::translate(u.position[0], u.position[1] + fy / 2, z) * Mat4::scale3(fx, t, t), band);
-            r.drawBox(Mat4::translate(u.position[0], u.position[1] - fy / 2, z) * Mat4::scale3(fx, t, t), band);
-            r.drawBox(Mat4::translate(u.position[0] + fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), band);
-            r.drawBox(Mat4::translate(u.position[0] - fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), band);
+            auto frame = [&](float z, float t, const Vec4& c) { // the site's outline at height z
+                r.drawBox(Mat4::translate(u.position[0], u.position[1] + fy / 2, z) * Mat4::scale3(fx, t, t), c);
+                r.drawBox(Mat4::translate(u.position[0], u.position[1] - fy / 2, z) * Mat4::scale3(fx, t, t), c);
+                r.drawBox(Mat4::translate(u.position[0] + fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), c);
+                r.drawBox(Mat4::translate(u.position[0] - fx / 2, u.position[1], z) * Mat4::scale3(t, fy, t), c);
+            };
+            frame(u.position[2] + 0.5f, 1.f, {0.35f, 0.4f, 0.45f, 1});
+            frame(u.position[2] + top, 1.2f, {0.5f, 0.9f, 1.f, 1});
         }
         if (u.structure && u.hasRally && selected_.count(u.id)) {
             const float z = w.map().heightAt(u.rally[0], u.rally[1]);
