@@ -197,6 +197,9 @@ A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decisio
 
 ### Balance
 
+> ⚑ **Provisional.** These numbers get re-tuned when the gameplay is close to finished; see
+> [docs/TODO.md](docs/TODO.md).
+
 The original numbers are not balanced for this engine's AI: in an untouched 8-map round robin (all mods,
 20 minutes, both seats, 2 seeds) Novus won 86 of 96 games and the Masari none. Each faction now has an income
 multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but

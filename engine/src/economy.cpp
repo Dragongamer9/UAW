@@ -71,6 +71,7 @@ Balance Balance::defaults() {
     // The Hierarchy only harvests scrap; at the retail rate it strips the map and then
     // starves, so a pile is worth ten times as much to it (same income rate, piles last 10x).
     b.factions["ALIEN"].resourceValue = 10;
+    // PROVISIONAL (see docs/TODO.md): rerun the balance games before release.
     // Income multipliers tuned by AI-vs-AI tournaments (simtool tournament, 8 maps, all mods):
     // untouched, Novus won 86/96 games and the Masari 0/96.
     b.factions["NOVUS"].income = 0.4f;
