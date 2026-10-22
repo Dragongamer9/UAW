@@ -474,6 +474,16 @@ alamo::Mat34 mul34(const alamo::Mat34& a, const alamo::Mat34& b) {
 
 } // namespace
 
+Vec4 playerColor(int player) {
+    // The game's multiplayer colours (GameConstants.xml MP_Color_*): blue, red, green, orange, cyan,
+    // purple, yellow, grey.
+    static const Vec4 c[] = {{78 / 255.f, 150 / 255.f, 1, 1},          {1, 23 / 255.f, 23 / 255.f, 1},
+                             {119 / 255.f, 1, 78 / 255.f, 1},          {1, 149 / 255.f, 23 / 255.f, 1},
+                             {111 / 255.f, 217 / 255.f, 224 / 255.f, 1}, {1, 111 / 255.f, 209 / 255.f, 1},
+                             {224 / 255.f, 223 / 255.f, 45 / 255.f, 1}, {150 / 255.f, 150 / 255.f, 150 / 255.f, 1}};
+    return player < 0 ? Vec4{1, 1, 1, 1} : c[player % 8];
+}
+
 bool UnitControl::aimTurret(const GpuModel& m, const Mat4& xf, const alamo::GameObjectType& t, const alamo::Vec3* target, uint64_t key,
                             float time, Pose& pose) const {
     const std::string* boneName = t.find("Turret_Bone_Name");
@@ -648,11 +658,8 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     for (const alamo::Unit& u : w.units()) {
         if (!shown(w, u)) continue;
         const bool sel = selected_.count(u.id) != 0;
-        const Vec4 col = [&] {
-            static const Vec4 c[] = {{0.25f, 0.55f, 1.f, 1}, {0.95f, 0.25f, 0.2f, 1}, {0.35f, 0.85f, 0.35f, 1}, {0.95f, 0.8f, 0.2f, 1},
-                                     {0.75f, 0.4f, 1, 1},     {0.3f, 0.9f, 0.9f, 1},    {1, 0.6f, 0.2f, 1},        {0.85f, 0.85f, 0.85f, 1}};
-            return c[std::clamp(u.owner, 0, 7)];
-        }();
+        const Vec4 col = playerColor(u.owner);
+        r.setTeamColor(col);
         const float rad = u.radius;
         const Mat4 base = Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::rotateZ(u.facing);
 
@@ -831,6 +838,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
 
     // Shots in flight: small glowing blocks in the shooter's colour.
     static const Vec4 shot[] = {{0.5f, 0.85f, 1.f, 1}, {1.f, 0.55f, 0.25f, 1}, {0.6f, 1.f, 0.5f, 1}, {1.f, 0.9f, 0.4f, 1}};
+    r.setTeamColor({1, 1, 1, 1});
     for (const alamo::Projectile& p : w.projectiles()) {
         if (fog && w.fogOfWar() && player_ >= 0 && !w.visibleTo(player_, p.position)) continue;
         if (p.type)
@@ -869,11 +877,13 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             const Pose pose = r.pose(*model, *anim, std::min(age, last));
             const float sink = age > 2.5f ? (age - 2.5f) * 12 : 0;
             const float scale = float(d.type->number("Scale_Factor").value_or(1.0));
+            r.setTeamColor(playerColor(d.owner));
             r.drawModel(*model,
                         Mat4::translate(d.position[0], d.position[1], d.position[2] - sink) * Mat4::rotateZ(d.facing) *
                             Mat4::rotateZ(1.5707963f) * Mat4::scale(scale),
                         {1, 1, 1, 1}, &pose);
         }
+    r.setTeamColor({1, 1, 1, 1});
     // Wrecks: a dark scorch plate for a few seconds, only when there are no particle effects to show
     // the explosion (they replace it).
     if (!effects)

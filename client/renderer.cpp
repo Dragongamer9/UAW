@@ -60,6 +60,7 @@ uniform vec4 uFogRange; // x = start, y = end
 uniform int uUnlit;
 uniform int uAlphaTest;
 uniform float uClipZ;      // fragments above this height are cut away (structures being built)
+uniform vec4 uTeam;        // rgb = the owner's colour, w = 1 for *Colorize shaders (texture alpha = where)
 uniform sampler2D uFow;
 uniform vec4 uFowParams; // xy = 1 / map size, z = 1 when fog of war is on
 out vec4 fragColor;
@@ -82,7 +83,14 @@ float sunlight(vec3 world, vec3 n) {
 }
 void main() {
     vec4 base = vColor * uTint;
-    if (uHasTex != 0) base *= texture(uTex, vUv);
+    if (uHasTex != 0) {
+        vec4 texel = texture(uTex, vUv);
+        if (uTeam.w > 0.5) { // player colour where the texture's alpha says so; the alpha is no transparency
+            base.rgb *= mix(texel.rgb, texel.rgb * uTeam.rgb, texel.a);
+        } else {
+            base *= texel;
+        }
+    }
     if (uAlphaTest != 0 && base.a < 0.5) discard;
     if (vWorld.z > uClipZ) discard;
     if (uUnlit != 0) { fragColor = base; return; }
@@ -178,6 +186,8 @@ void main() {
 )";
 
 GLuint link(const char* vsSrc, const char* fsSrc);
+
+void glUniform4f4(GLint loc, const alamo::Vec4& v) { glUniform4fv(loc, 1, v.data()); }
 
 GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
@@ -311,6 +321,7 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uAlphaTest_ = glGetUniformLocation(program_, "uAlphaTest");
     uSkin_ = glGetUniformLocation(program_, "uSkin");
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
+    uTeam_ = glGetUniformLocation(program_, "uTeam");
 
     terrainProgram_ = link(kTerrainVertexShader, kTerrainFragmentShader);
     shadowsOn_ = std::getenv("UAW_NO_SHADOWS") == nullptr;
@@ -450,6 +461,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                     gpu.blend = GpuMesh::Blend::Additive;
                 else if (shader.find("Alpha") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Alpha;
+                gpu.colorize = shader.find("Colorize") != std::string::npos && gpu.blend == GpuMesh::Blend::Opaque;
                 for (const char* cut : {"Grass", "Leaves", "Bush", "Foliage", "Alpha_Test", "AlphaTest", "Billboard"})
                     if (shader.find(cut) != std::string::npos) gpu.alphaTest = true;
                 if (auto it = sm.material.params.find("Diffuse"); it != sm.material.params.end())
@@ -599,6 +611,8 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform1i(uAlphaTest_, 0);
     glUniform1f(glGetUniformLocation(program_, "uClipZ"), 1e9f);
     clipZ_ = 1e9f;
+    glUniform4f4(uTeam_, {0, 0, 0, 0});
+    team_ = {1, 1, 1, 1};
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
     glActiveTexture(GL_TEXTURE2);
@@ -802,7 +816,9 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
         setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture);
         setSkin(mesh, pose);
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 1);
+        if (mesh.colorize) glUniform4f4(uTeam_, team_);
         mesh.draw();
+        if (mesh.colorize) glUniform4f4(uTeam_, {0, 0, 0, 0});
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 0);
     }
     glUniform1i(uSkinned_, 0);

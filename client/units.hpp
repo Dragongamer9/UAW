@@ -13,6 +13,9 @@
 
 namespace uaw {
 
+// A player's colour (units' *Colorize meshes, health bars, the minimap); white for none.
+alamo::Vec4 playerColor(int player);
+
 class ParticleEffects;
 
 // Screen <-> world helpers for the current frame.

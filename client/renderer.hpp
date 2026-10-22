@@ -35,6 +35,7 @@ struct GpuMesh {
     GLuint texture = 0;
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
+    bool colorize = false;  // *Colorize shaders: the owner's colour where the texture's alpha is set
     bool alphaTest = false; // foliage (grass, leaves, bushes): cut out where the texture is transparent
     std::vector<uint32_t> palette; // skeleton bone per vertex bone slot (empty: never posed)
 
@@ -96,6 +97,8 @@ public:
     void drawWater();
     // Models drawn after this are cut off above height z (1e9 = no cut): buildings rising as they are built.
     void setClipHeight(float z);
+    // The owner's colour for models drawn after this (their *Colorize meshes); white = none.
+    void setTeamColor(const alamo::Vec4& c) { team_ = {c[0], c[1], c[2], 1}; }
     // World-space triangles (camera-facing particle quads), unlit, blended, no depth writes.
     void drawParticles(const std::vector<GpuVertex>& vertices, GLuint texture, bool additive);
     // A game texture by name (cached; 0 if missing).
@@ -130,7 +133,8 @@ private:
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1, uTeam_ = -1;
+    alamo::Vec4 team_{1, 1, 1, 1};
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
     int width_ = 1, height_ = 1;
