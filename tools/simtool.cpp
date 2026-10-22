@@ -218,6 +218,14 @@ int main(int argc, char** argv) {
                         std::printf("--- %2d:00 %-8s credits %6.0f earned %7.0f  structures %2d units %3d  abilities %4d research %zu %s\n",
                                     t / (60 * kTicksPerSecond), p->faction.c_str(), p->credits, p->earned, structures, units,
                                     p->abilitiesUsed, p->researched.size(), ai.attacking() ? "ATTACKING" : "");
+                        if (std::getenv("UAW_MATCH_UNITS")) { // the army by type
+                            std::map<std::string, int> n;
+                            for (const Unit& u : w.units())
+                                if (u.owner == p->id && !u.structure) ++n[u.type->name];
+                            std::string line;
+                            for (const auto& [k, c] : n) line += " " + k + "x" + std::to_string(c);
+                            std::printf("       %s\n", line.c_str());
+                        }
                     }
                 }
                 const bool da = defeated(w, a), db2 = defeated(w, b);

@@ -77,10 +77,11 @@ Balance Balance::defaults() {
     // Novus won 86/96 games and the Masari 0/96. Retuned once the AI used the whole roster
     // (walkers, hardpoints, every structure), and again once the AI played by fog of war and units
     // used the targeting priority sets: 72 games on three maps, Novus 17 / Hierarchy 19 / Masari 17 /
-    // Military 13 wins of 36.
+    // Military 13 wins of 36; and once the AI built quick-payback income (Supply depots, Matter Engines)
+    // in numbers: Novus 17 / Hierarchy 19 / Masari 15 / Military 14.
     b.factions["NOVUS"].income = 0.75f;
-    b.factions["MASARI"].income = 2.7f;
-    b.factions["MILITARY"].income = 1.85f;
+    b.factions["MASARI"].income = 2.4f;
+    b.factions["MILITARY"].income = 1.1f;
     b.factions["ALIEN"].income = 2.2f;
     return b;
 }

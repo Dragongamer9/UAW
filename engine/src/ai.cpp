@@ -298,6 +298,19 @@ void SkirmishAI::manageConstruction() {
         if (options.empty()) continue;
         // Desired counts per role, growing with time.
         const int wantEconomy = 2 + int(minutes / 2.5f);
+        // Passive income structures that pay for themselves quickly (Military Supply, Masari Matter
+        // Engines) are worth many more, early: all the more the sooner they pay back (under 45 s
+        // fully, none past 90 s).
+        float bestPayback = 1e9f;
+        for (const std::string& o : options) {
+            const GameObjectType* t = db_.find(o);
+            if (!t || roleOf(*t) != Role::Economy) continue;
+            const EconomySpec& e = w_.economy(*t);
+            if (e.passivePerSecond <= 0 || (!e.passiveFaction.empty() && !iequals(e.passiveFaction, me->faction))) continue;
+            const float rate = e.passivePerSecond * w_.balance().of(me->faction).income * me->incomeBonus;
+            if (rate > 0) bestPayback = std::min(bestPayback, buildInfo(*t, db_).cost / rate);
+        }
+        const int wantQuickEconomy = int((3 + minutes * 1.5f) * std::clamp((90 - bestPayback) / 45, 0.f, 1.f));
         const int wantDefense = minutes > 4 ? 1 + int((minutes - 4) / 4) : 0;
         bool planning = false; // true: ignore credits (what would we build next?)
         auto pick = [&](Role role, int limitOfType, bool generatorOnly = false, bool lineOnly = false) -> std::string {
@@ -329,6 +342,7 @@ void SkirmishAI::manageConstruction() {
                 c = pick(Role::Power, 99);
             if (c.empty() && roleCount[int(Role::Economy)] < std::min(wantEconomy, 3)) c = pick(Role::Economy, 99);
             if (c.empty()) c = pick(Role::Production, 1);
+            if (c.empty() && roleCount[int(Role::Economy)] < wantQuickEconomy) c = pick(Role::Economy, 99);
             if (c.empty() && minutes > 4 && roleCount[int(Role::Defense)] < 1) c = pick(Role::Defense, 99);
             // Then every tech structure once (labs, advanced factories, detectors, superweapons),
             // cheapest first, so the whole roster comes into play.

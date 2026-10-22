@@ -286,17 +286,18 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 | Faction   | Income | Resource value |
 |-----------|-------:|---------------:|
 | Novus     | 0.75   | 1              |
-| Masari    | 2.7    | 1              |
-| Military  | 1.85   | 1              |
+| Masari    | 2.4    | 1              |
+| Military  | 1.1    | 1              |
 | Hierarchy | 2.2    | 10             |
 
 Checked with a 72-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
-2 seeds, fog of war on, the AI playing by it): Hierarchy 19 wins of 36, Novus 17, Masari 17, Military 13,
-6 draws. The matchups themselves are lopsided (Novus beats the Military 12-0, the Masari beat Novus 10-2), so
-the totals hide a rock-paper-scissors. The mods set most units' population cost to 0, so armies
-are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
-Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
-Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+2 seeds, fog of war on, the AI playing by it, building passive income in numbers): Hierarchy 19 wins of 36,
+Novus 17, Masari 15, Military 14, 10 draws. The matchups themselves are lopsided (Novus beats the Military
+12-0, the Masari beat Novus 8-2, the Military beat the Hierarchy and the Masari 7-3), so the totals hide a
+rock-paper-scissors. The mods set most units' population cost to 0, so armies are limited by money and
+factory speed. The Military's multiplier is the most sensitive knob: its Supply depots pay for themselves
+in under a minute, so it decides how many the AI builds (1.3 gave the Military 26 wins). Novus Variants come
+back three times (Community Patch / Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
 
 ```xml
 <UAW_Balance>
@@ -315,6 +316,9 @@ and tech. It aims to use **the whole roster**:
   then every tech structure once (labs, advanced factories, detectors, superweapons, field-built units such as
   the Hierarchy scan drone), more economy and defences as the game goes on, and extra line factories (not HQs)
   when credits pile up. The next item is built as soon as it is affordable; nothing cheaper jumps the queue.
+  Passive income structures that pay for themselves quickly (Military Supply, Masari Matter Engines: price
+  over income per second, fully under 45 s, not at all past 90 s) are built in numbers early, right after
+  the first factory (3 plus 1.5 a minute).
 - **Bank reserve**: production keeps the price of the next structure, the next research suite, or an expensive
   unit another factory is saving for in the bank (never more than a capped bank, Masari, can hold).
 - **Units in rotation**: every unit type gets turns in proportion to its combat value per credit (never less
@@ -353,7 +357,8 @@ simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someon
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 ```
 
-A match takes a few seconds to simulate (`UAW_FOG=1` plays it with fog of war). `UAW_AI_LOG=1` prints every AI decision.
+A match takes a few seconds to simulate (`UAW_FOG=1` plays it with fog of war; `UAW_MATCH_UNITS=1` lists both
+armies every minute). `UAW_AI_LOG=1` prints every AI decision.
 
 ## Superweapons
 
