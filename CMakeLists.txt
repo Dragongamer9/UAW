@@ -122,6 +122,7 @@ if(UAW_BUILD_CLIENT)
     client/hud.cpp
     client/menu.cpp
     client/particles.cpp
+    client/savegame.cpp
     client/font.cpp
     client/gl.cpp)
   target_link_libraries(uaw-viewer PRIVATE alamo SDL3::SDL3)

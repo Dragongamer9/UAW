@@ -30,6 +30,7 @@
 //     --research          open the research panel
 //     --menu              (with --screenshot) picture of the setup screen for MAP
 //     --no-fog            no fog of war
+//     --load FILE         continue a saved game (F5 saves, F9 loads the quick save)
 //     --effect NAME[@S]   (with --screenshot) a particle effect (Particles.xml name or .alo) at the
 //                         camera target, pictured S seconds after it starts (default 0.3)
 //     --slots LIST        every start position in order: you|ai|open[:FACTION[:TEAM]], e.g.
@@ -60,6 +61,7 @@
 #include "units.hpp"
 #include "menu.hpp"
 #include "particles.hpp"
+#include "savegame.hpp"
 
 #include "alamo/ai.hpp"
 #include "alamo/alo.hpp"
@@ -103,6 +105,8 @@ struct Options {
     float order[2] = {0, 0};
     float runSeconds = 0;
     bool fog = true;       // fog of war (--no-fog)
+    std::string load;      // --load FILE: a saved game
+    std::string saveAs;    // --save FILE: (screenshots) save the game after --run
     std::string effect;    // --effect NAME[@SECONDS]: (screenshots) a particle effect at the camera target
     std::string slots;     // --slots you:Novus:1,ai:Alien:2,open,...
     bool menu = false;     // start at the skirmish setup screen (no map on the command line)
@@ -167,6 +171,8 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--menu") o.menu = true;
         else if (a == "--slots") o.slots = next();
         else if (a == "--no-fog") o.fog = false;
+        else if (a == "--load") { o.load = next(); o.menu = true; }
+        else if (a == "--save") o.saveAs = next();
         else if (a == "--effect") o.effect = next();
         else return false;
     }
@@ -276,10 +282,11 @@ int main(int argc, char** argv) {
         rules.load(vfs);
         SDL_Log("%zu effects, %zu research trees", rules.effectLibrary.size(), rules.research.size());
         const float uiScale = std::max(0.75f, float(opt.height) / 900.f);
-        enum class End { Quit, ToMenu, Restart };
+        enum class End { Quit, ToMenu, Restart, Load };
+        std::string loadPath; // End::Load: the file to load
 
     // One game: load the map, set up the players, play until quit / back to the menu / restart.
-    auto runSession = [&](const SkirmishSetup& setup) -> End {
+    auto runSession = [&](const SkirmishSetup& setup, const SaveGame* save) -> End {
         opt.map = setup.map;
         Map map = loadTed(vfs.read(mapPath(opt.map)));
         renderer.setTerrain(map);
@@ -441,10 +448,14 @@ int main(int argc, char** argv) {
             for (const Player& p : world.players())
                 if (p.faction != "Neutral" && (p.id != opt.player - 1 || opt.spectate || setup.human() < 0))
                     ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
+        // Orders given outside the simulation step (the player's) are recorded for saved games.
         auto stepWorld = [&]() {
+            world.setRecording(false);
             for (auto& ai : ais) ai.update();
             world.tick();
+            world.setRecording(true);
         };
+        world.setRecording(true);
         if (world.players().empty())
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
@@ -458,6 +469,21 @@ int main(int argc, char** argv) {
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
 
+        // A saved game: play it again, with the player's orders at their ticks, up to where it was saved.
+        if (save) {
+            SDL_SetWindowTitle(window, "Universe at War - loading saved game...");
+            size_t next = 0;
+            const uint64_t t0 = SDL_GetTicks();
+            while (world.tickCount() < save->tick) {
+                world.setRecording(true);
+                while (next < save->commands.size() && save->commands[next].tick <= world.tickCount()) world.apply(save->commands[next++]);
+                stepWorld();
+            }
+            std::printf("loaded: %llu ticks replayed with %zu orders in %.1f s, state %016llx\n", (unsigned long long)save->tick,
+                        save->commands.size(), double(SDL_GetTicks() - t0) / 1000.0, (unsigned long long)world.stateHash());
+            opt.haveCamera = true;
+            for (int k = 0; k < 5; ++k) opt.cam[k] = save->camera[k];
+        }
         RtsCamera cam;
         const Vec3 start = scene.startPosition(opt.player - 1);
         cam.x = start[0];
@@ -472,6 +498,21 @@ int main(int argc, char** argv) {
             cam.pitch = opt.cam[4];
         }
 
+        auto saveTo = [&](const std::string& path) {
+            SaveGame sg;
+            sg.setup = setup;
+            sg.mods = modNames;
+            sg.tick = world.tickCount();
+            sg.player = opt.player;
+            sg.spectate = opt.spectate;
+            sg.camera[0] = cam.x;
+            sg.camera[1] = cam.y;
+            sg.camera[2] = cam.distance;
+            sg.camera[3] = cam.yaw;
+            sg.camera[4] = cam.pitch;
+            sg.commands = world.commandLog();
+            return writeSave(path, sg);
+        };
         bool placeholders = true;
         View view;
         Hud hud(vfs, uiScale);
@@ -585,6 +626,9 @@ int main(int argc, char** argv) {
                 }
                 std::printf("selected %d units matching %s\n", n, opt.select.c_str());
             }
+            if (!opt.saveAs.empty())
+                std::printf("save %s: %s, state %016llx\n", opt.saveAs.c_str(), saveTo(opt.saveAs) ? "written" : "FAILED",
+                            (unsigned long long)world.stateHash());
             int w, h;
             SDL_GetWindowSizeInPixels(window, &w, &h);
             if (!opt.effect.empty()) {
@@ -635,6 +679,15 @@ int main(int argc, char** argv) {
                         case PauseMenu::Result::Restart: end = End::Restart; running = false; break;
                         case PauseMenu::Result::ToMenu: end = End::ToMenu; running = false; break;
                         case PauseMenu::Result::Quit: end = End::Quit; running = false; break;
+                        case PauseMenu::Result::Save:
+                            control.say(saveTo(saveFolder() + "quicksave.uawsave") ? "Game saved" : "Could not save the game", world.seconds());
+                            pause.open = false;
+                            break;
+                        case PauseMenu::Result::Load:
+                            loadPath = saveFolder() + "quicksave.uawsave";
+                            end = End::Load;
+                            running = false;
+                            break;
                         case PauseMenu::Result::None: break;
                         }
                         continue;
@@ -647,6 +700,14 @@ int main(int argc, char** argv) {
                             else if (control.abilityArmed()) control.cancelAbility();
                             else if (hud.researchOpen) hud.researchOpen = false;
                             else pause.open = true;
+                        } else if (e.key.key == SDLK_F5) {
+                            const std::string path = saveFolder() + "quicksave.uawsave";
+                            control.say(saveTo(path) ? "Game saved" : "Could not save the game", world.seconds());
+                            std::printf("saved %s\n", path.c_str());
+                        } else if (e.key.key == SDLK_F9) {
+                            loadPath = saveFolder() + "quicksave.uawsave";
+                            end = End::Load;
+                            running = false;
                         } else if (e.key.key == SDLK_PAUSE) {
                             paused = !paused;
                         } else if (e.key.key == SDLK_RIGHTBRACKET) {
@@ -900,15 +961,35 @@ int main(int argc, char** argv) {
             }
         }
         std::unique_ptr<SkirmishMenu> menu;
-        End end = opt.menu ? End::ToMenu : End::Restart;
+        End end = !opt.load.empty() ? End::Load : opt.menu ? End::ToMenu : End::Restart;
+        if (!opt.load.empty()) loadPath = opt.load;
+        SaveGame loaded;
         while (end != End::Quit) {
+            if (end == End::Load) {
+                std::string err;
+                if (readSave(loadPath, loaded, &err)) {
+                    if (loaded.mods != modNames) std::fprintf(stderr, "warning: the game was saved with other mods loaded\n");
+                    setup = loaded.setup;
+                    opt.player = loaded.player;
+                    opt.spectate = loaded.spectate;
+                    opt.map = setup.map;
+                    end = runSession(setup, &loaded);
+                    if (headless) break;
+                    continue;
+                }
+                std::fprintf(stderr, "can't load %s: %s\n", loadPath.c_str(), err.c_str());
+                end = menu || opt.menu ? End::ToMenu : End::Quit;
+                if (headless) break;
+                continue;
+            }
             if (end == End::ToMenu) {
                 if (!menu) {
                     menu = std::make_unique<SkirmishMenu>(vfs, db, modNames, uiScale);
                     if (!opt.map.empty()) menu->selectMap(opt.map);
                 }
                 if (menu->empty()) throw std::runtime_error("no skirmish maps found");
-                bool done = false, quit = false;
+                bool done = false, quit = false, loadGame = false;
+                menu->quickSave = saveFolder() + "quicksave.uawsave";
                 if (headless) { // a picture of the setup screen
                     int w, h;
                     SDL_GetWindowSizeInPixels(window, &w, &h);
@@ -934,6 +1015,7 @@ int main(int argc, char** argv) {
                         const SkirmishMenu::Result r = menu->handle(e);
                         if (r == SkirmishMenu::Result::Start) done = true;
                         if (r == SkirmishMenu::Result::Quit) done = quit = true;
+                        if (r == SkirmishMenu::Result::Load) done = loadGame = true;
                     }
                     int w, h;
                     SDL_GetWindowSizeInPixels(window, &w, &h);
@@ -944,13 +1026,18 @@ int main(int argc, char** argv) {
                 }
                 if (pad) SDL_CloseGamepad(pad);
                 if (quit) break;
+                if (loadGame) {
+                    loadPath = menu->quickSave;
+                    end = End::Load;
+                    continue;
+                }
                 setup = menu->setup();
                 const int human = setup.human();
                 opt.player = human >= 0 ? human + 1 : 1;
                 opt.spectate = human < 0;
                 opt.haveCamera = opt.camSet = false;
             }
-            end = runSession(setup);
+            end = runSession(setup, nullptr);
             if (headless) break;
         }
     } catch (const std::exception& e) {

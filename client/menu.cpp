@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 
 namespace uaw {
 
@@ -121,7 +122,7 @@ void MenuPainter::flush(Renderer& r) {
 // ---------------------------------------------------------------- skirmish setup
 
 namespace {
-enum : int { kStart = 1, kQuit = 2, kFog = 3, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
+enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
 }
 
 SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale)
@@ -242,6 +243,7 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
         if (id == kStart && canStart()) return Result::Start;
         if (id == kQuit) return Result::Quit;
         if (id == kFog) setup_.fog = !setup_.fog;
+        if (id == kLoad) return Result::Load;
         if (id >= kMapBase && id < kSlotBase) {
             const size_t i = size_t(id - kMapBase);
             if (i == selected_ && e.button.clicks >= 2 && canStart()) return Result::Start;
@@ -397,6 +399,8 @@ void SkirmishMenu::draw(Renderer& r) {
     const float bw = 200 * s, bh = lh + 16 * s, by = H - pad - bh;
     int players = 0;
     for (const PlayerSlot& p : setup_.slots) players += p.kind != PlayerSlot::Kind::Open;
+    if (!quickSave.empty() && std::ifstream(quickSave).good())
+        paint_.button(r, kLoad, "Load saved game", W - pad - bw * 4 - 48 * s, by, W - pad - bw * 3 - 48 * s, by + bh, false, mouseX_, mouseY_);
     paint_.button(r, kFog, setup_.fog ? "Fog of war: on" : "Fog of war: off", W - pad - bw * 3 - 32 * s, by, W - pad - bw * 2 - 32 * s,
                   by + bh, setup_.fog, mouseX_, mouseY_);
     paint_.button(r, kQuit, "Quit", W - pad - bw * 2 - 16 * s, by, W - pad - bw - 16 * s, by + bh, false, mouseX_, mouseY_);
@@ -409,15 +413,18 @@ void SkirmishMenu::draw(Renderer& r) {
 // ---------------------------------------------------------------- pause menu
 
 namespace {
-const char* kPauseItems[] = {"Resume", "Restart", "Quit to setup", "Exit game"};
+const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Restart", "Quit to setup", "Exit game"};
+constexpr int kPauseCount = 6;
 }
 
 PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
     auto result = [](int i) {
         switch (i) {
         case 0: return Result::Resume;
-        case 1: return Result::Restart;
-        case 2: return Result::ToMenu;
+        case 1: return Result::Save;
+        case 2: return Result::Load;
+        case 3: return Result::Restart;
+        case 4: return Result::ToMenu;
         default: return Result::Quit;
         }
     };
@@ -432,14 +439,14 @@ PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
         break;
     case SDL_EVENT_KEY_DOWN:
         if (e.key.key == SDLK_ESCAPE) return Result::Resume;
-        if (e.key.key == SDLK_DOWN) highlight_ = (highlight_ + 1) % 4;
-        if (e.key.key == SDLK_UP) highlight_ = (highlight_ + 3) % 4;
+        if (e.key.key == SDLK_DOWN) highlight_ = (highlight_ + 1) % kPauseCount;
+        if (e.key.key == SDLK_UP) highlight_ = (highlight_ + kPauseCount - 1) % kPauseCount;
         if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) return result(highlight_);
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
         if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START || e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) return Result::Resume;
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) highlight_ = (highlight_ + 1) % 4;
-        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) highlight_ = (highlight_ + 3) % 4;
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) highlight_ = (highlight_ + 1) % kPauseCount;
+        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) highlight_ = (highlight_ + kPauseCount - 1) % kPauseCount;
         if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) return result(highlight_);
         break;
     default: break;
@@ -453,10 +460,10 @@ void PauseMenu::draw(Renderer& r) {
     paint_.begin();
     r.drawOverlayRect(0, 0, W, H, {0, 0, 0, 0.55f});
     const float bw = 300 * s, bh = lh + 18 * s, gap = 12 * s;
-    const float x0 = W / 2 - bw / 2, y0 = H / 2 - (4 * bh + 3 * gap) / 2;
-    r.drawOverlayRect(x0 - 24 * s, y0 - lh - 40 * s, x0 + bw + 24 * s, y0 + 4 * bh + 3 * gap + 24 * s, kPanel);
+    const float x0 = W / 2 - bw / 2, y0 = H / 2 - (kPauseCount * bh + (kPauseCount - 1) * gap) / 2;
+    r.drawOverlayRect(x0 - 24 * s, y0 - lh - 40 * s, x0 + bw + 24 * s, y0 + kPauseCount * bh + (kPauseCount - 1) * gap + 24 * s, kPanel);
     paint_.text("Paused", W / 2 - paint_.textWidth("Paused") / 2, y0 - lh - 24 * s, kHot);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < kPauseCount; ++i) {
         const float y = y0 + float(i) * (bh + gap);
         if (paint_.button(r, i, kPauseItems[i], x0, y, x0 + bw, y + bh, i == highlight_, mouseX_, mouseY_)) highlight_ = i;
     }

@@ -896,6 +896,7 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
 }
 
 OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Ability, {id}, target, -1, int(i), point});
     Unit* u = unit(id);
     if (!u || i >= u->abilities.size()) return OrderResult::InvalidUnit;
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
@@ -1179,6 +1180,7 @@ std::vector<const ResearchSuite*> World::availableResearch(int owner) const {
 }
 
 OrderResult World::startResearch(int owner, std::string_view path, int index) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Research, {}, 0, owner, index, {}, std::string(path)});
     Player* p = player(owner);
     const ResearchTree* tree = researchTree(owner);
     const ResearchSuite* s = tree ? tree->find(path, index) : nullptr;

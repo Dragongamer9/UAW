@@ -68,6 +68,7 @@ bool World::canBoard(const Unit& rider, const Unit& transport) const {
 }
 
 OrderResult World::commandBoard(const std::vector<uint32_t>& ids, uint32_t transportId) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Board, ids, transportId});
     Unit* t = unit(transportId);
     if (!t) return OrderResult::InvalidUnit;
     if (!garrisonOf(*t->type)) return OrderResult::NotAllowed;
@@ -87,6 +88,7 @@ OrderResult World::commandBoard(const std::vector<uint32_t>& ids, uint32_t trans
 }
 
 OrderResult World::unload(uint32_t transportId) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Unload, {transportId}});
     Unit* t = unit(transportId);
     if (!t) return OrderResult::InvalidUnit;
     if (t->passengers.empty()) return OrderResult::NotAllowed;

@@ -702,6 +702,67 @@ static void testGarrison() {
     fs::remove_all(root);
 }
 
+static void testReplay(const GameDatabase& db) {
+    // A game with a human side giving orders (recorded) against the AI, then the same setup with
+    // the recorded orders given again at the same ticks: the two must play out identically.
+    Map m = openMap();
+    DamageTable dmg;
+    TechTree tech;
+    tech.add("Builder", {{"HQ"}, {}});
+    tech.add("Barracks", {{}, {"Builder"}});
+    tech.add("Gunner", {{"Barracks"}, {}});
+    auto setup = [&](World& w, int& a, int& b) {
+        a = w.addPlayer("Novus", 3000, 40);
+        b = w.addPlayer("Alien", 3000, 40);
+        w.spawn("HQ", a, {150, 150, 0});
+        w.spawn("Builder", a, {250, 150, 0});
+        w.spawn("HQ", b, {830, 830, 0});
+        w.spawn("Builder", b, {730, 830, 0});
+    };
+    std::vector<Command> log;
+    uint64_t first = 0;
+    {
+        World w(m, db, &dmg, 3, &tech);
+        int a, b;
+        setup(w, a, b);
+        SkirmishAI B(w, b, 4);
+        for (int t = 0; t < 3 * 60 * 30; ++t) {
+            // The "player": builds a barracks, queues gunners, sends them at the enemy.
+            w.setRecording(true);
+            if (t == 30)
+                for (const Unit& u : w.units())
+                    if (u.owner == a && u.type->name == "Builder") w.commandConstruct(u.id, "Barracks", {300, 300, 0});
+            if (t % 600 == 0)
+                for (const Unit& u : w.units())
+                    if (u.owner == a && u.type->name == "Barracks" && !u.underConstruction) w.queueProduction(u.id, "Gunner");
+            if (t % 900 == 450) {
+                std::vector<uint32_t> army;
+                for (const Unit& u : w.units())
+                    if (u.owner == a && u.type->name == "Gunner") army.push_back(u.id);
+                if (!army.empty()) w.commandAttackMove(army, {800, 800, 0});
+            }
+            w.setRecording(false);
+            B.update();
+            w.tick();
+        }
+        first = w.stateHash();
+        log = w.commandLog();
+    }
+    CHECK(log.size() >= 3);
+    World w(m, db, &dmg, 3, &tech);
+    int a, b;
+    setup(w, a, b);
+    SkirmishAI B(w, b, 4);
+    size_t next = 0;
+    for (int t = 0; t < 3 * 60 * 30; ++t) {
+        while (next < log.size() && log[next].tick == w.tickCount()) w.apply(log[next++]);
+        B.update();
+        w.tick();
+    }
+    CHECK(next == log.size());
+    CHECK(w.stateHash() == first);
+}
+
 static void testFog(const GameDatabase& db) {
     Map m = openMap();
     World w(m, db, nullptr, 1, nullptr);
@@ -741,6 +802,7 @@ int main() {
     testBurst();
     testFog(db);
     testGarrison();
+    testReplay(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

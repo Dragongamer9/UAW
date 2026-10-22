@@ -37,7 +37,7 @@ redistributed.
 | 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails, effects attached to model bones (engine glows, flames) | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
 | 2 | Foliage: alpha-tested grass, leaves and bushes | done |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
-| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed | done (first version) |
+| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI still sees everything |
 | 4 | Audio | planned: the staged game folder has no audio archives yet |
 | 4 | LAN multiplayer | planned |
@@ -99,7 +99,13 @@ a team (players on the same team are allies; no team means everyone is an enemy)
 setting, right click to step back; Enter or *Start game* plays it. In a game, Esc (with nothing to cancel)
 opens the pause menu: resume, restart, back to the setup screen, or exit. Fog of war is on unless switched
 off on the setup screen (or `--no-fog`): unexplored ground is dark, explored ground you can't see right now is
-dimmed, and enemies there are hidden (structures you have seen stay on the map). `[` and `]` change the game
+dimmed, and enemies there are hidden (structures you have seen stay on the map).
+
+**Saved games.** F5 (or *Save game* in the Esc menu) writes a quick save to the user's preferences folder
+(`%APPDATA%\Dragongamer9\uaw-native\quicksave.uawsave` on Windows); F9, the Esc menu or *Load saved game* on
+the setup screen loads it, and `--load FILE` starts from any save. The simulation is deterministic, so a save
+is just the setup and the orders you gave with their times: loading plays the game again up to that moment
+(a 30-minute game takes a few seconds). A save made with other mods loaded may play out differently. `[` and `]` change the game
 speed (x0.5 to x4), Pause stops the clock.
 
 The opponent is played by the skirmish AI (`--no-ai` to switch it off, `--spectate` to let an AI play your
@@ -134,6 +140,7 @@ squad, or another with `--player N`.
 | Rally point (structure selected) | right click | RB |
 | Toggle stand-in boxes | P | Y |
 | Game speed / pause | `[` `]` / Pause | |
+| Quick save / load | F5 / F9 (also in the Esc menu) | |
 | Menu (resume, restart, setup, exit) | Esc | Start or Back |
 
 Particle effects can be checked one at a time: `uaw-viewer "<game>" M16_Sahara --no-units --camera 2500,2500,200,0,35

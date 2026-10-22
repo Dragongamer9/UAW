@@ -286,6 +286,22 @@ struct Projectile {
     const GameObjectType* type = nullptr;
 };
 
+// A player order as given to the World (for saved games and replays: the simulation is
+// deterministic, so a game is its setup plus the orders given and when).
+struct Command {
+    enum class Kind : uint8_t {
+        Move, Stop, AttackMove, Attack, Queue, CancelQueue, Rally, Construct, Superweapon, Research, Ability, Board, Unload,
+    };
+    uint64_t tick = 0;              // given before this tick ran
+    Kind kind = Kind::Move;
+    std::vector<uint32_t> ids;      // units ordered (or the one structure / builder / user)
+    uint32_t target = 0;            // unit targeted
+    int owner = -1;                 // Research
+    int index = 0;                  // Research suite index, ability slot
+    Vec3 point{};
+    std::string name;               // type to build or queue, research path
+};
+
 // A transport (GarrisonableBehaviorType): how many it carries and who may get in.
 struct GarrisonSpec {
     int capacity = 0;                   // Max_Garrison_Capacity
@@ -409,6 +425,14 @@ public:
     OrderResult commandBoard(const std::vector<uint32_t>& ids, uint32_t transport);
     // Everyone out, around the transport.
     OrderResult unload(uint32_t transport);
+    // Order recording: while on, every order method appends a Command (orders given from inside
+    // another order are not recorded twice). apply() gives a recorded order again.
+    void setRecording(bool on) { recording_ = on; }
+    const std::vector<Command>& commandLog() const { return log_; }
+    void apply(const Command& c);
+    // A checksum of the game state (units, health, positions, credits): equal in two runs that
+    // played out the same.
+    uint64_t stateHash() const;
     void setTeam(int owner, int team) {
         if (owner >= 0 && owner < int(players_.size())) players_[size_t(owner)].team = team;
     }
@@ -590,6 +614,10 @@ private:
     std::vector<PendingTeleport> teleports_;
     void updateBursts();
     void updateGarrisons();
+    bool recording_ = false;
+    int recordDepth_ = 0;
+    std::vector<Command> log_;
+    friend struct RecordScope;
     mutable std::unordered_map<const GameObjectType*, std::unique_ptr<GarrisonSpec>> garrisons_;
     mutable std::unordered_map<const GameObjectType*, std::pair<float, bool>> redirects_;
     uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
@@ -668,6 +696,21 @@ StartingForces loadStartingForces(MegVfs& vfs);
 
 // Adds a player with the faction's Multiplayer_Starting_Credits and pop cap and spawns
 // its starting forces at `start`. Returns the player id.
+// Records an order (only the outermost one) while World recording is on; used by the order methods.
+struct RecordScope {
+    World& w;
+    RecordScope(World& world, Command c) : w(world) {
+        if (w.recording_ && w.recordDepth_ == 0) {
+            c.tick = w.tickCount();
+            w.log_.push_back(std::move(c));
+        }
+        ++w.recordDepth_;
+    }
+    ~RecordScope() { --w.recordDepth_; }
+    RecordScope(const RecordScope&) = delete;
+    RecordScope& operator=(const RecordScope&) = delete;
+};
+
 int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start,
                       const StartingForces* forces = nullptr);
 

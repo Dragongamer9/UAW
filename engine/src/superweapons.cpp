@@ -111,6 +111,7 @@ uint32_t World::createEffectObject(const GameObjectType& ot, int owner, Vec3 pos
 }
 
 OrderResult World::fireSuperweapon(uint32_t id, Vec3 target) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Superweapon, {id}, 0, -1, 0, target});
     Unit* u = unit(id);
     if (!u) return OrderResult::InvalidUnit;
     const SuperweaponSpec* s = superweaponOf(*u->type);

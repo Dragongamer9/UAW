@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 
 namespace alamo {
 
@@ -304,6 +305,7 @@ std::vector<std::string> World::constructible(uint32_t id) const {
 }
 
 OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Queue, {id}, 0, -1, 0, {}, typeName});
     Unit* s = unit(id);
     if (!s) return OrderResult::InvalidUnit;
     const GameObjectType* t = db_.find(typeName);
@@ -333,6 +335,7 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
 }
 
 void World::cancelProduction(uint32_t id) {
+    RecordScope rec_(*this, Command{0, Command::Kind::CancelQueue, {id}});
     Unit* s = unit(id);
     if (!s || s->queue.empty()) return;
     if (Player* p = player(s->owner)) p->credits += buildInfo(*s->queue.back(), db_).cost;
@@ -341,6 +344,7 @@ void World::cancelProduction(uint32_t id) {
 }
 
 void World::setRally(uint32_t id, Vec3 p) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Rally, {id}, 0, -1, 0, p});
     if (Unit* s = unit(id)) {
         s->rally = p;
         s->hasRally = true;
@@ -366,6 +370,7 @@ bool World::siteClear(const GameObjectType& type, Vec3 site) const {
 }
 
 OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeName, Vec3 site) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Construct, {builderId}, 0, -1, 0, site, typeName});
     Unit* b = unit(builderId);
     if (!b) return OrderResult::InvalidUnit;
     const GameObjectType* t = db_.find(typeName);
@@ -608,6 +613,7 @@ Unit* World::unit(uint32_t id) {
 }
 
 void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, 0, target});
     std::vector<Unit*> group;
     for (uint32_t id : ids)
         if (Unit* u = unit(id); u && !u->inside) {
@@ -648,6 +654,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
 }
 
 void World::commandStop(const std::vector<uint32_t>& ids) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Stop, ids});
     for (uint32_t id : ids)
         if (Unit* u = unit(id)) {
             u->path.clear();
@@ -658,12 +665,14 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
 }
 
 void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
+    RecordScope rec_(*this, Command{0, Command::Kind::AttackMove, ids, 0, -1, 0, target});
     commandMove(ids, target);
     for (uint32_t id : ids)
         if (Unit* u = unit(id); u && !u->weapons.empty()) u->attackMove = true;
 }
 
 void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Attack, ids, target});
     const Unit* t = unit(target);
     if (!t) return;
     for (uint32_t id : ids) {
@@ -1232,6 +1241,41 @@ void World::tick() {
     updateProjectiles();
     removeDead();
     ++ticks_;
+}
+
+void World::apply(const Command& c) {
+    const uint32_t first = c.ids.empty() ? 0 : c.ids[0];
+    switch (c.kind) {
+    case Command::Kind::Move: commandMove(c.ids, c.point); break;
+    case Command::Kind::Stop: commandStop(c.ids); break;
+    case Command::Kind::AttackMove: commandAttackMove(c.ids, c.point); break;
+    case Command::Kind::Attack: commandAttack(c.ids, c.target); break;
+    case Command::Kind::Queue: queueProduction(first, c.name); break;
+    case Command::Kind::CancelQueue: cancelProduction(first); break;
+    case Command::Kind::Rally: setRally(first, c.point); break;
+    case Command::Kind::Construct: commandConstruct(first, c.name, c.point); break;
+    case Command::Kind::Superweapon: fireSuperweapon(first, c.point); break;
+    case Command::Kind::Research: startResearch(c.owner, c.name, c.index); break;
+    case Command::Kind::Ability: useAbility(first, size_t(c.index), c.target, c.point); break;
+    case Command::Kind::Board: commandBoard(c.ids, c.target); break;
+    case Command::Kind::Unload: unload(first); break;
+    }
+}
+
+uint64_t World::stateHash() const {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    auto mixf = [&](float f) { uint32_t b; std::memcpy(&b, &f, 4); mix(b); };
+    mix(ticks_);
+    for (const Unit& u : units_) {
+        mix(u.id);
+        mix(uint64_t(u.owner + 1));
+        mixf(u.health);
+        mixf(u.position[0]);
+        mixf(u.position[1]);
+    }
+    for (const Player& p : players_) mixf(p.credits);
+    return h;
 }
 
 std::vector<uint32_t> World::unitsNear(Vec3 p, float radius) const {

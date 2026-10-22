@@ -63,7 +63,8 @@ class SkirmishMenu {
 public:
     SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale);
 
-    enum class Result { None, Start, Quit };
+    enum class Result { None, Start, Quit, Load };
+    std::string quickSave; // shown as a "Load saved game" button when this file exists
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
     const SkirmishSetup& setup() const { return setup_; }
@@ -98,7 +99,7 @@ private:
 class PauseMenu {
 public:
     explicit PauseMenu(alamo::MegVfs& vfs, float scale) : paint_(vfs, scale) {}
-    enum class Result { None, Resume, Restart, ToMenu, Quit };
+    enum class Result { None, Resume, Save, Load, Restart, ToMenu, Quit };
     bool open = false;
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);
