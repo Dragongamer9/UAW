@@ -540,6 +540,7 @@ int main(int argc, char** argv) {
         float heardOrderTime = -100;
         size_t heardDeaths = world.deaths().size();
         std::unordered_set<uint32_t> heardOwn;
+        std::set<uint32_t> heardFlowing;
         bool heardFirst = true;
         float lastCombat = -100;
         const std::string environment = mapEnvironment(setup.map);
@@ -598,6 +599,19 @@ int main(int argc, char** argv) {
                 if (!d.type || d.sold) continue;
                 const std::string die = event(*d.type, "Death_SFXEvent_Start_Die");
                 if (!die.empty()) audio->play(die, &d.position);
+            }
+            // Novus flow: a whoosh in and out of the power network.
+            {
+                std::set<uint32_t> now;
+                for (const Unit& u : world.units())
+                    if (u.flowTicks > 0) {
+                        now.insert(u.id);
+                        if (!heardFlowing.count(u.id)) audio->play("SFX_Novus_Flow_Start", &u.position);
+                    }
+                for (uint32_t id : heardFlowing)
+                    if (!now.count(id))
+                        if (const Unit* u = world.unit(id)) audio->play("SFX_Novus_Flow_Stop", &u->position);
+                heardFlowing = std::move(now);
             }
             // New units and finished buildings of yours announce themselves.
             for (const Unit& u : world.units()) {
