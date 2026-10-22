@@ -3,6 +3,7 @@
 #include "alamo/assets.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -525,6 +526,16 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 else if (shader.find("Alpha") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Alpha;
                 gpu.colorize = shader.find("Colorize") != std::string::npos && gpu.blend == GpuMesh::Blend::Opaque;
+                { // damage alternates: "<name>_ALT<n>"
+                    std::string up = mesh.name;
+                    for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                    const size_t at = up.rfind("_ALT");
+                    if (at != std::string::npos && at + 4 < up.size() &&
+                        std::all_of(up.begin() + long(at + 4), up.end(), [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; })) {
+                        gpu.alt = std::min(std::atoi(up.c_str() + at + 4), 31);
+                        gm->alts |= 1u << gpu.alt;
+                    }
+                }
                 for (const char* cut : {"Grass", "Leaves", "Bush", "Foliage", "Alpha_Test", "AlphaTest", "Billboard"})
                     if (shader.find(cut) != std::string::npos) gpu.alphaTest = true;
                 if (auto it = sm.material.params.find("Diffuse"); it != sm.material.params.end())
@@ -883,7 +894,14 @@ bool Renderer::sphereVisible(const Mat4& vp, const alamo::Vec3& c, float r) {
     return true;
 }
 
-void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint, const Pose* pose) {
+void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint, const Pose* pose, int alt) {
+    // The damage state to show: the wanted one, else the nearest healthier one the model has (at
+    // 0 with no _ALT0 meshes, only the meshes that belong to no state).
+    if (m.alts) {
+        int a = std::clamp(alt, 0, 31);
+        while (a > 0 && !(m.alts & (1u << a))) --a;
+        alt = a;
+    }
     const alamo::Vec3 at{transform.at(0, 3), transform.at(1, 3), transform.at(2, 3)};
     const float depth = lengthOf(Mat4::sub(at, camPos_));
     // Culling: a bounding sphere around the model's (rest) bounds, with room for animation. Off
@@ -907,6 +925,7 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
     }
     std::shared_ptr<const Pose> kept;
     for (const GpuMesh& mesh : m.meshes) {
+        if (mesh.alt >= 0 && mesh.alt != alt) continue;
         if (mesh.blend != GpuMesh::Blend::Opaque) {
             if (!onScreen) continue;
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);

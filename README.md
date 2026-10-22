@@ -186,6 +186,10 @@ named victims.
 Turrets (`Turret_Bone_Name`, on units and their hardpoints) turn towards the unit's target at
 `Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`, and back when it has none.
 
+Damage states: a model's `_ALTn` meshes are shown by health (`Land_Damage_Thresholds` /
+`Land_Damage_Alternates`), so structures look whole when healthy and scorched and burning as they are hurt
+(before this, all states were drawn on top of each other).
+
 Units wear their player's colour (the game's multiplayer colours: blue, red, green, orange, cyan, purple,
 yellow, grey) where their `*Colorize` shaders' texture alpha marks it.
 

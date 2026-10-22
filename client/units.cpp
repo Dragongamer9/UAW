@@ -515,6 +515,40 @@ const UnitControl::Fallen& UnitControl::fallenOf(Renderer& r, const alamo::GameO
     return fallen_.emplace(key, f).first->second;
 }
 
+int damageAlternate(const alamo::GameObjectType& t, float healthFraction) {
+    // Land_Damage_Thresholds (falling health fractions) and Land_Damage_Alternates (the model's
+    // _ALTn meshes shown below each); cached per type.
+    static std::unordered_map<const alamo::GameObjectType*, std::pair<std::vector<float>, std::vector<int>>> cache;
+    auto it = cache.find(&t);
+    if (it == cache.end()) {
+        auto numbers = [](const std::string* v) {
+            std::vector<float> out;
+            if (!v) return out;
+            std::string cur;
+            for (char c : *v + ",") {
+                if (c == ',' || std::isspace(static_cast<unsigned char>(c))) {
+                    if (!cur.empty()) out.push_back(float(std::atof(cur.c_str())));
+                    cur.clear();
+                } else {
+                    cur += c;
+                }
+            }
+            return out;
+        };
+        const std::vector<float> thr = numbers(t.find("Land_Damage_Thresholds"));
+        std::vector<int> alts;
+        for (float a : numbers(t.find("Land_Damage_Alternates"))) alts.push_back(int(a));
+        it = cache.emplace(&t, std::make_pair(thr, alts)).first;
+    }
+    const auto& [thr, alts] = it->second;
+    int idx = -1;
+    for (size_t i = 0; i < thr.size(); ++i)
+        if (healthFraction <= thr[i] + 1e-4f) idx = int(i);
+    if (idx < 0) return 0;
+    if (healthFraction <= 0 && idx > 0 && thr[size_t(idx)] <= 0) --idx; // the last entry is "destroyed"
+    return size_t(idx) < alts.size() ? alts[size_t(idx)] : idx;
+}
+
 Vec4 playerColor(int player) {
     // The game's multiplayer colours (GameConstants.xml MP_Color_*): blue, red, green, orange, cyan,
     // purple, yellow, grey.
@@ -586,7 +620,12 @@ void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo:
     if (depth > 3 || !db_) return;
     for (const Attachment& a : attachmentsOf(type, *db_)) {
         bool alive = false;
-        for (const alamo::Unit::HardPoint& hp : u.hardpoints) alive = alive || (hp.type == a.type && hp.alive());
+        float hpFraction = 1;
+        for (const alamo::Unit::HardPoint& hp : u.hardpoints)
+            if (hp.type == a.type && hp.alive() && !alive) {
+                alive = true;
+                hpFraction = hp.maxHealth > 0 ? hp.health / hp.maxHealth : 1.f;
+            }
         if (!alive) continue;
         const std::string* name = a.type->find("Land_Model_Name");
         const GpuModel* hm = name && !alamo::trim(*name).empty() ? r.model(alamo::trim(*name)) : nullptr;
@@ -606,7 +645,7 @@ void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo:
         const alamo::Vec3* aimAt = tgt && tgt->alive() ? &tgt->position : nullptr;
         const uint64_t key = (uint64_t(u.id) << 16) | (uint64_t(depth) << 12) | uint64_t(&a - attachmentsOf(type, *db_).data());
         const bool turret = aimTurret(*hm, at, *a.type, aimAt, key, turretTime_, hpPose);
-        r.drawModel(*hm, at, {1, 1, 1, 1}, turret ? &hpPose : nullptr);
+        r.drawModel(*hm, at, {1, 1, 1, 1}, turret ? &hpPose : nullptr, damageAlternate(*a.type, hpFraction));
         drawHardpoints(r, u, *a.type, *hm, at, turret ? &hpPose : nullptr, depth + 1);
     }
 }
@@ -735,7 +774,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             }
             if (u.underConstruction) // rising out of the ground as it is built
                 r.setClipHeight(u.position[2] + std::max(2.f, model->boundsMax[2] * scale * std::clamp(u.buildProgress, 0.f, 1.f)));
-            r.drawModel(*model, xf, {1, 1, 1, 1}, pose);
+            r.drawModel(*model, xf, {1, 1, 1, 1}, pose, damageAlternate(*u.type, u.maxHealth > 0 ? u.health / u.maxHealth : 1.f));
             if (u.underConstruction) r.setClipHeight(1e9f);
             world_ = &w;
             turretTime_ = time;

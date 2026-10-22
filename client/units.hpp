@@ -15,6 +15,8 @@ namespace uaw {
 
 // A player's colour (units' *Colorize meshes, health bars, the minimap); white for none.
 alamo::Vec4 playerColor(int player);
+// The damage state (an _ALTn mesh set) a type shows at this fraction of its health.
+int damageAlternate(const alamo::GameObjectType& t, float healthFraction);
 
 class ParticleEffects;
 

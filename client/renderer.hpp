@@ -45,6 +45,7 @@ struct GpuMesh {
     bool scrolls = false;
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
+    int alt = -1;           // damage alternate (mesh named *_ALTn): drawn only at that damage state
     bool colorize = false;  // *Colorize shaders: the owner's colour where the texture's alpha is set
     bool alphaTest = false; // foliage (grass, leaves, bushes): cut out where the texture is transparent
     std::vector<uint32_t> palette; // skeleton bone per vertex bone slot (empty: never posed)
@@ -61,6 +62,7 @@ struct GpuModel {
     std::vector<Proxy> proxies;
     alamo::Vec3 boundsMin{}, boundsMax{};
     bool loaded = false;
+    uint32_t alts = 0;                   // bit n: the model has meshes for damage alternate n
     alamo::Model skeleton;               // bones only, for posing
     std::vector<alamo::Mat34> restInverse; // inverse rest (bind) world transform per bone
 };
@@ -86,7 +88,9 @@ public:
     };
     void beginFrame(int width, int height, const Camera& cam, float farPlane);
     void drawTerrain();
-    void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1}, const Pose* pose = nullptr);
+    // `alt`: the damage state (Land_Damage_Alternates); meshes of other states are left out.
+    void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1}, const Pose* pose = nullptr,
+                   int alt = 0);
     // Animations (.ALA), cached; nullptr if missing.
     const alamo::Animation* animation(const std::string& alaName);
     // `m` posed by `anim` at `seconds` (looping).
