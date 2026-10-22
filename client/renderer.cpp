@@ -60,6 +60,8 @@ uniform sampler2D uTex;
 uniform int uHasTex;
 uniform sampler2D uBump;  // tangent-space normal map
 uniform int uHasBump;
+uniform vec4 uSpec;       // rgb = specular colour, w = shininess
+uniform int uGloss;       // gloss mask: 0 none, 1 normal map alpha, 2 base texture alpha
 uniform vec4 uTint;
 uniform vec3 uLightDir;
 uniform vec3 uSun;       // sun colour x intensity
@@ -105,15 +107,23 @@ void main() {
     if (vWorld.z > uClipZ) discard;
     if (uUnlit != 0) { fragColor = base; return; }
     vec3 n = normalize(vNormal);
+    float gloss = 0.0;
     if (uHasBump != 0 && dot(vTangent, vTangent) > 1e-8 && dot(vBinormal, vBinormal) > 1e-8) {
-        vec3 b = texture(uBump, vUv).rgb * 2.0 - 1.0;
+        vec4 bt = texture(uBump, vUv);
+        vec3 b = bt.rgb * 2.0 - 1.0;
         n = normalize(normalize(vTangent) * b.x + normalize(vBinormal) * b.y + n * max(b.z, 0.05));
+        if (uGloss == 1) gloss = bt.a;
     }
+    if (uGloss == 2 && uHasTex != 0) gloss = texture(uTex, vUv).a;
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
     if (diffuse > 0.0) diffuse *= sunlight(vWorld, n);
     vec3 lit = base.rgb * (uAmbient + uSun * diffuse + fill);
+    if (gloss > 0.0 && diffuse > 0.0) { // the sun's highlight (Blinn)
+        vec3 h = normalize(-uLightDir + normalize(uCamPos - vWorld));
+        lit += uSpec.rgb * uSun * gloss * 0.6 * pow(max(dot(n, h), 0.0), max(uSpec.w, 1.0)) * min(diffuse * 4.0, 1.0);
+    }
     if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
     float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
@@ -341,6 +351,8 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
     uTeam_ = glGetUniformLocation(program_, "uTeam");
     uHasBump_ = glGetUniformLocation(program_, "uHasBump");
+    uSpec_ = glGetUniformLocation(program_, "uSpec");
+    uGloss_ = glGetUniformLocation(program_, "uGloss");
     glUseProgram(program_);
     glUniform1i(glGetUniformLocation(program_, "uBump"), 4);
 
@@ -487,6 +499,14 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 gpu.palette = std::move(palette);
                 if (const std::string* t = sm.material.texture("BaseTexture"); t && !t->empty()) gpu.texture = texture(*t);
                 if (hasBump) gpu.bump = texture(*bumpName);
+                if (auto it = sm.material.params.find("Specular"); it != sm.material.params.end())
+                    if (auto* sp = std::get_if<alamo::Vec4>(&it->second)) {
+                        gpu.specular = {(*sp)[0], (*sp)[1], (*sp)[2], 32};
+                        if (auto sh = sm.material.params.find("Shininess"); sh != sm.material.params.end())
+                            if (auto* f = std::get_if<float>(&sh->second)) gpu.specular[3] = std::clamp(*f, 1.f, 256.f);
+                        if ((*sp)[0] + (*sp)[1] + (*sp)[2] > 0.01f)
+                            gpu.gloss = gpu.bump ? 1 : (shader.find("Gloss") != std::string::npos && shader.find("Colorize") == std::string::npos) ? 2 : 0;
+                    }
                 if (shader.find("Additive") != std::string::npos || shader.find("Glow") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Additive;
                 else if (shader.find("Alpha") != std::string::npos)
@@ -642,6 +662,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform1f(glGetUniformLocation(program_, "uClipZ"), 1e9f);
     clipZ_ = 1e9f;
     glUniform4f4(uTeam_, {0, 0, 0, 0});
+    glUniform1i(uGloss_, 0);
     team_ = {1, 1, 1, 1};
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
@@ -852,10 +873,13 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
         setSkin(mesh, pose);
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 1);
         if (mesh.colorize) glUniform4f4(uTeam_, team_);
+        glUniform1i(uGloss_, bumpsOn_ || mesh.gloss == 2 ? mesh.gloss : 0);
+        if (mesh.gloss) glUniform4f4(uSpec_, mesh.specular);
         mesh.draw();
         if (mesh.colorize) glUniform4f4(uTeam_, {0, 0, 0, 0});
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 0);
     }
+    glUniform1i(uGloss_, 0);
     glUniform1i(uSkinned_, 0);
 }
 
@@ -908,6 +932,7 @@ void Renderer::endFrame() {
         else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         setUniforms(d.transform, d.tint, d.mesh->texture, bumpsOn_ ? d.mesh->bump : 0);
         setSkin(*d.mesh, d.pose.get());
+        glUniform1i(uGloss_, 0);
         d.mesh->draw();
     }
     glUniform1i(uSkinned_, 0);

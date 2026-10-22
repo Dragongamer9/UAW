@@ -190,7 +190,7 @@ yellow, grey) where their `*Colorize` shaders' texture alpha marks it.
 
 Lighting follows the map's own sun, ambient light, haze and sky. Units, structures, props, trees and
 hills cast sun shadows (a 2048² depth map around the camera, filtered at the edges); `UAW_NO_SHADOWS=1`
-switches them off on a slow graphics card. Models with a `NormalTexture` are normal-mapped (with the
+switches them off on a slow graphics card. Models with a `NormalTexture` are normal-mapped, with sun highlights from the material's `Specular` and `Shininess` where the gloss mask allows (the
 tangents stored in the model; `UAW_NO_BUMPS=1` switches it off).
 
 Objects whose model isn't available are drawn as boxes: grey props, structures

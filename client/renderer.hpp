@@ -37,6 +37,10 @@ struct GpuMesh {
     GLenum indexType = GL_UNSIGNED_SHORT;
     GLuint texture = 0;
     GLuint bump = 0; // NormalTexture (tangent space), 0 = none
+    // Sun highlights: Specular colour, Shininess, and where the gloss mask is (0 none, 1 the normal
+    // map's alpha, 2 the base texture's alpha for *Gloss shaders).
+    alamo::Vec4 specular{0, 0, 0, 32};
+    int gloss = 0;
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
     bool colorize = false;  // *Colorize shaders: the owner's colour where the texture's alpha is set
@@ -137,7 +141,7 @@ private:
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1, uTeam_ = -1, uHasBump_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1, uTeam_ = -1, uHasBump_ = -1, uSpec_ = -1, uGloss_ = -1;
     alamo::Vec4 team_{1, 1, 1, 1};
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
