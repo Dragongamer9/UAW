@@ -626,9 +626,35 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
         const float sz = p.blastDamage > 0 ? 6.f : 3.5f;
         r.drawBox(Mat4::translate(p.position[0], p.position[1], p.position[2] - sz / 2) * Mat4::scale(sz), shot[std::clamp(p.owner, 0, 3)]);
     }
+    // The fallen: units with a death animation (<model>_DIE_00) play it where they died, hold the last
+    // frame and sink into the ground over three seconds.
+    const uint64_t now = w.tickCount();
+    if (animate)
+        for (auto it = w.deaths().rbegin(); it != w.deaths().rend(); ++it) {
+            const alamo::DeathEvent& d = *it;
+            const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
+            if (age > 3.5f) break; // deaths are in time order
+            if (d.sold || !d.type || d.type == nullptr) continue;
+            if (fog && w.fogOfWar() && player_ >= 0 && !w.visibleTo(player_, d.position)) continue;
+            const std::string* name = d.type->find("Land_Model_Name");
+            if (!name || alamo::trim(*name).empty()) continue;
+            const GpuModel* model = r.model(alamo::trim(*name));
+            if (!model) continue;
+            std::string stem = alamo::trim(*name);
+            if (const size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
+            const alamo::Animation* anim = r.animation(stem + "_DIE_00.ALA");
+            if (!anim || anim->frameCount == 0) continue;
+            const float last = float(anim->frameCount - 1) / std::max(anim->fps, 1.f);
+            const Pose pose = r.pose(*model, *anim, std::min(age, last));
+            const float sink = age > 2.5f ? (age - 2.5f) * 12 : 0;
+            const float scale = float(d.type->number("Scale_Factor").value_or(1.0));
+            r.drawModel(*model,
+                        Mat4::translate(d.position[0], d.position[1], d.position[2] - sink) * Mat4::rotateZ(d.facing) *
+                            Mat4::rotateZ(1.5707963f) * Mat4::scale(scale),
+                        {1, 1, 1, 1}, &pose);
+        }
     // Wrecks: a dark scorch plate for a few seconds, only when there are no particle effects to show
     // the explosion (they replace it).
-    const uint64_t now = w.tickCount();
     if (!effects)
         for (const alamo::DeathEvent& d : w.deaths()) {
             const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);

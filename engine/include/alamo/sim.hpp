@@ -345,6 +345,7 @@ struct DeathEvent {
     Vec3 position;
     uint64_t tick;
     bool sold = false; // sold, not destroyed
+    float facing = 0;
 };
 
 class World {

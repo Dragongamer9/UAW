@@ -1068,7 +1068,7 @@ void World::removeDead() {
             if (Unit* t = unit(u.inside)) t->passengers.erase(std::remove(t->passengers.begin(), t->passengers.end(), u.id), t->passengers.end());
     for (const Unit& u : units_)
         if (!u.alive()) {
-            deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_, u.sold});
+            deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_, u.sold, u.facing});
             if (u.structure) navDirty_ = true;
             if (!u.sold) deathSpawn(u);
         }
