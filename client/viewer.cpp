@@ -31,6 +31,7 @@
 //     --menu              (with --screenshot) picture of the setup screen for MAP
 //     --no-fog            no fog of war
 //     --load FILE         continue a saved game (F5 saves, F9 loads the quick save)
+//     --replay FILE       watch a saved game from the start, its orders given again as it plays
 //     --host              open a LAN game (the setup screen waits for players; port 7470)
 //     --join ADDRESS      join a LAN game at ADDRESS[:PORT]; --name NAME shows you by NAME
 //     --players N         (with --host and --screenshot) start once N players (you included) are in
@@ -110,6 +111,7 @@ struct Options {
     float runSeconds = 0;
     bool fog = true;       // fog of war (--no-fog)
     std::string load;      // --load FILE: a saved game
+    bool replay = false;   // --replay FILE: watch a saved game from the start
     std::string saveAs;    // --save FILE: (screenshots) save the game after --run
     bool host = false;     // --host: open a LAN game
     std::string join;      // --join ADDRESS[:PORT]: join one
@@ -180,6 +182,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--slots") o.slots = next();
         else if (a == "--no-fog") o.fog = false;
         else if (a == "--load") { o.load = next(); o.menu = true; }
+        else if (a == "--replay") { o.load = next(); o.menu = true; o.replay = true; }
         else if (a == "--save") o.saveAs = next();
         else if (a == "--host") o.host = true;
         else if (a == "--join") { o.join = next(); o.menu = true; }
@@ -488,7 +491,15 @@ int main(int argc, char** argv) {
         // first tick its orders run). Returns false when it has to wait.
         int64_t turnBegun = -1;
         uint64_t waitingSince = 0; // LAN: when the simulation last had to wait for the others (0 = not waiting)
+        // Watching a saved game (--replay): its orders are given again at their ticks as it plays.
+        const bool replaying = save && opt.replay;
+        size_t replayNext = 0;
         auto advance = [&]() -> bool {
+            if (replaying) {
+                world.setRecording(true);
+                while (replayNext < save->commands.size() && save->commands[replayNext].tick <= world.tickCount())
+                    world.apply(save->commands[replayNext++]);
+            }
             if (ls) {
                 const uint64_t t = world.tickCount();
                 if (!ls->canRun(t)) return false;
@@ -510,18 +521,18 @@ int main(int argc, char** argv) {
         if (world.players().empty())
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
-        UnitControl control(opt.player - 1);
+        UnitControl control(replaying ? -1 : opt.player - 1); // a replay is watched, not played
         ParticleEffects effects(vfs, db);
         control.effects = &effects;
         control.db_ = &db;
         float lastFrameTime = world.seconds();
         control.showResources = !lineupMode;
-        control.fog = !opt.spectate; // spectators see everything
+        control.fog = !opt.spectate && !replaying; // spectators see everything
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
 
         // A saved game: play it again, with the player's orders at their ticks, up to where it was saved.
-        if (save) {
+        if (save && !replaying) {
             SDL_SetWindowTitle(window, "Universe at War - loading saved game...");
             size_t next = 0;
             const uint64_t t0 = SDL_GetTicks();
@@ -663,7 +674,7 @@ int main(int argc, char** argv) {
                     if (SDL_GetTicks() - waited > 15000) { std::printf("network: stalled at tick %llu\n", (unsigned long long)world.tickCount()); break; }
                     if (!ls->problem().empty()) { std::printf("network: %s\n", ls->problem().c_str()); break; }
                 } else {
-                    stepWorld();
+                    advance();
                 }
                 if (ticks - t < 30 * 20) { // particles for the last 20 s, so the picture shows effects in flight
                     effects.watch(world, control);
