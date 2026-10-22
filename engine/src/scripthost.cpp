@@ -438,7 +438,8 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
     vm.setGlobal("Script", script);
     // Script messages: kept quiet, but the last one is told when the script exits on an error.
     auto lastMessage = std::make_shared<std::string>();
-    for (const char* quiet : {"_ScriptMessage", "_OuputDebug", "_CustomScriptMessage", "DumpCallStack"})
+    vm.setGlobal("jit", LuaValue::boolean(false)); // scripts check for LuaJIT
+    for (const char* quiet : {"_ScriptMessage", "_OuputDebug", "_CustomScriptMessage", "DumpCallStack", "_SyncMessage"})
         vm.setFunction(quiet, [lastMessage, this](const Values& a) {
             if (!a.empty() && !a[0].isNil()) *lastMessage = a[0].str();
             static const bool verbose = std::getenv("UAW_SCRIPT_DEBUG") != nullptr;

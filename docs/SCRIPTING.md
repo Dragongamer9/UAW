@@ -120,3 +120,18 @@ of the native copies.
 
 The VM needed one fix for this: `coroutine.running()` now returns the running coroutine (it gave
 nil), which the framework uses to tell the pumping thread from the others.
+
+## What the behaviours ask for next
+
+The same sweep, counting the engine calls the host still lacks (number of object types reaching each):
+
+| Missing | Types | What it is |
+|---|---|---|
+| `Get_Game_Mode_GUI_Scene` | 62 | the in-game GUI scene (HeroIcon and others) |
+| `Process_Reinforcements` | 49 | player-script reinforcement handling |
+| `Set_Object_Context_ID`, `GameScoringManager`, `Register_Game_Scoring_Commands`, `RESEARCH`, `PG_Story_Mode_Init` | 43 | player scripts: GUI context, scoring, research, story mode |
+| `TacticalResourceCap` | 10 | resource cap value |
+| `Get_Object_Context_ID`, `Get_Hint`, `Find_Hint`, `MARKER_SPAWNER_TYPE` | 5-9 | map markers and their hints |
+| `Create_And_Attach_Hard_Point` | 8 | walkers growing hardpoints |
+| `Raise_Game_Event` | 8 | game events |
+| `Initiate_Ambient_Flow` | 5 | Novus ambient flow |
