@@ -10,6 +10,7 @@
 //   - passive structures: MasariMatterEngine (ResourcesPerTimeBlock / ResourcesTimeSeconds,
 //     optional MustBeOfFaction, bank capped at Baseline_Bank_Capacity + each engine's
 //     ResourcesStorage, as in MasariMatterEngine.lua) and NeutralRefinery (ResourcesPerSecond).
+#include <cstdio>
 #include "alamo/sim.hpp"
 #include "alamo/xml.hpp"
 
@@ -475,6 +476,8 @@ void World::updateCollector(Unit& u, const EconomySpec& e) {
         if (!depot) { u.path.clear(); break; } // wait for a new depot
         const float dropRange = std::max(depot->footprintX, depot->footprintY) + u.radius + 30;
         if (dist2(u.position, depot->position) <= dropRange) {
+            if (std::getenv("UAW_ECON_LOG"))
+                std::fprintf(stderr, "[%.0fs] p%d %s delivers %.0f\n", seconds(), u.owner, u.type->name.c_str(), u.carried);
             deposit(u.owner, u.carried * balance_.of(players_[size_t(u.owner)].faction).resourceValue);
             u.carried = 0;
             u.path.clear();
