@@ -38,7 +38,7 @@ redistributed.
 | 2 | Foliage: alpha-tested grass, leaves and bushes | done |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
-| 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI still sees everything |
+| 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI plays by it too: it knows the enemy start bases and what it has seen, and sweeps the map when it has lost track |
 | 4 | Audio | planned: the staged game folder has no audio archives yet |
 | 4 | LAN multiplayer: deterministic lockstep over TCP (orders only; 0.1 s turns, 0.2 s delay), host/join lobby on the setup screen, checksums to catch desyncs | done (first version): tested with two games on one machine |
 
