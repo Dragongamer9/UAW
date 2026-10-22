@@ -81,6 +81,5 @@ unlock units could come before the others.
   scripts, story missions). The VM itself is complete enough (metatables, coroutines).
 - A Lua source compiler, for mods that ship scripts uncompiled (today only their literal data is read).
 - The campaign (story maps, Global Conquest).
-- Levels of detail by distance (only `_LOD0` is drawn now).
 - GitHub Actions stopped running on 2026-10-22 (the account's billing / spending limit); builds resume
   once that is sorted.

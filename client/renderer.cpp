@@ -443,7 +443,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         alamo::Model m = alamo::loadAlo(vfs_.read(path));
         if (m.kind != alamo::Model::Kind::Mesh) throw std::runtime_error("particle system");
         float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
-        // Levels of detail ("..._LOD0", "_LOD1"...): only the most detailed is drawn.
+        // Levels of detail ("..._LOD0", "_LOD1"...): all are kept, drawModel picks one by on-screen size.
         auto lodOf = [](const alamo::Mesh& mesh) {
             std::string up = mesh.name;
             for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
@@ -456,7 +456,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         for (uint32_t mi = 0; mi < m.meshes.size(); ++mi) {
             const alamo::Mesh& mesh = m.meshes[mi];
             if (mesh.hidden || mesh.collision) continue;
-            if (hasLod0 && lodOf(mesh) > 0) continue;
+            const int lod = hasLod0 ? std::min(lodOf(mesh), 31) : -1;
             // Meshes on hidden bones (effect shells like a walker's arrival fireball) are shown only
             // by animations; drawn in rest they would be permanent.
             if (const uint32_t b = m.meshBone(mi); b < m.bones.size() && !m.bones[b].visible) continue;
@@ -537,6 +537,10 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 else if (shader.find("Alpha") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Alpha;
                 gpu.colorize = shader.find("Colorize") != std::string::npos && gpu.blend == GpuMesh::Blend::Opaque;
+                if (lod >= 0) {
+                    gpu.lod = lod;
+                    gm->lods |= 1u << lod;
+                }
                 { // damage alternates: "<name>_ALT<n>"
                     std::string up = mesh.name;
                     for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
@@ -933,6 +937,7 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
     // Culling: a bounding sphere around the model's (rest) bounds, with room for animation. Off
     // screen it is skipped, unless it can still cast a shadow into the shadowed area.
     bool onScreen = true, casts = shadowsOn_;
+    int lod = 0;
     {
         const alamo::Vec3 mid{(m.boundsMin[0] + m.boundsMax[0]) / 2, (m.boundsMin[1] + m.boundsMax[1]) / 2,
                               (m.boundsMin[2] + m.boundsMax[2]) / 2};
@@ -946,12 +951,21 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
         alamo::Vec3 c;
         for (int i = 0; i < 3; ++i) c[i] = transform.at(i, 0) * mid[0] + transform.at(i, 1) * mid[1] + transform.at(i, 2) * mid[2] + transform.at(i, 3);
         onScreen = sphereVisible(viewProj_, c, r);
+        // Level of detail by size on screen (radius over distance): the most detailed up close, a
+        // coarser one per step as the model shrinks, never past the coarsest the model has.
+        if (m.lods > 1) {
+            const float size = r / std::max(lengthOf(Mat4::sub(c, camPos_)), 1.f);
+            int want = size > 0.035f ? 0 : size > 0.018f ? 1 : size > 0.009f ? 2 : 3;
+            while (want > 0 && !(m.lods & (1u << want))) --want;
+            lod = want;
+        }
         if (casts) casts = shadowReady_ ? sphereVisible(shadowViewProj_, c, r + 50) : onScreen;
         if (!onScreen && !casts) return;
     }
     std::shared_ptr<const Pose> kept;
     for (const GpuMesh& mesh : m.meshes) {
         if (mesh.alt >= 0 && mesh.alt != alt) continue;
+        if (mesh.lod >= 0 && mesh.lod != lod) continue;
         if (mesh.blend != GpuMesh::Blend::Opaque || tint[3] < 0.99f) { // see-through: sorted and blended at the end
             if (!onScreen) continue;
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);

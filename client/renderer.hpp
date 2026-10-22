@@ -46,6 +46,7 @@ struct GpuMesh {
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
     int alt = -1;           // damage alternate (mesh named *_ALTn): drawn only at that damage state
+    int lod = -1;           // level of detail (mesh named *_LODn): drawn only at that level
     bool colorize = false;  // *Colorize shaders: the owner's colour where the texture's alpha is set
     bool alphaTest = false; // foliage (grass, leaves, bushes): cut out where the texture is transparent
     std::vector<uint32_t> palette; // skeleton bone per vertex bone slot (empty: never posed)
@@ -72,6 +73,7 @@ struct GpuModel {
     bool loaded = false;
     uint32_t alts = 0;                   // bit n: the model has meshes for damage alternate n
     bool plain = false;                  // has meshes outside the damage alternates
+    uint32_t lods = 0;                   // bit n: the model has meshes for level of detail n
     alamo::Model skeleton;               // bones only, for posing
     std::vector<alamo::Mat34> restInverse; // inverse rest (bind) world transform per bone
 };

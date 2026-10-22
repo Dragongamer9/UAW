@@ -205,7 +205,9 @@ named victims.
   yellow, grey) where their `*Colorize` shaders' texture alpha marks it.
 - Damage states: a model's `_ALTn` meshes and effects are shown by health (`Land_Damage_Thresholds` /
   `Land_Damage_Alternates`), so structures look whole when healthy and scorched and burning as they are
-  hurt; only the most detailed level of detail (`_LOD0`) is drawn.
+  hurt.
+- Levels of detail: models with `_LOD0`..`_LOD3` meshes (trees, civilians, props; 115 models) draw a
+  coarser level as they shrink on screen.
 - Turrets (`Turret_Bone_Name`, on units and their hardpoints) turn towards the unit's target at
   `Turret_Rotate_Speed`, within `Turret_Rotate_Extent_Degrees`; muzzle flashes (`..._flash` proxies) play at
   the barrel with each shot, and Masari light/dark flashes when they change mode.
