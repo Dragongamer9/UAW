@@ -35,6 +35,9 @@ public:
     // Plays an event (by SFX event name); `at` places it in the world (else it is heard as is).
     // Returns false when it can't play (unknown event, no samples found, limit reached).
     bool play(const std::string& event, const alamo::Vec3* at = nullptr);
+    // A looping event (engine hum, ambient loop) for `key` at `at`, kept playing for as long as it
+    // is asked for every frame (before update); one not asked for in a frame stops.
+    void loop(uint64_t key, const std::string& event, const alamo::Vec3& at);
     // Mixes what is playing into the device's queue; call once a frame.
     void update();
 
@@ -66,6 +69,9 @@ private:
         const alamo::SfxEvent* event = nullptr;
         bool placed = false;
         alamo::Vec3 at{};
+        uint64_t loopKey = 0; // looping (0 = plays once)
+        bool wanted = true;   // loops: asked for since the last update
+        float baseGain = 1;
     };
     static constexpr int kRate = 44100;
     const Clip* clip(const std::string& name, bool localize);

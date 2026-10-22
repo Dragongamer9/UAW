@@ -246,11 +246,44 @@ bool Audio::play(const std::string& eventName, const alamo::Vec3* at) {
     return true;
 }
 
+void Audio::loop(uint64_t key, const std::string& eventName, const alamo::Vec3& at) {
+    if (!stream_ || !key) return;
+    for (Voice& v : voices_)
+        if (v.loopKey == key) {
+            v.wanted = true;
+            v.at = at;
+            v.gain = v.baseGain;
+            place(v);
+            return;
+        }
+    const alamo::SfxEvent* e = lib_.find(eventName);
+    if (!e || e->samples.empty() || voices_.size() >= 48) return;
+    const Clip* main = clip(e->samples[0], e->localize);
+    if (!main) return;
+    Voice v;
+    v.event = e;
+    v.clips.push_back(main);
+    v.loopKey = key;
+    v.baseGain = (e->minVolume + e->maxVolume) / 200.f;
+    v.gain = v.baseGain;
+    v.rate = (e->minPitch + e->maxPitch) / 200.f;
+    v.placed = true;
+    v.at = at;
+    std::uniform_real_distribution<float> u01(0.f, 1.f);
+    v.pos = double(u01(rng_)) * double(main->frames()); // not all in step
+    place(v);
+    voices_.push_back(std::move(v));
+}
+
 void Audio::update() {
     if (!stream_) {
         voices_.clear();
         return;
     }
+    // Loops nobody asked for this frame stop; the rest must be asked for again next frame.
+    voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [](const Voice& v) { return v.loopKey && !v.wanted; }), voices_.end());
+    for (Voice& v : voices_)
+        if (v.loopKey) v.wanted = false;
     if (fading_ && !fading_->decoder) fading_.reset();
     // Keep about a tenth of a second queued.
     const int queued = SDL_GetAudioStreamQueued(stream_) / int(sizeof(float) * 2);
@@ -267,6 +300,7 @@ void Audio::update() {
             const size_t n = c->frames();
             const size_t a = size_t(v.pos);
             if (a >= n) {
+                if (v.loopKey) { v.pos = 0; --i; continue; } // round again
                 if (++v.index >= v.clips.size()) { done = true; break; }
                 v.pos = 0;
                 --i;

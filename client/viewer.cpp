@@ -667,6 +667,25 @@ int main(int argc, char** argv) {
                 heardOwn.insert(u.id);
                 if (!heardFirst) audio->play(event(*u.type, "SFXEvent_Tactical_Build_Complete"));
             }
+            // Engine hums and ambient loops of the nearest few things you can see.
+            {
+                struct Near { float d; uint64_t key; std::string event; Vec3 at; };
+                std::vector<Near> near;
+                for (const Unit& u : world.units()) {
+                    const float dx = u.position[0] - listenerAt[0], dy = u.position[1] - listenerAt[1], d = dx * dx + dy * dy;
+                    if (d > 700.f * 700.f || u.underConstruction || !control.shown(world, u)) continue;
+                    std::string ev = event(*u.type, "SFXEvent_Ambient_Loop");
+                    uint64_t key = uint64_t(u.id) << 2 | 1;
+                    if (ev.empty()) {
+                        ev = event(*u.type, u.moving() ? "SFXEvent_Engine_Moving_Loop" : "SFXEvent_Engine_Idle_Loop");
+                        key = uint64_t(u.id) << 2 | (u.moving() ? 2 : 3);
+                    }
+                    if (!ev.empty()) near.push_back({d, key, ev, u.position});
+                }
+                const size_t keep = std::min<size_t>(near.size(), 6);
+                std::partial_sort(near.begin(), near.begin() + long(keep), near.end(), [](const Near& a, const Near& b) { return a.d < b.d; });
+                for (size_t i = 0; i < keep; ++i) audio->loop(near[i].key, near[i].event, near[i].at);
+            }
             heardFirst = false;
             for (const std::string& s : control.takeSounds()) audio->play(s);
             audio->update();
