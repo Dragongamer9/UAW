@@ -332,6 +332,19 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.kind = AbilitySpec::Kind::Leap;
         } else if (iequals(r.kind, "Radiation_Weapon_Ability")) {
             s.kind = AbilitySpec::Kind::Weapon;
+        } else if (iequals(r.kind, "Air_Raid_Activation_Ability")) {
+            // A jet's strafing run: Firing_Pulse_Count shots of Projectile, every Firing_Recharge_Seconds.
+            if (const std::string* v = lookup(kv, "Projectile")) s.projectile = db.find(trim(*v));
+            if (s.projectile) {
+                s.kind = AbilitySpec::Kind::Attack;
+                s.needsTarget = true;
+                s.projectileCount = std::max(1, int(num(lookup(kv, "Firing_Pulse_Count"), 1)));
+                s.rechargeTicks = std::max(s.rechargeTicks, int(num(lookup(kv, "Firing_Recharge_Seconds"), 3) * 30));
+                s.damage = num(s.projectile->find("Projectile_Damage"), 0);
+                if (const std::string* dt = s.projectile->find("Damage_Type")) s.damageType = trim(*dt);
+            }
+        } else if (iequals(r.kind, "Redirect_Projectile_Ability")) {
+            s.kind = AbilitySpec::Kind::Elsewhere; // shields: see World::redirectChance (combat)
         } else if (iequals(r.kind, "Teleport_Move_Ability")) {
             s.kind = AbilitySpec::Kind::Teleport;
             s.needsTarget = false;

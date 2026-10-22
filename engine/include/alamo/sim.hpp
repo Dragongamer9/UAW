@@ -400,6 +400,10 @@ public:
     float revealRange(const GameObjectType& t) const;
     // Transports.
     const GarrisonSpec* garrisonOf(const GameObjectType& t) const; // nullptr if it carries nobody
+    // Redirect_Projectile_Ability (Novus field inverters in shield mode): the chance that a shot
+    // hitting the unit is turned back at whoever fired it (0 = none); only while shields are up
+    // when Redirect_If_Shield_Hit_Only.
+    float redirectChance(const Unit& u) const;
     bool canBoard(const Unit& rider, const Unit& transport) const;
     // Riders walk to the transport and get in (those that can; the rest ignore the order).
     OrderResult commandBoard(const std::vector<uint32_t>& ids, uint32_t transport);
@@ -587,6 +591,7 @@ private:
     void updateBursts();
     void updateGarrisons();
     mutable std::unordered_map<const GameObjectType*, std::unique_ptr<GarrisonSpec>> garrisons_;
+    mutable std::unordered_map<const GameObjectType*, std::pair<float, bool>> redirects_;
     uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
     std::vector<Unit> pendingObjects_;   // created during a tick, added after it
     struct PendingSpawn { std::string type; int owner; Vec3 position; int lifeTicks = -1; };

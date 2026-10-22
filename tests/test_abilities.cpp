@@ -138,6 +138,11 @@ static Data testData(const fs::path& root) {
     <Abilities SubObjectList="Yes"><Teleport_Move_Ability Name="Blink"><Activation_Style>USER_INPUT</Activation_Style>
       <Teleport_Pre_Delay_Time>1.0</Teleport_Pre_Delay_Time><Maximum_Teleport_Range>500</Maximum_Teleport_Range>
       <Minimum_Teleport_Range>100</Minimum_Teleport_Range></Teleport_Move_Ability></Abilities></X_Units>
+  <X_Units Name="Mirror"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="ShieldBehaviorType"><Shield_Points>100</Shield_Points><Shield_Refresh_Rate>30</Shield_Refresh_Rate></BehaviorType>
+    <Abilities SubObjectList="Yes"><Redirect_Projectile_Ability Name="Bounce"><Activation_Style>Take_Damage</Activation_Style>
+      <Block_Chance>1.0</Block_Chance><Redirect_If_Shield_Hit_Only>Yes</Redirect_If_Shield_Hit_Only></Redirect_Projectile_Ability></Abilities></X_Units>
   <X_Structures Name="Lab"><MovementClass>Building</MovementClass><Tactical_Health>500</Tactical_Health>
     <Custom_Hard_XExtent>20</Custom_Hard_XExtent>
     <BehaviorType Name="GroundStructureBehaviorType"><Enables_Research>Yes</Enables_Research></BehaviorType></X_Structures>
@@ -267,6 +272,18 @@ static void testTeleport(const Data& d) {
     CHECK(w.unit(b)->position[0] < 210); // still charging up
     for (int i = 0; i < 20; ++i) w.tick();
     CHECK(std::fabs(w.unit(b)->position[0] - 500) < 15 && std::fabs(w.unit(b)->position[1] - 300) < 15);
+}
+
+static void testRedirect(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t mirror = w.spawn("Mirror", a, {200, 200, 0});
+    const uint32_t shooter = w.spawn("Shorty", b, {260, 200, 0});
+    for (int i = 0; i < 10 * 30; ++i) w.tick();
+    CHECK(w.unit(mirror) && w.unit(mirror)->health == 100 && w.unit(mirror)->shield == 100); // every shot bounced
+    CHECK(!w.unit(shooter) || w.unit(shooter)->health < 100);                             // back at the shooter
 }
 
 static void testHexAndCharm(const Data& d) {
@@ -535,6 +552,7 @@ int main() {
     testAura(d);
     testCloak(d);
     testTeleport(d);
+    testRedirect(d);
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);

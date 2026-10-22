@@ -973,6 +973,26 @@ void World::updateProjectiles() {
         if (!hit)
             for (Unit& o : units_)
                 if (o.alive() && !o.inside && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
+        // A redirecting shield sends the shot back at whoever fired it.
+        if (hit && p.shooter != 0 && hit->id != p.shooter)
+            if (const float chance = redirectChance(*hit); chance > 0 && random01() < chance) {
+                if (const Unit* src = unit(p.shooter); src && src->alive() && !src->inside) {
+                    Projectile back = p;
+                    back.owner = hit->owner;
+                    back.shooter = hit->id;
+                    back.target = src->id;
+                    back.id = 0;
+                    const float speed = std::max(1.f, std::sqrt(p.velocity[0] * p.velocity[0] + p.velocity[1] * p.velocity[1] + p.velocity[2] * p.velocity[2]));
+                    const float dx = src->position[0] - p.position[0], dy = src->position[1] - p.position[1], dz = src->position[2] + 4 - p.position[2];
+                    const float len = std::max(std::sqrt(dx * dx + dy * dy + dz * dz), 1e-3f);
+                    back.velocity = {dx / len * speed, dy / len * speed, dz / len * speed};
+                    back.distance = len;
+                    back.travelled = 0;
+                    keep.push_back(std::move(back));
+                }
+                impacts_.push_back({p.type, p.position, true, ticks_});
+                continue;
+            }
         if (hit && p.damage > 0) applyDamage(*hit, p.damage, p.damageType);
         impacts_.push_back({p.type, p.position, hit != nullptr, ticks_});
         projectileImpact(p, hit);

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 
 namespace alamo {
 namespace {
@@ -106,6 +107,27 @@ OrderResult World::unload(uint32_t transportId) {
         r->speed = 0;
     }
     return OrderResult::Ok;
+}
+
+float World::redirectChance(const Unit& u) const {
+    auto it = redirects_.find(u.type);
+    if (it == redirects_.end()) {
+        float chance = 0;
+        bool shieldOnly = false;
+        for (const ObjectField& f : u.type->fields()) {
+            if (f.values.empty() || f.path.find("Redirect_Projectile_Ability[") == std::string::npos) continue;
+            const std::string leaf = f.path.substr(f.path.rfind('.') + 1);
+            if (leaf == "Block_Chance") chance = float(std::atof(f.values.back().c_str()));
+            if (leaf == "Redirect_If_Shield_Hit_Only") {
+                std::string v = trim(f.values.back());
+                for (char& c : v) c = char(std::tolower(static_cast<unsigned char>(c)));
+                shieldOnly = v == "yes" || v == "true" || v == "1";
+            }
+        }
+        it = redirects_.emplace(u.type, std::make_pair(chance, shieldOnly)).first;
+    }
+    if (it->second.second && u.shield <= 0) return 0;
+    return it->second.first;
 }
 
 void World::updateGarrisons() {
