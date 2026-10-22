@@ -27,7 +27,7 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 898 of 936 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory) |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 929 of 934 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory) |
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
@@ -421,6 +421,20 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   default), scaled by its remaining health.
 * **Charges** (`Tackle_Ability`, the Brute): a low dash of up to `Tackle_Charge_Distance` at the target,
   which takes `Damage_Amount` when the Brute arrives.
+* **Target restrictions** (`Attack_Category_Restrictions`, on the unit or a hardpoint): a weapon never aims
+  at units of those categories, so anti-air guns (`~Flying`) leave ground units alone and most ground guns
+  can't reach aircraft.
+* **Deploying** (`DEPLOY`, the Dragoon and Heavy Artillery Gun): with `Fire_Weapon_When_Undeployed` off, the
+  unit only fires after standing still for its set-up time (1.5 s at `Deployment_Anim_Rate` 1), and packs up
+  to move.
+* **Foo Cores** (`FooCoreBehaviorType`, the Hierarchy saucer): its `Foo_Core_Max_Fighters` fighters (3) fly
+  out to targets within `Foo_Core_Attack_Range`, each doing `Foo_Fighter_Damage_Amount` every
+  `Foo_Fighter_Damage_Interval` (the fighters can't be attacked, so they are one weapon on the core).
+  `FOO_CORE_HEAL` switches them to repairing friendly machines in range instead.
+* **Fire modes** (`ATTACK_SUBSTITUTE` with a short recharge, gunship railgun and AA modes): a switch; while on,
+  the unit uses that attack instead of its usual special attacks.
+* **Building placement** (`BUILDING_PLACEMENT`, Kamal Rex): puts a `Building_Type` (his force wall) at a
+  point within `Activation_Max_Range`.
 
 ## Research
 
