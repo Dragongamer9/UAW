@@ -8,6 +8,9 @@
 
 namespace uaw {
 
+// Top-down picture of a map (N x N RGBA, north up): layer colours shaded by slope.
+std::vector<uint8_t> minimapPixels(const alamo::Map& map, alamo::MegVfs& vfs, int N);
+
 class Hud {
 public:
     // Uses the game's Arial; without it the HUD draws boxes only.
@@ -24,6 +27,8 @@ public:
     // Pixel rectangle of menu item i from the last draw (for mouse clicks), or false.
     bool menuItemAt(float x, float y, int& index) const;
     bool hasFont() const { return font_ != nullptr; }
+    // A short line in a dark box near the top centre ("Paused", game speed).
+    void centreText(Renderer& r, const std::string& text, bool small = false);
 
     // Research panel (T): the faction's tree, click a suite to start it.
     bool researchOpen = false;

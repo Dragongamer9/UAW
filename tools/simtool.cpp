@@ -1,6 +1,7 @@
 // simtool: exercise the simulation against real game data without a window.
 //   simtool <game-root> <MAP> start            skirmish start for Novus/Hierarchy/Masari: what each can build
 //   simtool <game-root> <MAP> opening FACTION  scripted build order (construct, produce) with a timeline
+//   simtool <game-root> <MAP> game F[:TEAM],... [MINUTES] [SEED]   AI free-for-all or team game
 #include "common.hpp"
 #include "alamo/ai.hpp"
 #include "alamo/combat.hpp"
@@ -218,6 +219,63 @@ int main(int argc, char** argv) {
                 const bool da = defeated(w, a), db2 = defeated(w, b);
                 if (da || db2) {
                     std::printf("%6.1fs  %s wins\n", w.seconds(), da && db2 ? "nobody" : w.player(da ? b : a)->faction.c_str());
+                    return 0;
+                }
+            }
+            std::printf("time up, no winner\n");
+            return 0;
+        }
+        if (cmd == "game" && argc > 4) {
+            // Free-for-all or team game: FACTION[:TEAM],... one per start position in order.
+            const float minutes = argc > 5 ? float(std::atof(argv[5])) : 30.f;
+            const uint64_t seed = argc > 6 ? std::strtoull(argv[6], nullptr, 10) : 1;
+            World w(map, db, &dmg, seed, &tech);
+            rules.configure(w);
+            std::vector<SkirmishAI> ais;
+            std::vector<int> ids;
+            std::string list = argv[4];
+            size_t pos = 0, slot = 0;
+            while (pos <= list.size() && slot < st.size()) {
+                size_t e = list.find(',', pos);
+                if (e == std::string::npos) e = list.size();
+                const std::string item = list.substr(pos, e - pos);
+                pos = e + 1;
+                const size_t c = item.find(':');
+                const int id = addSkirmishPlayer(w, db, item.substr(0, c), st[slot++], &forces);
+                if (c != std::string::npos) w.setTeam(id, std::atoi(item.c_str() + c + 1));
+                ids.push_back(id);
+            }
+            for (int id : ids) ais.emplace_back(w, id, seed + uint64_t(id) * 7);
+            std::vector<bool> out(ids.size(), false);
+            const int end = int(minutes * 60 * kTicksPerSecond);
+            for (int t = 0; t <= end; ++t) {
+                for (auto& ai : ais) ai.update();
+                w.tick();
+                if (t % (60 * kTicksPerSecond) == 0) {
+                    std::printf("--- %2d:00", t / (60 * kTicksPerSecond));
+                    for (int id : ids) {
+                        int n = 0;
+                        for (const Unit& u : w.units()) n += u.owner == id;
+                        std::printf("  %s(t%d) %d", w.player(id)->faction.c_str(), w.player(id)->team, n);
+                    }
+                    std::printf("\n");
+                }
+                if (t % 30) continue;
+                for (size_t i = 0; i < ids.size(); ++i)
+                    if (!out[i] && defeated(w, ids[i])) {
+                        out[i] = true;
+                        std::printf("%6.1fs  %s (player %d) defeated\n", w.seconds(), w.player(ids[i])->faction.c_str(), ids[i] + 1);
+                    }
+                // Over when everyone left is on one side.
+                int firstAlive = -1;
+                bool mixed = false;
+                for (size_t i = 0; i < ids.size(); ++i) {
+                    if (out[i]) continue;
+                    if (firstAlive < 0) firstAlive = ids[i];
+                    else if (w.enemies(firstAlive, ids[i])) mixed = true;
+                }
+                if (!mixed) {
+                    std::printf("%6.1fs  over: %s\n", w.seconds(), firstAlive < 0 ? "nobody left" : ("team of player " + std::to_string(firstAlive + 1) + " (" + w.player(firstAlive)->faction + ") wins").c_str());
                     return 0;
                 }
             }

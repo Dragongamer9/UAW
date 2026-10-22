@@ -463,16 +463,19 @@ void World::recomputeModifiers(Unit& u) {
 
 bool World::filterPasses(std::string_view f, const Unit& s, int so, const Unit& t) const {
     const std::string n = upperS(trim(f));
-    const bool same = t.owner == so;
+    const bool owner = t.owner == so;
+    const bool same = owner || (so >= 0 && t.owner >= 0 && !enemies(so, t.owner)); // allied
     const bool enemy = so >= 0 && t.owner >= 0 && enemies(so, t.owner);
     const bool damaged = t.health < t.maxHealth - 0.01f;
     const std::string tn = upperS(t.type->name);
     auto endsWith = [&](const char* suf) { const size_t l = std::strlen(suf); return tn.size() >= l && tn.compare(tn.size() - l, l, suf) == 0; };
     if (n == "IS_ENEMY" || n == "IS_FOW_AWARE_ENEMY") return enemy;
     if (n == "IS_ENEMY_NOT_IMMUNE_TO_MC") return enemy && !t.structure && t.attribute("Is_Mind_Controlled") == 0;
-    if (n == "IS_ALLY" || n == "IS_SAME_OWNER" || n == "IS_OWN_FLEET") return same;
+    if (n == "IS_ALLY") return same;
+    if (n == "IS_SAME_OWNER" || n == "IS_OWN_FLEET") return owner;
     if (n == "IS_ALLY_NOT_SELF") return same && t.id != s.id;
-    if (n == "IS_NOT_ALLY" || n == "IS_NOT_SAME_OWNER") return !same;
+    if (n == "IS_NOT_ALLY") return !same;
+    if (n == "IS_NOT_SAME_OWNER") return !owner;
     if (n == "IS_FRIENDLY_UNIT_DAMAGED") return same && damaged && !t.structure;
     if (n == "IS_DAMAGED_AND_POWERED") return same && damaged && t.powered;
     if (n == "IS_NOT_FLYING") return !t.flying();

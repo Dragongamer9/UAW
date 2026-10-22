@@ -21,6 +21,7 @@ public:
     void parse(std::span<const uint8_t> data); // adds/replaces strings; throws MegError on malformed input
     const std::string* get(std::string_view key) const; // UTF-8, nullptr if missing
     size_t size() const { return strings_.size(); }
+    const std::unordered_map<std::string, std::string>& entries() const { return strings_; }
 
     // Display name for an object type: its Text_ID if translated, otherwise a tidied type name.
     std::string displayName(const GameObjectType& type) const;

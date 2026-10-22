@@ -695,7 +695,7 @@ void SkirmishAI::manageSuperweapons() {
                 if (dist2(o.position, c.position) > r + o.radius) continue;
                 const float v = std::max(50.f, buildInfo(*o.type, db_).cost);
                 if (w_.enemies(player_, o.owner) && o.owner >= 0) score += v;
-                else if (o.owner == player_) score -= 2 * v;
+                else if (!w_.enemies(player_, o.owner)) score -= 2 * v; // own and allied
             }
             if (score > bestScore) { bestScore = score; best = c.position; }
         }

@@ -27,7 +27,7 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 745 of 936 ability entries simulated; garrisons, retreat, clones and teleports still to come |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 772 of 936 ability entries simulated (beams, clones, sprays and the Dervish spin included); garrisons, retreat and teleports still to come |
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
@@ -36,8 +36,9 @@ redistributed.
 | 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
 | 2 | Particle systems (`0x1500` .ALO) | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
-| 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
-| 4 | UI, audio, LAN multiplayer | planned |
+| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams), pause menu, game speed | done (first version) |
+| 4 | Audio | planned: the staged game folder has no audio archives yet |
+| 4 | LAN multiplayer | planned |
 
 ## Mods
 
@@ -77,7 +78,8 @@ download them from the run's **Artifacts**.
 ## uaw-viewer
 
 ```sh
-uaw-viewer "<game>" M16_Sahara               # skirmish start: you (Novus) vs a Hierarchy base
+uaw-viewer "<game>"                          # the skirmish setup screen
+uaw-viewer "<game>" M16_Sahara               # straight in: you (Novus) vs a Hierarchy base
 uaw-viewer "<game>" M16_Sahara --faction Alien --enemy Masari
 uaw-viewer "<game>" M16_Sahara --squads      # mixed test squads at every start instead
 uaw-viewer "<game>" M25_Grand_Canyon --player 5
@@ -85,14 +87,23 @@ uaw-viewer "<game>" M16_Sahara --screenshot shot.png --size 1920x1080 --camera 2
 uaw-viewer "<game>" M25_Grand_Canyon --faction Military --enemy Novus   # Military needs a mod (loaded by default)
 uaw-viewer "<game>" M25_Grand_Canyon --spawn Novus_Power_Router --spawn Novus_Input_Station  # start with an economy
 uaw-viewer "<game>" M16_Sahara --no-mods     # the original game only
+uaw-viewer "<game>" M25_Grand_Canyon --slots you:Novus:1,ai:Masari:1,ai:Alien:2,ai:Military:2   # 2 v 2
 ```
+
+**Setup screen.** Without a map (or double-clicked from the game folder) the viewer opens a skirmish
+setup screen: every map with two or more start positions (22 with the base game and mods), a top-down
+preview with the numbered starts, and one row per start position: open, you or computer, the faction, and
+a team (players on the same team are allies; no team means everyone is an enemy). Click to change a
+setting, right click to step back; Enter or *Start game* plays it. In a game, Esc (with nothing to cancel)
+opens the pause menu: resume, restart, back to the setup screen, or exit. `[` and `]` change the game
+speed (x0.5 to x4), Pause stops the clock.
 
 The opponent is played by the skirmish AI (`--no-ai` to switch it off, `--spectate` to let an AI play your
 side too). Scrap piles are drawn as gold heaps that shrink as they are mined; collectors show their load as a crate.
 The top bar shows credits, the Masari bank cap and passive income per second.
 
 On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
-`Data\MegaFiles.xml`) and double-click it to open the Sahara map.
+`Data\MegaFiles.xml`) or next to it and double-click it to open the setup screen.
 
 Each start position gets a test squad (player 1 Novus, player 2 Hierarchy,
 player 3 Masari: infantry, vehicles and a hero). You command player 1's
@@ -116,7 +127,8 @@ squad, or another with `--player N`.
 | Cancel last queued item | Backspace | left stick click |
 | Rally point (structure selected) | right click | RB |
 | Toggle stand-in boxes | P | Y |
-| Quit | Esc | Back |
+| Game speed / pause | `[` `]` / Pause | |
+| Menu (resume, restart, setup, exit) | Esc | Start or Back |
 
 Headless check of a move order: `uaw-viewer "<game>" M16_Sahara --order 1900,3000 --run 12 --screenshot out.png`.
 Scripted battle (prints both sides' units and health every 5 seconds):
@@ -206,6 +218,7 @@ mark structures, units, resources, the playable area and numbered start position
 simtool "<game>" M25_Grand_Canyon start                  # every playable faction's starting forces and menus
 simtool "<game>" M25_Grand_Canyon opening Novus          # one faction builds everything for 8 minutes
 simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someone is defeated
+simtool "<game>" M25_Grand_Canyon game Novus:1,Masari:1,Alien:2,Military:2 30   # 2 v 2 (or FFA without teams)
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 ```
 

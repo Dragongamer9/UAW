@@ -1,5 +1,7 @@
 // uaw-viewer: a Universe at War map with its objects placed and test squads to command.
 //
+//   uaw-viewer                       (from the game folder) the skirmish setup screen
+//   uaw-viewer <game-root> [options] the skirmish setup screen
 //   uaw-viewer <game-root> <MAP> [options]
 //     --player N          you control player N's squad; camera starts there (default 1)
 //     --all-groups        also show campaign-mission objects
@@ -26,12 +28,16 @@
 //     --run SECONDS       (with --screenshot) simulate this long before the picture
 //     --select NAME       (with --screenshot) select your units whose type name contains NAME
 //     --research          open the research panel
+//     --menu              (with --screenshot) picture of the setup screen for MAP
+//     --slots LIST        every start position in order: you|ai|open[:FACTION[:TEAM]], e.g.
+//                         you:Novus:1,ai:Masari:1,ai:Alien:2,ai:Military:2 (2 v 2)
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
 //             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
-//             V + right click fires a selected superweapon, minimap click moves the camera, Esc quit
+//             V + right click fires a selected superweapon, minimap click moves the camera,
+//             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
 //   build     select a structure or builder: 1-9 / click the menu (D-pad left/right + down on a gamepad);
 //             builders then place the structure with a click / A (right click / B cancels);
@@ -46,6 +52,7 @@
 #include "scene.hpp"
 #include "hud.hpp"
 #include "units.hpp"
+#include "menu.hpp"
 
 #include "alamo/ai.hpp"
 #include "alamo/alo.hpp"
@@ -88,6 +95,9 @@ struct Options {
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
     float runSeconds = 0;
+    std::string slots;     // --slots you:Novus:1,ai:Alien:2,open,...
+    bool menu = false;     // start at the skirmish setup screen (no map on the command line)
+    float speed = 1;       // game speed multiplier
 };
 
 // With no arguments (e.g. double-clicked), look for the game next to the executable
@@ -109,13 +119,18 @@ std::string findGameRoot() {
 bool parse(int argc, char** argv, Options& o) {
     if (argc == 1) {
         o.gameRoot = findGameRoot();
-        o.map = "M16_Sahara";
+        o.menu = true;
         return !o.gameRoot.empty();
     }
-    if (argc < 3) return false;
     o.gameRoot = argv[1];
-    o.map = argv[2];
-    for (int i = 3; i < argc; ++i) {
+    int first = 2;
+    if (argc >= 3 && argv[2][0] != '-') {
+        o.map = argv[2];
+        first = 3;
+    } else {
+        o.menu = true; // just the game folder (and options): the setup screen
+    }
+    for (int i = first; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
         if (a == "--screenshot") o.screenshot = next();
@@ -140,6 +155,8 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--lineup") o.lineup = next();
         else if (a == "--research") o.research = true;
         else if (a == "--select") o.select = next();
+        else if (a == "--menu") o.menu = true;
+        else if (a == "--slots") o.slots = next();
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -167,10 +184,10 @@ int main(int argc, char** argv) {
     Options opt;
     if (!parse(argc, argv, opt)) {
         const char* usage =
-            "usage: uaw-viewer <game-root> <MAP> [--player N] [--all-groups] [--no-units] [--size WxH]\n"
-            "                  [--camera x,y,dist,yaw,pitch] [--screenshot out.png [--order X,Y] [--run SECONDS]]\n\n"
-            "<game-root> is the folder containing Data\\MegaFiles.xml.\n"
-            "Run with no arguments from inside that folder to open M16_Sahara.";
+            "usage: uaw-viewer <game-root> [<MAP>] [--player N] [--faction F] [--enemy F] [--all-groups] [--no-units]\n"
+            "                  [--size WxH] [--camera x,y,dist,yaw,pitch] [--screenshot out.png [--order X,Y] [--run SECONDS]]\n\n"
+            "<game-root> is the folder containing Data\\MegaFiles.xml. Without a map the skirmish setup screen opens.\n"
+            "Run with no arguments from inside that folder (or next to it) to open the setup screen.";
         std::fprintf(stderr, "%s\n", usage);
         if (argc == 1) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "uaw-viewer", usage, nullptr);
         return 2;
@@ -178,7 +195,7 @@ int main(int argc, char** argv) {
 
     MegVfs vfs;
     GameDatabase db;
-    Map map;
+    std::vector<std::string> modNames;
     try {
         std::vector<std::filesystem::path> mods;
         if (!opt.noMods && opt.mods.empty()) mods = installedMods(opt.gameRoot);
@@ -192,12 +209,13 @@ int main(int argc, char** argv) {
             if (p.empty()) throw std::runtime_error("mod not found: " + name);
             mods.push_back(p);
         }
-        for (const auto& m : mods) SDL_Log("mod: %s", m.filename().string().c_str());
+        for (const auto& m : mods) {
+            SDL_Log("mod: %s", m.filename().string().c_str());
+            modNames.push_back(m.filename().string());
+        }
         mountGame(vfs, opt.gameRoot, mods);
         db.load(vfs);
-        const std::string path = mapPath(opt.map);
-        if (!vfs.exists(path)) throw std::runtime_error("map not found: " + path);
-        map = loadTed(vfs.read(path));
+        if (!opt.map.empty() && !vfs.exists(mapPath(opt.map))) throw std::runtime_error("map not found: " + mapPath(opt.map));
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
@@ -240,19 +258,24 @@ int main(int argc, char** argv) {
     int exitCode = 0;
     try {
         Renderer renderer(vfs);
-        renderer.setTerrain(map);
-        Scene scene(renderer, db, map, opt.allGroups);
-        const SceneStats& st = scene.stats();
-        std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
-                    opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
-
-        // Simulation with a test squad at each start position.
         const DamageTable damageTable = loadDamageTable(vfs);
         const TechTree techTree = loadTechTree(vfs);
         const StringTable text = loadStrings(vfs);
         GameRules rules;
         rules.load(vfs);
         SDL_Log("%zu effects, %zu research trees", rules.effectLibrary.size(), rules.research.size());
+        const float uiScale = std::max(0.75f, float(opt.height) / 900.f);
+        enum class End { Quit, ToMenu, Restart };
+
+    // One game: load the map, set up the players, play until quit / back to the menu / restart.
+    auto runSession = [&](const SkirmishSetup& setup) -> End {
+        opt.map = setup.map;
+        Map map = loadTed(vfs.read(mapPath(opt.map)));
+        renderer.setTerrain(map);
+        Scene scene(renderer, db, map, opt.allGroups);
+        const SceneStats& st = scene.stats();
+        std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
+                    opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
         World world(map, db, &damageTable, 1, &techTree);
         bool lineupMode = false; // model gallery: no map props
         Vec3 lineupFloor{};      // its floor: centre x, y and size
@@ -369,14 +392,16 @@ int main(int argc, char** argv) {
         } else if (opt.units && opt.squads) {
             spawnTestSquads(world, starts, map);
         } else if (opt.units) {
-            // Skirmish start: you at your start position, the opponent at the next one.
-            const int you = opt.player - 1;
-            const int them = (you + 1) % int(starts.size());
+            // Skirmish start: every taken slot at its start position; open ones stay empty.
             const StartingForces forces = loadStartingForces(vfs);
             for (int slot = 0; slot < int(starts.size()); ++slot) {
-                if (slot == you) addSkirmishPlayer(world, db, opt.faction, starts[size_t(slot)], &forces);
-                else if (slot == them) addSkirmishPlayer(world, db, opt.enemy, starts[size_t(slot)], &forces);
-                else world.addPlayer("Neutral", 0, 0);
+                const PlayerSlot* ps = size_t(slot) < setup.slots.size() ? &setup.slots[size_t(slot)] : nullptr;
+                if (ps && ps->kind != PlayerSlot::Kind::Open) {
+                    const int id = addSkirmishPlayer(world, db, ps->faction, starts[size_t(slot)], &forces);
+                    world.setTeam(id, ps->team);
+                } else {
+                    world.addPlayer("Neutral", 0, 0);
+                }
             }
         }
         if (!opt.spawns.empty() && opt.units && !opt.squads) {
@@ -402,7 +427,8 @@ int main(int argc, char** argv) {
         std::vector<SkirmishAI> ais;
         if (opt.units && !opt.squads && !opt.battle && opt.ai)
             for (const Player& p : world.players())
-                if (p.faction != "Neutral" && (p.id != opt.player - 1 || opt.spectate)) ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
+                if (p.faction != "Neutral" && (p.id != opt.player - 1 || opt.spectate || setup.human() < 0))
+                    ais.emplace_back(world, p.id, uint64_t(p.id) + 1);
         auto stepWorld = [&]() {
             for (auto& ai : ais) ai.update();
             world.tick();
@@ -431,7 +457,9 @@ int main(int argc, char** argv) {
 
         bool placeholders = true;
         View view;
-        Hud hud(vfs, std::max(0.75f, float(opt.height) / 900.f));
+        Hud hud(vfs, uiScale);
+        PauseMenu pause(vfs, uiScale);
+        bool paused = false;
         if (!lineupMode) hud.setMap(renderer, map, vfs);
         hud.researchOpen = opt.research;
         bool padConnected = false;
@@ -447,8 +475,12 @@ int main(int argc, char** argv) {
             control.draw(renderer, world, world.seconds());
             renderer.endFrame();
             hud.draw(renderer, world, control, db, text, padConnected, &view);
+            if (paused && !pause.open) hud.centreText(renderer, "Paused");
+            else if (opt.speed != 1) hud.centreText(renderer, opt.speed > 1 ? "Speed x" + std::to_string(int(opt.speed)) : "Speed x0.5", true);
+            if (pause.open) pause.draw(renderer);
         };
 
+        End end = End::Quit;
         if (headless) {
             if (opt.demo) {
                 // Builder starts the first structure it can make; the HQ queues its first unit.
@@ -538,6 +570,7 @@ int main(int argc, char** argv) {
             std::printf("screenshot %s (%dx%d), camera %.0f,%.0f,%.0f,%.0f,%.0f\n", opt.screenshot.c_str(), w, h, cam.x,
                         cam.y, cam.distance, cam.yaw, cam.pitch);
         } else {
+            end = End::Quit;
             SDL_Gamepad* pad = nullptr;
             bool running = true;
             uint64_t last = SDL_GetTicksNS(), fpsTimer = last;
@@ -551,14 +584,30 @@ int main(int argc, char** argv) {
                 const bool shift = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
                 SDL_Event e;
                 while (SDL_PollEvent(&e)) {
+                    if (pause.open && e.type != SDL_EVENT_QUIT && e.type != SDL_EVENT_GAMEPAD_ADDED && e.type != SDL_EVENT_GAMEPAD_REMOVED) {
+                        switch (pause.handle(e)) {
+                        case PauseMenu::Result::Resume: pause.open = false; break;
+                        case PauseMenu::Result::Restart: end = End::Restart; running = false; break;
+                        case PauseMenu::Result::ToMenu: end = End::ToMenu; running = false; break;
+                        case PauseMenu::Result::Quit: end = End::Quit; running = false; break;
+                        case PauseMenu::Result::None: break;
+                        }
+                        continue;
+                    }
                     switch (e.type) {
-                    case SDL_EVENT_QUIT: running = false; break;
+                    case SDL_EVENT_QUIT: running = false; end = End::Quit; break;
                     case SDL_EVENT_KEY_DOWN:
                         if (e.key.key == SDLK_ESCAPE) {
                             if (control.placing()) control.cancelPlacement();
                             else if (control.abilityArmed()) control.cancelAbility();
                             else if (hud.researchOpen) hud.researchOpen = false;
-                            else running = false;
+                            else pause.open = true;
+                        } else if (e.key.key == SDLK_PAUSE) {
+                            paused = !paused;
+                        } else if (e.key.key == SDLK_RIGHTBRACKET) {
+                            opt.speed = std::min(4.f, opt.speed * 2);
+                        } else if (e.key.key == SDLK_LEFTBRACKET) {
+                            opt.speed = std::max(0.5f, opt.speed / 2);
                         } else if (e.key.key >= SDLK_F1 && e.key.key <= SDLK_F8) {
                             control.useAbility(world, size_t(e.key.key - SDLK_F1));
                         } else if (e.key.key >= SDLK_1 && e.key.key <= SDLK_9 && !control.placing()) {
@@ -659,7 +708,8 @@ int main(int argc, char** argv) {
                             break;
                         }
                         switch (e.gbutton.button) {
-                        case SDL_GAMEPAD_BUTTON_BACK: running = false; break;
+                        case SDL_GAMEPAD_BUTTON_BACK:
+                        case SDL_GAMEPAD_BUTTON_START: pause.open = true; break;
                         case SDL_GAMEPAD_BUTTON_NORTH: placeholders = !placeholders; break;
                         case SDL_GAMEPAD_BUTTON_DPAD_LEFT: --control.highlight(); break;
                         case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: ++control.highlight(); break;
@@ -709,10 +759,10 @@ int main(int argc, char** argv) {
                 if (zoomIn != 0) cam.zoom(std::pow(0.3f, zoomIn * dt));
                 cam.clampTo(map);
 
-                // Fixed-rate simulation, decoupled from the frame rate.
-                simAccumulator += dt;
+                // Fixed-rate simulation, decoupled from the frame rate (stopped while paused).
+                if (!paused && !pause.open) simAccumulator += dt * opt.speed;
                 int steps = 0;
-                while (simAccumulator >= 1.0 / kTicksPerSecond && steps < 8) {
+                while (simAccumulator >= 1.0 / kTicksPerSecond && steps < 8 * int(std::max(1.f, opt.speed))) {
                     stepWorld();
                     simAccumulator -= 1.0 / kTicksPerSecond;
                     ++steps;
@@ -745,6 +795,97 @@ int main(int argc, char** argv) {
                 }
             }
             if (pad) SDL_CloseGamepad(pad);
+        }
+        return end;
+    };
+
+        // Setup screen, or straight into the map from the command line; then games until quit.
+        SkirmishSetup setup;
+        if (!opt.map.empty()) {
+            // Command line: you in slot --player, the opponent in the next slot.
+            setup.map = opt.map;
+            const Map probe = loadTed(vfs.read(mapPath(opt.map)));
+            int nStarts = 0;
+            for (const auto& o : probe.objects)
+                if (const GameObjectType* t = db.findByCrc(o.typeCrc); t && t->name.rfind("Marker_Player_", 0) == 0) ++nStarts;
+            setup.slots.resize(size_t(std::max(nStarts, 2)));
+            const int you = std::min(opt.player - 1, int(setup.slots.size()) - 1);
+            opt.player = you + 1;
+            setup.slots[size_t(you)] = {PlayerSlot::Kind::Human, opt.faction, -1};
+            setup.slots[size_t((you + 1) % int(setup.slots.size()))] = {PlayerSlot::Kind::Computer, opt.enemy, -1};
+            if (!opt.slots.empty()) {
+                setup.slots.assign(setup.slots.size(), PlayerSlot{});
+                size_t k = 0, pos = 0;
+                while (pos <= opt.slots.size() && k < setup.slots.size()) {
+                    size_t e = opt.slots.find(',', pos);
+                    if (e == std::string::npos) e = opt.slots.size();
+                    const std::string item = opt.slots.substr(pos, e - pos);
+                    pos = e + 1;
+                    PlayerSlot& ps = setup.slots[k++];
+                    const size_t c1 = item.find(':'), c2 = c1 == std::string::npos ? c1 : item.find(':', c1 + 1);
+                    const std::string kind = item.substr(0, c1);
+                    ps.kind = kind == "you" ? PlayerSlot::Kind::Human : kind == "ai" ? PlayerSlot::Kind::Computer : PlayerSlot::Kind::Open;
+                    if (c1 != std::string::npos) ps.faction = item.substr(c1 + 1, c2 == std::string::npos ? std::string::npos : c2 - c1 - 1);
+                    if (c2 != std::string::npos) ps.team = std::atoi(item.c_str() + c2 + 1) - 1;
+                }
+                const int human = setup.human();
+                opt.player = human >= 0 ? human + 1 : 1;
+                opt.spectate = human < 0;
+            }
+        }
+        std::unique_ptr<SkirmishMenu> menu;
+        End end = opt.menu ? End::ToMenu : End::Restart;
+        while (end != End::Quit) {
+            if (end == End::ToMenu) {
+                if (!menu) {
+                    menu = std::make_unique<SkirmishMenu>(vfs, db, modNames, uiScale);
+                    if (!opt.map.empty()) menu->selectMap(opt.map);
+                }
+                if (menu->empty()) throw std::runtime_error("no skirmish maps found");
+                bool done = false, quit = false;
+                if (headless) { // a picture of the setup screen
+                    int w, h;
+                    SDL_GetWindowSizeInPixels(window, &w, &h);
+                    renderer.beginFrame(w, h, Renderer::Camera{{0, 0, 1}, {0, 1, 0}}, 100);
+                    renderer.endFrame();
+                    menu->draw(renderer);
+                    Image img;
+                    img.width = uint32_t(w);
+                    img.height = uint32_t(h);
+                    img.rgba = renderer.readPixels(w, h);
+                    for (size_t i = 3; i < img.rgba.size(); i += 4) img.rgba[i] = 255;
+                    auto png = encodePng(img);
+                    std::ofstream(opt.screenshot, std::ios::binary).write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
+                    std::printf("screenshot %s (setup screen)\n", opt.screenshot.c_str());
+                    break;
+                }
+                SDL_SetWindowTitle(window, "Universe at War - Skirmish");
+                SDL_Gamepad* pad = nullptr;
+                while (!done) {
+                    SDL_Event e;
+                    while (SDL_PollEvent(&e)) {
+                        if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
+                        const SkirmishMenu::Result r = menu->handle(e);
+                        if (r == SkirmishMenu::Result::Start) done = true;
+                        if (r == SkirmishMenu::Result::Quit) done = quit = true;
+                    }
+                    int w, h;
+                    SDL_GetWindowSizeInPixels(window, &w, &h);
+                    renderer.beginFrame(w, h, Renderer::Camera{{0, 0, 1}, {0, 1, 0}}, 100);
+                    renderer.endFrame();
+                    menu->draw(renderer);
+                    SDL_GL_SwapWindow(window);
+                }
+                if (pad) SDL_CloseGamepad(pad);
+                if (quit) break;
+                setup = menu->setup();
+                const int human = setup.human();
+                opt.player = human >= 0 ? human + 1 : 1;
+                opt.spectate = human < 0;
+                opt.haveCamera = opt.camSet = false;
+            }
+            end = runSession(setup);
+            if (headless) break;
         }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());

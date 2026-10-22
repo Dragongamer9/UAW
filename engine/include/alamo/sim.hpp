@@ -203,6 +203,7 @@ struct Player {
     std::vector<Research> researching;
     std::set<std::string> researched;  // suite ids, e.g. "A1"
     int abilitiesUsed = 0;             // statistics
+    int team = -1;                     // players on the same team (>= 0) are allies
 };
 
 // A pile of scrap (or any object with ResourceBehaviorType) placed on the map.
@@ -347,7 +348,15 @@ public:
 
     const std::vector<Projectile>& projectiles() const { return projectiles_; }
     const std::vector<DeathEvent>& deaths() const { return deaths_; } // everything that has died
-    bool enemies(int ownerA, int ownerB) const { return ownerA != ownerB; }
+    bool enemies(int ownerA, int ownerB) const {
+        if (ownerA == ownerB) return false;
+        if (ownerA < 0 || ownerB < 0 || ownerA >= int(players_.size()) || ownerB >= int(players_.size())) return true;
+        const int ta = players_[size_t(ownerA)].team;
+        return ta < 0 || ta != players_[size_t(ownerB)].team;
+    }
+    void setTeam(int owner, int team) {
+        if (owner >= 0 && owner < int(players_.size())) players_[size_t(owner)].team = team;
+    }
 
     void tick();
     uint64_t tickCount() const { return ticks_; }

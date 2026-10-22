@@ -44,11 +44,9 @@ Hud::Hud(alamo::MegVfs& vfs, float uiScale) : scale_(uiScale) {
     }
 }
 
-void Hud::setMap(Renderer& r, const alamo::Map& map, alamo::MegVfs& vfs) {
-    map_ = &map;
+std::vector<uint8_t> minimapPixels(const alamo::Map& map, alamo::MegVfs& vfs, int N) {
     // Layer colours, shaded by slope (light from the north-west), impassable ground darker.
     const std::vector<alamo::Vec3> colors = alamo::terrainLayerColors(vfs, map);
-    constexpr int N = 256;
     std::vector<uint8_t> px(size_t(N) * N * 4);
     for (int py = 0; py < N; ++py)
         for (int pxl = 0; pxl < N; ++pxl) {
@@ -63,7 +61,13 @@ void Hud::setMap(Renderer& r, const alamo::Map& map, alamo::MegVfs& vfs) {
             for (int k = 0; k < 3; ++k) px[(size_t(py) * N + pxl) * 4 + k] = uint8_t(std::clamp(c[k] * shade * 255.f, 0.f, 255.f));
             px[(size_t(py) * N + pxl) * 4 + 3] = 255;
         }
-    minimapTex_ = r.uploadTexture(px, N, N);
+    return px;
+}
+
+void Hud::setMap(Renderer& r, const alamo::Map& map, alamo::MegVfs& vfs) {
+    map_ = &map;
+    constexpr int N = 256;
+    minimapTex_ = r.uploadTexture(minimapPixels(map, vfs, N), N, N);
 }
 
 bool Hud::minimapAt(float x, float y, alamo::Vec3& out) const {
@@ -151,6 +155,17 @@ void Hud::banner(Renderer& r, const std::string& text, const Vec4& color) {
     }
     r.drawOverlayTriangles(v, font_->texture());
     (void)s;
+}
+
+void Hud::centreText(Renderer& r, const std::string& t, bool small) {
+    const Font* f = small ? small_.get() : font_.get();
+    if (!f) return;
+    const float W = float(r.width()), s = scale_, tw = f->width(t), lh = f->lineHeight();
+    const float x = W / 2 - tw / 2, y = 70 * s;
+    r.drawOverlayRect(x - 12 * s, y - 4 * s, x + tw + 12 * s, y + lh + 4 * s, {0, 0, 0, 0.6f});
+    std::vector<GpuVertex> v;
+    f->append(v, t, x, y, kText);
+    r.drawOverlayTriangles(v, f->texture());
 }
 
 bool Hud::researchAt(float x, float y, std::string& path, int& index) const {
