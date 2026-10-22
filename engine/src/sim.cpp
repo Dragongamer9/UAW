@@ -671,6 +671,8 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queu
         u->attackMove = false;
         u->goal = slots[best];
         u->harvest = Unit::Harvest::None;
+        if (u->flowTicks > 0) { u->flowGoal = slots[best]; continue; } // flowing: carries on there afterwards
+        if (planFlow(*u, slots[best])) continue; // Novus: along the power network
         if (!share || u->flying()) {
             u->path = planPath(*u, slots[best]);
             continue;
@@ -1363,6 +1365,7 @@ void World::tick() {
     for (Unit& u : units_) updateTargeting(u);
     mark();
     for (Unit& u : units_) {
+        updateFlow(u);
         // Arrived with Shift-queued moves left: on to the next.
         if (!u.queuedMoves.empty() && !u.moving() && !u.attackMove && !u.attackOrder && !u.inside) {
             u.goal = u.queuedMoves.front();

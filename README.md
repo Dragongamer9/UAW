@@ -453,6 +453,10 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   `FOO_CORE_HEAL` switches them to repairing friendly machines in range instead.
 * **Fire modes** (`ATTACK_SUBSTITUTE` with a short recharge, gunship railgun and AA modes): a switch; while on,
   the unit uses that attack instead of its usual special attacks.
+* **Novus flow** (`FLOW` in `LandBehavior`): a move order that starts within `Maximum_Run_To_Flow` (400) of a
+  powered Novus generator or transmitter and ends near another goes along the power network when that cuts the
+  walk by a third or more: the unit walks to the first node, rides the network (hidden and untargetable, drawn
+  as a light) and walks on from the second.
 * **Building placement** (`BUILDING_PLACEMENT`, Kamal Rex): puts a `Building_Type` (his force wall) at a
   point within `Activation_Max_Range`.
 

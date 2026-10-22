@@ -36,6 +36,7 @@ add_library(alamo
     engine/src/particles.cpp
     engine/src/sfx.cpp
     engine/src/garrison.cpp
+    engine/src/flow.cpp
     engine/src/luavm.cpp
     engine/src/research.cpp
     engine/src/ai.cpp

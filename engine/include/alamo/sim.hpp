@@ -181,6 +181,11 @@ struct Unit {
     float ammo = 0, ammoMax = 0;
     // Leaping (LEAP abilities): flying from leapFrom to leapTo, then landing effects.
     bool leaping = false;
+    // Novus flow (FLOW behaviour): riding the power network between two powered nodes, hidden.
+    // flowPlan: walking to flowFrom to get in; flowTicks > 0: under way (inside == own id).
+    bool flowPlan = false;
+    Vec3 flowFrom{}, flowTo{}, flowGoal{};
+    int flowTick = 0, flowTicks = 0;
     Vec3 leapFrom{}, leapTo{};
     int leapTick = 0, leapTicks = 0;
     uint16_t leapAbility = 0;
@@ -665,6 +670,13 @@ private:
     std::vector<PendingTeleport> teleports_;
     void updateBursts();
     void updateGarrisons();
+    // Novus flow: a move that is quicker along the power network goes that way (commandMove).
+    bool planFlow(Unit& u, Vec3 goal);
+    void updateFlow(Unit& u);
+public:
+    bool canFlow(const GameObjectType& t) const;
+private:
+    mutable std::unordered_map<const GameObjectType*, bool> flowCache_;
     bool recording_ = false, capture_ = false;
     int recordDepth_ = 0;
     std::vector<Command> log_;

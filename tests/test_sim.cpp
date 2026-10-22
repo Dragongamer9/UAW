@@ -56,6 +56,9 @@ static GameDatabase testDb(const fs::path& root) {
     write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
     write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
     write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Units Name="Flowbot"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Max_Rate_Of_Turn>30</Max_Rate_Of_Turn><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <LandBehavior>SELECTABLE, WALK_LOCOMOTOR, FLOW, TARGETING</LandBehavior></X_Units>
   <X_Units Name="Trooper"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
     <Max_Rate_Of_Turn>30</Max_Rate_Of_Turn><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
     <Tactical_Health>250</Tactical_Health></X_Units>
@@ -778,6 +781,29 @@ static void testReplay(const GameDatabase& db) {
     CHECK(w.stateHash() == first);
 }
 
+static void testFlow(const GameDatabase& db) {
+    // A Novus-style unit rides the power network between two powered nodes.
+    Map m = openMap();
+    World w(m, db);
+    const int p = w.addPlayer("Novus", 1000);
+    w.spawn("Router", p, {150, 150, 0});
+    w.spawn("Router", p, {850, 850, 0});
+    const uint32_t bot = w.spawn("Flowbot", p, {220, 200, 0});
+    const uint32_t walker = w.spawn("Trooper", p, {220, 240, 0});
+    CHECK(w.canFlow(*w.unit(bot)->type) && !w.canFlow(*w.unit(walker)->type));
+    for (int i = 0; i < 12; ++i) w.tick(); // power comes on
+    w.commandMove({bot}, {840, 780, 0});
+    w.commandMove({walker}, {840, 820, 0});
+    bool hidden = false;
+    for (int i = 0; i < 160; ++i) {
+        w.tick();
+        hidden |= w.unit(bot)->inside == bot;
+    }
+    CHECK(hidden);
+    CHECK(w.unit(bot)->inside == 0 && std::hypot(w.unit(bot)->position[0] - 840, w.unit(bot)->position[1] - 780) < 30);
+    CHECK(std::hypot(w.unit(walker)->position[0] - 840, w.unit(walker)->position[1] - 820) > 200); // still walking
+}
+
 static void testSell(const GameDatabase& db) {
     Map m = openMap();
     World w(m, db, nullptr, 1, nullptr);
@@ -836,6 +862,7 @@ int main() {
     testFog(db);
     testGarrison();
     testReplay(db);
+    testFlow(db);
     testSell(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {

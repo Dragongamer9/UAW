@@ -668,6 +668,13 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                       {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
         }
     }
+    // Units riding the Novus power network: a bright mote travelling along it.
+    for (const alamo::Unit& u : w.units()) {
+        if (u.flowTicks <= 0) continue;
+        if (player_ >= 0 && w.enemies(player_, u.owner) && fog && w.fogOfWar() && !w.visibleTo(player_, u.position)) continue;
+        const float z = w.map().heightAt(u.position[0], u.position[1]) + 14;
+        r.drawBox(Mat4::translate(u.position[0], u.position[1], z) * Mat4::scale(5), {0.45f, 0.9f, 1.f, 1});
+    }
     // Construction sites: a translucent-looking frame rising with progress; rally flags of selected structures.
     for (const alamo::Unit& u : w.units()) {
         if (!shown(w, u)) continue;
