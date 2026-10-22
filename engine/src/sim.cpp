@@ -349,7 +349,7 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
 }
 
 void World::cancelProduction(uint32_t id) {
-    RecordScope rec_(*this, Command{0, Command::Kind::CancelQueue, {id}});
+    RecordScope rec_(*this, Command{0, Command::Kind::CancelQueue, {id}, 0, -1, 0, {}, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     Unit* s = unit(id);
     if (!s || s->queue.empty()) return;
@@ -359,7 +359,7 @@ void World::cancelProduction(uint32_t id) {
 }
 
 void World::setRally(uint32_t id, Vec3 p) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Rally, {id}, 0, -1, 0, p});
+    RecordScope rec_(*this, Command{0, Command::Kind::Rally, {id}, 0, -1, 0, p, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     if (Unit* s = unit(id)) {
         s->rally = p;
@@ -632,7 +632,7 @@ Unit* World::unit(uint32_t id) {
 }
 
 void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queued) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, queued ? 1 : 0, target});
+    RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, queued ? 1 : 0, target, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     std::vector<Unit*> group;
     for (uint32_t id : ids)
@@ -704,7 +704,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queu
 }
 
 void World::commandStop(const std::vector<uint32_t>& ids) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Stop, ids});
+    RecordScope rec_(*this, Command{0, Command::Kind::Stop, ids, 0, -1, 0, {}, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     for (uint32_t id : ids)
         if (Unit* u = unit(id)) {
@@ -719,7 +719,7 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
 }
 
 void World::commandGuard(const std::vector<uint32_t>& ids, uint32_t friendId) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Guard, ids, friendId});
+    RecordScope rec_(*this, Command{0, Command::Kind::Guard, ids, friendId, -1, 0, {}, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     const Unit* f = unit(friendId);
     if (!f) return;
@@ -733,7 +733,7 @@ void World::commandGuard(const std::vector<uint32_t>& ids, uint32_t friendId) {
 }
 
 void World::commandPatrol(const std::vector<uint32_t>& ids, Vec3 target) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Patrol, ids, 0, -1, 0, target});
+    RecordScope rec_(*this, Command{0, Command::Kind::Patrol, ids, 0, -1, 0, target, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     std::vector<Vec3> from;
     for (uint32_t id : ids) from.push_back(unit(id) ? unit(id)->position : Vec3{});
@@ -747,7 +747,7 @@ void World::commandPatrol(const std::vector<uint32_t>& ids, Vec3 target) {
 }
 
 void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
-    RecordScope rec_(*this, Command{0, Command::Kind::AttackMove, ids, 0, -1, 0, target});
+    RecordScope rec_(*this, Command{0, Command::Kind::AttackMove, ids, 0, -1, 0, target, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     commandMove(ids, target);
     for (uint32_t id : ids)
@@ -755,7 +755,7 @@ void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
 }
 
 void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Attack, ids, target});
+    RecordScope rec_(*this, Command{0, Command::Kind::Attack, ids, target, -1, 0, {}, {}});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     const Unit* t = unit(target);
     if (!t) return;

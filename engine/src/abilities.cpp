@@ -907,7 +907,7 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
 }
 
 OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Ability, {id}, target, -1, int(i), point});
+    RecordScope rec_(*this, Command{0, Command::Kind::Ability, {id}, target, -1, int(i), point, {}});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* u = unit(id);
     if (!u || i >= u->abilities.size()) return OrderResult::InvalidUnit;

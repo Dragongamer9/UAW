@@ -69,7 +69,7 @@ bool World::canBoard(const Unit& rider, const Unit& transport) const {
 }
 
 OrderResult World::commandBoard(const std::vector<uint32_t>& ids, uint32_t transportId) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Board, ids, transportId});
+    RecordScope rec_(*this, Command{0, Command::Kind::Board, ids, transportId, -1, 0, {}, {}});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* t = unit(transportId);
     if (!t) return OrderResult::InvalidUnit;
@@ -90,7 +90,7 @@ OrderResult World::commandBoard(const std::vector<uint32_t>& ids, uint32_t trans
 }
 
 OrderResult World::unload(uint32_t transportId) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Unload, {transportId}});
+    RecordScope rec_(*this, Command{0, Command::Kind::Unload, {transportId}, 0, -1, 0, {}, {}});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* t = unit(transportId);
     if (!t) return OrderResult::InvalidUnit;
@@ -149,7 +149,7 @@ float World::sellRefund(const Unit& u) const {
 }
 
 OrderResult World::sell(uint32_t id) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Sell, {id}});
+    RecordScope rec_(*this, Command{0, Command::Kind::Sell, {id}, 0, -1, 0, {}, {}});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* u = unit(id);
     if (!u) return OrderResult::InvalidUnit;

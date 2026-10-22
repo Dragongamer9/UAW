@@ -111,7 +111,7 @@ uint32_t World::createEffectObject(const GameObjectType& ot, int owner, Vec3 pos
 }
 
 OrderResult World::fireSuperweapon(uint32_t id, Vec3 target) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Superweapon, {id}, 0, -1, 0, target});
+    RecordScope rec_(*this, Command{0, Command::Kind::Superweapon, {id}, 0, -1, 0, target, {}});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
     Unit* u = unit(id);
     if (!u) return OrderResult::InvalidUnit;
