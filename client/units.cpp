@@ -133,8 +133,87 @@ void UnitControl::moveTo(alamo::World& w, const Vec3& ground) {
     lastOrderTime_ = w.seconds();
 }
 
+uint32_t UnitControl::menuOwner(alamo::World& w) const {
+    uint32_t fallback = 0;
+    for (uint32_t id : selected_) {
+        const alamo::Unit* u = w.unit(id);
+        if (!u || u->owner != player_) continue;
+        if (!w.producible(id).empty() && u->structure) return id; // prefer structures
+        if (!fallback && (!w.producible(id).empty() || !w.constructible(id).empty())) fallback = id;
+    }
+    return fallback;
+}
+
+std::vector<MenuItem> UnitControl::menu(alamo::World& w, const alamo::GameDatabase& db, const alamo::StringTable& text) const {
+    std::vector<MenuItem> items;
+    const uint32_t id = menuOwner(w);
+    const alamo::Unit* u = w.unit(id);
+    if (!u) return items;
+    const alamo::Player* p = w.player(u->owner);
+    auto add = [&](const std::string& type, bool construct) {
+        const alamo::GameObjectType* t = db.find(type);
+        if (!t) return;
+        // Novus patches are activated abilities (cooldowns), not things you buy here.
+        if (t->category.find("Patch") != std::string::npos) return;
+        const alamo::BuildInfo info = alamo::buildInfo(*t, db);
+        MenuItem m;
+        m.type = t->name;
+        m.label = text.displayName(*t);
+        m.cost = info.cost;
+        m.seconds = float(info.ticks) / alamo::kTicksPerSecond;
+        m.construct = construct;
+        m.upgrade = !construct && !info.spawnsUnit;
+        m.affordable = !p || p->credits >= info.cost;
+        items.push_back(std::move(m));
+    };
+    for (const auto& t : w.constructible(id)) add(t, true);
+    for (const auto& t : w.producible(id)) add(t, false);
+    // Units first, then upgrades; keep data order otherwise.
+    std::stable_sort(items.begin(), items.end(), [](const MenuItem& a, const MenuItem& b) { return a.upgrade < b.upgrade; });
+    return items;
+}
+
+void UnitControl::activate(alamo::World& w, const MenuItem& item) {
+    const uint32_t id = menuOwner(w);
+    if (!id) return;
+    if (item.construct) {
+        placingType_ = item.type;
+        placingBuilder_ = id;
+        say("Place " + item.label + " (click / A to place, right click / B to cancel)", w.seconds());
+        return;
+    }
+    const alamo::OrderResult r = w.queueProduction(id, item.type);
+    say(r == alamo::OrderResult::Ok ? "Queued " + item.label : item.label + ": " + alamo::toString(r), w.seconds());
+}
+
+void UnitControl::cancelQueue(alamo::World& w) {
+    if (const uint32_t id = menuOwner(w)) {
+        w.cancelProduction(id);
+        say("Cancelled", w.seconds());
+    }
+}
+
+void UnitControl::place(alamo::World& w) {
+    if (!placing()) return;
+    const alamo::OrderResult r = w.commandConstruct(placingBuilder_, placingType_, ghost_);
+    say(r == alamo::OrderResult::Ok ? "Building" : std::string("Can't build here: ") + alamo::toString(r), w.seconds());
+    if (r == alamo::OrderResult::Ok) placingType_.clear();
+}
+
 void UnitControl::command(alamo::World& w, const Vec3& ground) {
     if (selected_.empty()) return;
+    // Selected structures take the click as their rally point.
+    bool anyMobile = false;
+    for (uint32_t id : selected_)
+        if (const alamo::Unit* u = w.unit(id); u && u->structure) w.setRally(id, ground);
+        else if (u) anyMobile = true;
+    if (!anyMobile) {
+        lastOrder_ = ground;
+        lastOrderTime_ = w.seconds();
+        attackOrder_ = false;
+        say("Rally point set", w.seconds());
+        return;
+    }
     for (uint32_t id : w.unitsNear(ground, 10)) {
         const alamo::Unit* u = w.unit(id);
         if (u && w.enemies(player_, u->owner)) {
@@ -195,7 +274,8 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
         if (sel || u.health < u.maxHealth) {
             // Health bar above selected or damaged units.
             const float frac = std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f);
-            const float barW = std::max(rad * 2.5f, 14.f), top = std::max(rad * 2.4f, 16.f) + 8;
+            const float barW = std::min(std::max(rad * 2.5f, 14.f), 110.f);
+            const float top = u.structure ? 45.f : std::max(rad * 2.4f, 16.f) + 8;
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + top) * Mat4::scale3(barW, 2.5f, 2.5f),
                       {0.1f, 0.1f, 0.1f, 1});
             r.drawBox(Mat4::translate(u.position[0] - barW * (1 - frac) / 2, u.position[1], u.position[2] + top + 0.3f) *
@@ -203,6 +283,31 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                       {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
         }
     }
+    // Construction sites: a translucent-looking frame rising with progress; rally flags of selected structures.
+    for (const alamo::Unit& u : w.units()) {
+        if (u.structure && u.underConstruction) {
+            const float h = 8 + 40 * u.buildProgress;
+            r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::scale3(u.footprintX * 2, u.footprintY * 2, h),
+                      {0.55f, 0.6f, 0.65f, 1});
+        }
+        if (u.structure && u.hasRally && selected_.count(u.id)) {
+            const float z = w.map().heightAt(u.rally[0], u.rally[1]);
+            r.drawBox(Mat4::translate(u.rally[0], u.rally[1], z) * Mat4::scale3(2, 2, 40), {1, 1, 1, 1});
+            r.drawBox(Mat4::translate(u.rally[0] + 7, u.rally[1], z + 30) * Mat4::scale3(12, 1.5f, 10), {0.3f, 1.f, 0.4f, 1});
+        }
+    }
+    // Placement ghost: green where the site is clear, red where it's blocked.
+    if (placing()) {
+        if (const alamo::GameObjectType* t = w.db().find(placingType_)) {
+            const float fx = float(t->number("Custom_Hard_XExtent").value_or(20));
+            const float fy = float(t->number("Custom_Hard_YExtent").value_or(fx));
+            const bool ok = w.siteClear(*t, ghost_);
+            const float pulse = 0.75f + 0.25f * std::sin(time * 6);
+            r.drawBox(Mat4::translate(ghost_[0], ghost_[1], ghost_[2]) * Mat4::scale3(fx * 2, fy * 2, 6),
+                      ok ? Vec4{0.2f * pulse, 0.9f * pulse, 0.3f * pulse, 1} : Vec4{0.95f * pulse, 0.2f, 0.15f, 1});
+        }
+    }
+
     // Shots in flight: small glowing blocks in the shooter's colour.
     static const Vec4 shot[] = {{0.5f, 0.85f, 1.f, 1}, {1.f, 0.55f, 0.25f, 1}, {0.6f, 1.f, 0.5f, 1}, {1.f, 0.9f, 0.4f, 1}};
     for (const alamo::Projectile& p : w.projectiles()) {

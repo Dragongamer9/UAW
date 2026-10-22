@@ -3,7 +3,11 @@
 //   uaw-viewer <game-root> <MAP> [options]
 //     --player N          you control player N's squad; camera starts there (default 1)
 //     --all-groups        also show campaign-mission objects
-//     --no-units          don't spawn test squads
+//     --faction F         your faction for the skirmish start: Novus (default), Alien or Masari
+//     --enemy F           opponent's faction (default Alien)
+//     --squads            instead of a skirmish start, give every start position a mixed test squad
+//     --no-units          no units at all
+//     --demo              (with --screenshot) start a construction and a production order first
 //     --battle            Novus and Hierarchy squads face off mid-map (with --run: prints the battle)
 //     --size WxH          window size (default 1600x900)
 //     --camera x,y,dist,yaw,pitch
@@ -16,6 +20,9 @@
 //             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, Esc quit
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
+//   build     select a structure or builder: 1-9 / click the menu (D-pad left/right + down on a gamepad);
+//             builders then place the structure with a click / A (right click / B cancels);
+//             Backspace (left stick click) cancels the last queued item; right click with a structure sets its rally point
 //   gamepad   left stick pan, right stick rotate/tilt, triggers zoom; reticle at screen centre:
 //             A select (hold LB to add), X select all on screen, B clear, RB move/attack, D-pad up attack-move,
 //             Y stand-in boxes, Back quit
@@ -24,6 +31,7 @@
 #include "gl.hpp"
 #include "renderer.hpp"
 #include "scene.hpp"
+#include "hud.hpp"
 #include "units.hpp"
 
 #include "alamo/assets.hpp"
@@ -31,6 +39,8 @@
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/sim.hpp"
+#include "alamo/strings.hpp"
+#include "alamo/techtree.hpp"
 #include "alamo/ted.hpp"
 
 #include <SDL3/SDL.h>
@@ -53,6 +63,8 @@ struct Options {
     std::string gameRoot, map, screenshot;
     int width = 1600, height = 900, player = 1;
     bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
+    bool squads = false, demo = false;
+    std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
     float runSeconds = 0;
@@ -90,6 +102,10 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--all-groups") o.allGroups = true;
         else if (a == "--player") o.player = std::max(1, std::atoi(next()));
         else if (a == "--no-units") o.units = false;
+        else if (a == "--squads") o.squads = true;
+        else if (a == "--faction") o.faction = next();
+        else if (a == "--enemy") o.enemy = next();
+        else if (a == "--demo") o.demo = true;
         else if (a == "--order") o.haveOrder = std::sscanf(next(), "%f,%f", &o.order[0], &o.order[1]) == 2;
         else if (a == "--run") o.runSeconds = float(std::atof(next()));
         else if (a == "--size") std::sscanf(next(), "%dx%d", &o.width, &o.height);
@@ -191,7 +207,9 @@ int main(int argc, char** argv) {
 
         // Simulation with a test squad at each start position.
         const DamageTable damageTable = loadDamageTable(vfs);
-        World world(map, db, &damageTable);
+        const TechTree techTree = loadTechTree(vfs);
+        const StringTable text = loadStrings(vfs);
+        World world(map, db, &damageTable, 1, &techTree);
         std::vector<Vec3> starts;
         for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
         if (opt.battle) {
@@ -206,9 +224,21 @@ int main(int argc, char** argv) {
                 opt.cam[3] = 0;
                 opt.cam[4] = 50;
             }
-        } else if (opt.units) {
+        } else if (opt.units && opt.squads) {
             spawnTestSquads(world, starts, map);
+        } else if (opt.units) {
+            // Skirmish start: you at your start position, the opponent at the next one.
+            const int you = opt.player - 1;
+            const int them = (you + 1) % int(starts.size());
+            for (int slot = 0; slot < int(starts.size()); ++slot) {
+                if (slot == you) addSkirmishPlayer(world, db, opt.faction, starts[size_t(slot)]);
+                else if (slot == them) addSkirmishPlayer(world, db, opt.enemy, starts[size_t(slot)]);
+                else world.addPlayer("Neutral", 0, 0);
+            }
         }
+        if (world.players().empty())
+            for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
+        std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
         UnitControl control(opt.player - 1);
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
@@ -229,6 +259,8 @@ int main(int argc, char** argv) {
 
         bool placeholders = true;
         View view;
+        Hud hud(vfs, std::max(0.75f, float(opt.height) / 900.f));
+        bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
             renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
@@ -236,9 +268,37 @@ int main(int argc, char** argv) {
             scene.draw(renderer, placeholders);
             control.draw(renderer, world, world.seconds());
             renderer.endFrame();
+            hud.draw(renderer, world, control, db, text, padConnected);
         };
 
         if (headless) {
+            if (opt.demo) {
+                // Builder starts the first structure it can make; the HQ queues its first unit.
+                uint32_t hq = 0, builder = 0;
+                for (const Unit& u : world.units())
+                    if (u.owner == control.player()) (u.structure ? hq : builder) = u.id;
+                if (builder) {
+                    const auto opts = world.constructible(builder);
+                    const Vec3 b = world.unit(builder)->position;
+                    for (const auto& t : opts) {
+                        if (t.find("Remote_Terminal") != std::string::npos || t.find("Arrival_Site") != std::string::npos ||
+                            t.find("Foundation") != std::string::npos)
+                            continue;
+                        bool done = false;
+                        for (int k = 0; k < 16 && !done; ++k) {
+                            const float a = float(k) * 0.4f;
+                            const Vec3 site{b[0] + std::cos(a) * 200, b[1] + std::sin(a) * 200, 0};
+                            done = world.commandConstruct(builder, t, site) == OrderResult::Ok;
+                        }
+                        if (done) { std::printf("demo: constructing %s\n", t.c_str()); break; }
+                    }
+                }
+                if (hq) {
+                    for (const auto& t : world.producible(hq))
+                        if (world.queueProduction(hq, t) == OrderResult::Ok) { std::printf("demo: queued %s\n", t.c_str()); break; }
+                    control.clickSelect(world, world.unit(hq)->position, false);
+                }
+            }
             if (opt.haveOrder) {
                 control.selectAll(world);
                 const Vec3 target{opt.order[0], opt.order[1], map.heightAt(opt.order[0], opt.order[1])};
@@ -294,7 +354,14 @@ int main(int argc, char** argv) {
                     switch (e.type) {
                     case SDL_EVENT_QUIT: running = false; break;
                     case SDL_EVENT_KEY_DOWN:
-                        if (e.key.key == SDLK_ESCAPE) running = false;
+                        if (e.key.key == SDLK_ESCAPE) {
+                            if (control.placing()) control.cancelPlacement();
+                            else running = false;
+                        } else if (e.key.key >= SDLK_1 && e.key.key <= SDLK_9 && !control.placing()) {
+                            const auto items = control.menu(world, db, text);
+                            const size_t i = size_t(e.key.key - SDLK_1);
+                            if (i < items.size()) control.activate(world, items[i]);
+                        } else if (e.key.key == SDLK_BACKSPACE) control.cancelQueue(world);
                         else if (e.key.key == SDLK_P) placeholders = !placeholders;
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
@@ -309,8 +376,23 @@ int main(int argc, char** argv) {
                         break;
                     case SDL_EVENT_MOUSE_WHEEL: cam.zoom(std::pow(0.88f, e.wheel.y)); break;
                     case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                        if (e.button.button == SDL_BUTTON_LEFT) { leftDown = true; downX = e.button.x; downY = e.button.y; }
-                        if (e.button.button == SDL_BUTTON_RIGHT) { rightDown = true; rightDragged = false; }
+                        if (e.button.button == SDL_BUTTON_LEFT) {
+                            int item;
+                            if (control.placing()) {
+                                control.place(world);
+                            } else if (hud.menuItemAt(e.button.x, e.button.y, item)) {
+                                const auto items = control.menu(world, db, text);
+                                if (size_t(item) < items.size()) control.activate(world, items[size_t(item)]);
+                            } else {
+                                leftDown = true;
+                                downX = e.button.x;
+                                downY = e.button.y;
+                            }
+                        }
+                        if (e.button.button == SDL_BUTTON_RIGHT) {
+                            if (control.placing()) control.cancelPlacement();
+                            else { rightDown = true; rightDragged = false; }
+                        }
                         break;
                     case SDL_EVENT_MOUSE_BUTTON_UP:
                         if (e.button.button == SDL_BUTTON_LEFT && leftDown) {
@@ -336,6 +418,10 @@ int main(int argc, char** argv) {
                     case SDL_EVENT_MOUSE_MOTION:
                         mouseX = e.motion.x;
                         mouseY = e.motion.y;
+                        if (control.placing() && !pad) {
+                            Vec3 g;
+                            if (view.groundAt(map, mouseX, mouseY, g)) control.setGhost(g);
+                        }
                         if (e.motion.state & (SDL_BUTTON_MMASK | SDL_BUTTON_RMASK)) {
                             if (std::fabs(e.motion.xrel) + std::fabs(e.motion.yrel) > 0.5f) rightDragged = true;
                             cam.rotate(e.motion.xrel * 0.3f, -e.motion.yrel * 0.2f);
@@ -350,9 +436,23 @@ int main(int argc, char** argv) {
                     case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
                         Vec3 g;
                         const bool reticle = view.groundAt(map, view.width / 2.f, view.height / 2.f, g);
+                        if (control.placing()) {
+                            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH && reticle) { control.setGhost(g); control.place(world); }
+                            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) control.cancelPlacement();
+                            break;
+                        }
                         switch (e.gbutton.button) {
                         case SDL_GAMEPAD_BUTTON_BACK: running = false; break;
                         case SDL_GAMEPAD_BUTTON_NORTH: placeholders = !placeholders; break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: --control.highlight(); break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: ++control.highlight(); break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: {
+                            const auto items = control.menu(world, db, text);
+                            const int h = control.highlight();
+                            if (h >= 0 && size_t(h) < items.size()) control.activate(world, items[size_t(h)]);
+                            break;
+                        }
+                        case SDL_GAMEPAD_BUTTON_LEFT_STICK: control.cancelQueue(world); break;
                         case SDL_GAMEPAD_BUTTON_SOUTH:
                             if (reticle) control.clickSelect(world, g, pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
                             break;
@@ -401,6 +501,11 @@ int main(int argc, char** argv) {
                     ++steps;
                 }
 
+                padConnected = pad != nullptr;
+                if (pad && control.placing()) {
+                    Vec3 g;
+                    if (view.groundAt(map, view.width / 2.f, view.height / 2.f, g)) control.setGhost(g);
+                }
                 int w, h;
                 SDL_GetWindowSizeInPixels(window, &w, &h);
                 drawFrame(w, h);

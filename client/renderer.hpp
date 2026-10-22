@@ -64,8 +64,11 @@ public:
     void drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint = {1, 1, 1, 1});
     void drawBox(const Mat4& transform, const alamo::Vec4& color);
     void endFrame(); // draws queued transparent meshes
-    // 2D overlay rectangle in pixels (top-left origin), alpha-blended over everything.
+    // 2D overlay in pixels (top-left origin), alpha-blended over everything, unlit.
     void drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color);
+    void drawOverlayTriangles(const std::vector<GpuVertex>& vertices, GLuint texture); // x/y in pixels
+    int width() const { return width_; }
+    int height() const { return height_; }
 
     const Mat4& viewProj() const { return viewProj_; }
 
@@ -89,6 +92,7 @@ private:
     int width_ = 1, height_ = 1;
     float farPlane_ = 10000;
 
+    GLuint overlayVao_ = 0, overlayVbo_ = 0;
     GpuMesh terrain_;
     GpuMesh box_;
     std::unordered_map<std::string, std::unique_ptr<GpuModel>> models_;

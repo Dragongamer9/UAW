@@ -31,6 +31,7 @@ add_library(alamo
   engine/src/sim.cpp
   engine/src/combat.cpp
   engine/src/techtree.cpp
+  engine/src/strings.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB QUIET)
@@ -105,6 +106,9 @@ if(UAW_BUILD_CLIENT)
     client/renderer.cpp
     client/scene.cpp
     client/units.cpp
+    client/hud.cpp
+    client/font.cpp
     client/gl.cpp)
   target_link_libraries(uaw-viewer PRIVATE alamo SDL3::SDL3)
+  target_include_directories(uaw-viewer PRIVATE third_party)
 endif()

@@ -168,6 +168,8 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
 }
 
 Renderer::~Renderer() {
+    if (overlayVbo_) glDeleteBuffers(1, &overlayVbo_);
+    if (overlayVao_) glDeleteVertexArrays(1, &overlayVao_);
     terrain_.release();
     box_.release();
     for (auto& [k, m] : models_)
@@ -362,8 +364,28 @@ void Renderer::endFrame() {
     glDisable(GL_BLEND);
 }
 
-void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& color) {
-    // Pixel-space orthographic projection, y down; the box mesh is flattened onto z = 0.
+void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint texture) {
+    if (v.empty()) return;
+    if (!overlayVao_) {
+        glGenVertexArrays(1, &overlayVao_);
+        glBindVertexArray(overlayVao_);
+        glGenBuffers(1, &overlayVbo_);
+        glBindBuffer(GL_ARRAY_BUFFER, overlayVbo_);
+        const GLsizei stride = sizeof(GpuVertex);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, px)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, nx)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, u)));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, r)));
+    }
+    glBindVertexArray(overlayVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, overlayVbo_);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v.size() * sizeof(GpuVertex)), v.data(), GL_DYNAMIC_DRAW);
+
+    // Pixel-space orthographic projection, y down.
     Mat4 ortho;
     ortho.at(0, 0) = 2.f / float(width_);
     ortho.at(1, 1) = -2.f / float(height_);
@@ -375,14 +397,18 @@ void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const ala
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    const Mat4 t = Mat4::translate((x0 + x1) / 2, (y0 + y1) / 2, 0) * Mat4::scale3(std::fabs(x1 - x0), std::fabs(y1 - y0), 0);
-    // Lighting needs a normal facing the light; the top face's +Z normal is flattened away, so tint covers it.
-    setUniforms(t, color, 0);
-    box_.draw();
+    setUniforms(Mat4{}, {1, 1, 1, 1}, texture);
+    glDrawArrays(GL_TRIANGLES, 0, GLsizei(v.size()));
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glUniform1i(uUnlit_, 0);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+}
+
+void Renderer::drawOverlayRect(float x0, float y0, float x1, float y1, const alamo::Vec4& c) {
+    const GpuVertex a{x0, y0, 0, 0, 0, 1, 0, 0, c[0], c[1], c[2], c[3]}, b{x1, y0, 0, 0, 0, 1, 0, 0, c[0], c[1], c[2], c[3]},
+                    d{x1, y1, 0, 0, 0, 1, 0, 0, c[0], c[1], c[2], c[3]}, e{x0, y1, 0, 0, 0, 1, 0, 0, c[0], c[1], c[2], c[3]};
+    drawOverlayTriangles({a, b, d, a, d, e}, 0);
 }
 
 std::vector<uint8_t> Renderer::readPixels(int width, int height) {

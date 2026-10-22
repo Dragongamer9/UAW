@@ -3,7 +3,10 @@
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gltf.hpp"
+#include "alamo/strings.hpp"
 #include "alamo/ted.hpp"
+
+#include <zlib.h>
 
 #include <cmath>
 #include <cstdio>
@@ -323,7 +326,35 @@ static void testTed() {
     CHECK(threw);
 }
 
+static void testStrings() {
+    // Two entries: TEXT_A = "Grunt", TEXT_B = "Ré" (non-ASCII survives as UTF-8).
+    Bytes d;
+    put32(d, 2);
+    const std::string ka = "TEXT_A", kb = "TEXT_B";
+    put32(d, uint32_t(::crc32(0, reinterpret_cast<const Bytef*>(ka.data()), uInt(ka.size()))));
+    put32(d, 5);
+    put32(d, uint32_t(ka.size()));
+    put32(d, uint32_t(::crc32(0, reinterpret_cast<const Bytef*>(kb.data()), uInt(kb.size()))));
+    put32(d, 2);
+    put32(d, uint32_t(kb.size()));
+    for (char c : std::string("Grunt")) { d.push_back(uint8_t(c)); d.push_back(0); }
+    d.insert(d.end(), {'R', 0, 0xE9, 0});
+    d.insert(d.end(), ka.begin(), ka.end());
+    d.insert(d.end(), kb.begin(), kb.end());
+    StringTable t;
+    t.parse(d);
+    CHECK(t.size() == 2);
+    CHECK(t.get("text_a") && *t.get("TEXT_A") == "Grunt");
+    CHECK(t.get("TEXT_B") && *t.get("TEXT_B") == "R\xC3\xA9");
+    CHECK(!t.get("TEXT_C"));
+    Bytes cut(d.begin(), d.begin() + 30);
+    bool threw = false;
+    try { t.parse(cut); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
 int main() {
+    testStrings();
     testTed();
     testAlo();
     testDds();

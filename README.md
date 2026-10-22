@@ -21,7 +21,8 @@ redistributed.
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
 | 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
 | 3 | Economy: tech tree (`ProductionDependencies.xml`), players with credits and pop cap, structures that block ground, construction by builders, production queues, upgrades, skirmish start forces | done (first version) |
-| 3 | Resource collection (scrap, collectors), HUD with build menus | next |
+| 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points | done |
+| 3 | Resource collection (scrap, collectors), enemy AI | next |
 | 3 | Abilities, melee, hardpoint destruction, shields, veterancy | planned |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
@@ -43,7 +44,9 @@ download them from the run's **Artifacts**.
 ## uaw-viewer
 
 ```sh
-uaw-viewer "<game>" M16_Sahara               # open a map at player 1's start
+uaw-viewer "<game>" M16_Sahara               # skirmish start: you (Novus) vs a Hierarchy base
+uaw-viewer "<game>" M16_Sahara --faction Alien --enemy Masari
+uaw-viewer "<game>" M16_Sahara --squads      # mixed test squads at every start instead
 uaw-viewer "<game>" M25_Grand_Canyon --player 5
 uaw-viewer "<game>" M16_Sahara --screenshot shot.png --size 1920x1080 --camera 2700,1700,2400,15,38
 ```
@@ -64,6 +67,10 @@ squad, or another with `--player N`.
 | Move / attack | right click (on an enemy = attack) | RB |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Stop / jump to selection | X / Space | |
+| Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
+| Place structure / cancel | left click / right click | A / B |
+| Cancel last queued item | Backspace | left stick click |
+| Rally point (structure selected) | right click | RB |
 | Toggle stand-in boxes | P | Y |
 | Quit | Esc | Back |
 
@@ -263,6 +270,13 @@ the victim's `Armor_Type` (1.0 if absent).
   carving that needs the Glyph Carver; after that the walker finishes on its own.
 - **Upgrades and patches** (hardpoints and `X12_Novus_Patches`) are researched
   once per structure rather than spawned, and can unlock further units.
+
+### String table (`Data/Text/MasterTextFile_<LANGUAGE>.dat`)
+
+`uint32 count`, then `count` × `{ uint32 crc32(key); uint32 valueLength; uint32
+keyLength }`, then all values as UTF-16LE, then all keys as ASCII. The retail
+English file has 7,945 strings, and every key matches its CRC. Objects name
+their string with `Text_ID`.
 
 ### MEG archives
 

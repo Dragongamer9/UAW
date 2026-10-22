@@ -170,6 +170,7 @@ public:
     float seconds() const { return float(ticks_) / kTicksPerSecond; }
 
     const NavGrid& nav() const { return nav_; }
+    const GameDatabase& db() const { return db_; }
     const Map& map() const { return map_; }
 
     // Unit ids within `radius` of a ground point, nearest first.
