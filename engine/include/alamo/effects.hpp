@@ -133,6 +133,7 @@ struct AbilitySpec {
         SpawnClones,    // SPAWN_CLONES: temporary copies appear around the unit (SpawnClonesBehaviorType)
         Burst,          // point-blank area attack over time: projectile sprays, the Dervish spin
         Elsewhere,      // done by another system (construction) or campaign-only (retreat, hostile territory)
+        Unload,         // EJECT_GARRISONED on a transport: everyone out (garrison.cpp)
     };
     Kind kind = Kind::Unsupported;
     std::string name;                   // Unit_Ability name, or the Abilities entry name

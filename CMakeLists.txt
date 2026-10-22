@@ -34,6 +34,7 @@ add_library(alamo
     engine/src/abilities.cpp
     engine/src/superweapons.cpp
     engine/src/particles.cpp
+    engine/src/garrison.cpp
     engine/src/luavm.cpp
     engine/src/research.cpp
     engine/src/ai.cpp

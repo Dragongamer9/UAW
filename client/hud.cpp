@@ -329,6 +329,12 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
                 textSmall("Weapon range " + fmt("%.0f", first->maxRange()), pad, y, kDim);
                 y += lhs;
             }
+            if (const alamo::GarrisonSpec* g = w.garrisonOf(*first->type)) {
+                textSmall("Carrying " + std::to_string(first->passengers.size()) + " / " + std::to_string(g->capacity) +
+                              (first->passengers.empty() ? "" : "  (U to unload)"),
+                          pad, y, kDim);
+                y += lhs;
+            }
             if (const float sw = w.superweaponCountdown(first->id); sw >= 0) {
                 if (sw == 0) textSmall("Superweapon ready: V, then right-click the target", pad, y, kWarn);
                 else textSmall("Superweapon ready in " + fmt("%.0f", sw) + " s", pad, y, kDim);

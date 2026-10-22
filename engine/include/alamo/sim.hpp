@@ -155,6 +155,10 @@ struct Unit {
     bool immobile = false, disarmed = false, silenced = false; // DisableBehavior / DisableAbility
     bool damagedThisTick = false, firedThisTick = false;
     bool cloaked = false;              // a Cloak/Mirage effect hides it from enemies
+    // Transports (GarrisonableBehaviorType): riders are carried off the map until unloaded.
+    uint32_t inside = 0;               // the transport carrying this unit
+    uint32_t boarding = 0;             // walking to this transport to get in
+    std::vector<uint32_t> passengers;  // a transport's riders
     int originalOwner = -1;
     int lifeTicks = -1;                // effect objects: removed at 0
     int64_t superweaponReadyTick = -1; // superweapon enablers: tick it can fire (-1: not armed yet)
@@ -282,6 +286,14 @@ struct Projectile {
     const GameObjectType* type = nullptr;
 };
 
+// A transport (GarrisonableBehaviorType): how many it carries and who may get in.
+struct GarrisonSpec {
+    int capacity = 0;                   // Max_Garrison_Capacity
+    std::vector<std::string> required;  // Garrisonable_Attributes: riders need one of these attributes
+    std::vector<std::string> forbidden; // Garrisonable_Anti_Attributes: riders with these can't
+    float deathDamage = 0;              // Damage_Percent_On_Destruction: riders lose this share of health
+};
+
 // A tactical superweapon (TacticalSuperweaponBehaviorType). Its enabler structure names it in
 // Lua_Script_Data (SWOwnerList[Find_Object_Type("Enabler")]="WEAPON"); firing creates the
 // weapon object at the target point, which does the work: effect generators (EMP stun, Masari
@@ -386,6 +398,13 @@ public:
     int fogHeight() const { return fogH_; }
     float fogCell() const { return fogCell_; }
     float revealRange(const GameObjectType& t) const;
+    // Transports.
+    const GarrisonSpec* garrisonOf(const GameObjectType& t) const; // nullptr if it carries nobody
+    bool canBoard(const Unit& rider, const Unit& transport) const;
+    // Riders walk to the transport and get in (those that can; the rest ignore the order).
+    OrderResult commandBoard(const std::vector<uint32_t>& ids, uint32_t transport);
+    // Everyone out, around the transport.
+    OrderResult unload(uint32_t transport);
     void setTeam(int owner, int team) {
         if (owner >= 0 && owner < int(players_.size())) players_[size_t(owner)].team = team;
     }
@@ -564,6 +583,8 @@ private:
     };
     std::vector<BurstPulse> bursts_;
     void updateBursts();
+    void updateGarrisons();
+    mutable std::unordered_map<const GameObjectType*, std::unique_ptr<GarrisonSpec>> garrisons_;
     uint32_t createEffectObject(const GameObjectType& t, int owner, Vec3 position, int lifeTicks);
     std::vector<Unit> pendingObjects_;   // created during a tick, added after it
     struct PendingSpawn { std::string type; int owner; Vec3 position; int lifeTicks = -1; };

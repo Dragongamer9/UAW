@@ -610,7 +610,10 @@ Unit* World::unit(uint32_t id) {
 void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
     std::vector<Unit*> group;
     for (uint32_t id : ids)
-        if (Unit* u = unit(id)) group.push_back(u);
+        if (Unit* u = unit(id); u && !u->inside) {
+            u->boarding = 0;
+            group.push_back(u);
+        }
     if (group.empty()) return;
 
     // Square formation centred on the target, spacing from the largest unit,
@@ -665,7 +668,8 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
     if (!t) return;
     for (uint32_t id : ids) {
         Unit* u = unit(id);
-        if (!u || u->weapons.empty() || !enemies(u->owner, t->owner)) continue;
+        if (!u || u->inside || u->weapons.empty() || !enemies(u->owner, t->owner)) continue;
+        u->boarding = 0;
         u->attackOrder = target;
         u->attackMove = false;
         u->target = target;
@@ -675,6 +679,7 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
 
 void World::updateTargeting(Unit& u) {
     if (u.weapons.empty()) return;
+    if (u.inside) { u.target = 0; return; } // riders don't fight
     const float range = u.maxRange();
     auto edgeDistance = [&](const Unit& t) { return dist2d(u.position, t.position) - t.radius; };
 
@@ -705,7 +710,7 @@ void World::updateTargeting(Unit& u) {
         u.target = 0;
         float best = 1e30f;
         for (const Unit& o : units_) {
-            if (!o.alive() || !enemies(u.owner, o.owner) || o.cloaked) continue;
+            if (!o.alive() || !enemies(u.owner, o.owner) || o.cloaked || o.inside) continue;
             const float d = edgeDistance(o);
             if (d <= range && d < best) {
                 if (fog_ && !visibleTo(u.owner, o.position)) {
@@ -830,7 +835,7 @@ int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& f
 }
 
 void World::fireWeapons(Unit& u) {
-    if (u.underConstruction || u.leaping) return;
+    if (u.underConstruction || u.leaping || u.inside) return;
     const Unit* t = u.target ? unit(u.target) : nullptr;
     if (t && !u.moving()) {
         // Face the target while standing (turrets handle aim while moving).
@@ -964,22 +969,39 @@ void World::updateProjectiles() {
         // Landed. Direct hit on the intended target if it is still under the impact point,
         // otherwise on any enemy there.
         Unit* hit = nullptr;
-        if (Unit* t = unit(p.target); t && t->alive() && dist2d(t->position, p.position) <= t->radius + 3) hit = t;
+        if (Unit* t = unit(p.target); t && t->alive() && !t->inside && dist2d(t->position, p.position) <= t->radius + 3) hit = t;
         if (!hit)
             for (Unit& o : units_)
-                if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
+                if (o.alive() && !o.inside && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
         if (hit && p.damage > 0) applyDamage(*hit, p.damage, p.damageType);
         impacts_.push_back({p.type, p.position, hit != nullptr, ticks_});
         projectileImpact(p, hit);
         if (p.blastDamage > 0 && p.blastRange > 0)
             for (Unit& o : units_)
-                if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= p.blastRange + o.radius)
+                if (o.alive() && !o.inside && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= p.blastRange + o.radius)
                     applyDamage(o, p.blastDamage, p.damageType);
     }
     projectiles_.swap(keep);
 }
 
 void World::removeDead() {
+    // A transport that dies drops its riders, who take Damage_Percent_On_Destruction of their health.
+    for (size_t i = 0; i < units_.size(); ++i) {
+        if (units_[i].alive() || units_[i].passengers.empty()) continue;
+        const float share = garrisonOf(*units_[i].type) ? garrisonOf(*units_[i].type)->deathDamage : 1.f;
+        const std::vector<uint32_t> riders = units_[i].passengers;
+        units_[i].health = 1; // briefly, so unload() finds it
+        unload(units_[i].id);
+        units_[i].health = 0;
+        for (uint32_t id : riders)
+            if (Unit* r = unit(id)) {
+                r->health -= r->maxHealth * share;
+                if (r->health <= 0.01f) r->health = 0;
+            }
+    }
+    for (Unit& u : units_)
+        if (!u.alive() && u.inside)
+            if (Unit* t = unit(u.inside)) t->passengers.erase(std::remove(t->passengers.begin(), t->passengers.end(), u.id), t->passengers.end());
     for (const Unit& u : units_)
         if (!u.alive()) {
             deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
@@ -990,7 +1012,7 @@ void World::removeDead() {
 }
 
 void World::moveUnit(Unit& u) {
-    if (u.structure || u.leaping) return; // leaps move in updateLeap
+    if (u.structure || u.leaping || u.inside) return; // leaps move in updateLeap, riders with their transport
     if (u.path.empty()) {
         u.speed = std::max(0.f, u.speed - u.acceleration * 2);
         return;
@@ -1061,6 +1083,7 @@ void World::separate() {
         Unit& a = units_[i];
         Unit& b = units_[j];
         if (a.structure || b.structure) return; // the nav grid keeps units off footprints
+        if (a.inside || b.inside) return;
         if (a.leaping || b.leaping) return;
         if (a.flying() != b.flying()) return;   // aircraft pass over ground units
         const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
@@ -1136,7 +1159,7 @@ void World::updateFog() {
     // Each player's own sight this update.
     std::vector<std::vector<uint8_t>> sight(players_.size(), std::vector<uint8_t>(cells, 0));
     for (const Unit& u : units_) {
-        if (u.owner < 0 || size_t(u.owner) >= players_.size() || !u.alive()) continue;
+        if (u.owner < 0 || size_t(u.owner) >= players_.size() || !u.alive() || u.inside) continue;
         float r = revealRange(*u.type);
         if (!u.attributes.empty()) {
             static const std::string kMult = "MAX_LAND_FOW_REVEAL_MULT_COEFF", kAdd = "MAX_LAND_FOW_REVEAL_ADD_COEFF";
@@ -1183,6 +1206,7 @@ void World::tick() {
     updateSuperweapons();
     for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
+    updateGarrisons();
     separate();
     for (Unit& u : units_) fireWeapons(u);
     updateProjectiles();
@@ -1193,6 +1217,7 @@ void World::tick() {
 std::vector<uint32_t> World::unitsNear(Vec3 p, float radius) const {
     std::vector<std::pair<float, uint32_t>> hits;
     for (const Unit& u : units_) {
+        if (u.inside) continue;
         const float d = dist2d(u.position, p);
         if (d <= radius + u.radius) hits.push_back({d, u.id});
     }

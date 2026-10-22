@@ -527,7 +527,7 @@ std::vector<Unit*> World::gather(Unit& source, const GeneratorEntry& e, const Un
     std::vector<std::pair<float, Unit*>> found;
     const TypeAbilities* ta = nullptr;
     auto consider = [&](Unit* t, Vec3 centre) {
-        if (!t || !t->alive()) return;
+        if (!t || !t->alive() || (t->inside && t != &source)) return;
         for (const auto& f : found)
             if (f.second == t) return;
         ta = &abilitiesOf(*t->type);
@@ -665,6 +665,7 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
     if (s.needsAmmoRoom && u.ammoMax > 0 && u.ammo >= u.ammoMax) return false;
     auto categoriesOk = [&](const Unit& t) {
         if (t.cloaked && enemies(u.owner, t.owner)) return false; // can't aim at what it can't see
+        if (t.inside) return false;
         if (!s.applicable.empty() && !categoriesAny(*t.type, s.applicable)) return false;
         if (!s.excluded.empty() && categoriesAny(*t.type, s.excluded)) return false;
         return true;
@@ -805,6 +806,10 @@ void World::executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3
         selfDestruct(u, s, target);
         return;
     }
+    if (s.kind == AbilitySpec::Kind::Unload) {
+        unload(u.id);
+        return;
+    }
     if (s.kind == AbilitySpec::Kind::SpawnClones) {
         // Around the unit, created after this tick (spawning now would move the unit list).
         for (int k = 0; k < s.cloneCount; ++k) {
@@ -909,7 +914,7 @@ void World::autonomousAbilities(Unit& u) {
     for (size_t i = 0; i < u.abilities.size(); ++i) {
         Unit::AbilityState& a = u.abilities[i];
         if (a.cooldown > 0) a.cooldown = std::max(0.f, a.cooldown - u.abilityRate);
-        if (a.cooldown > 0 || u.silenced || u.underConstruction || !ta.abilities[a.index].autonomous) continue;
+        if (a.cooldown > 0 || u.silenced || u.underConstruction || u.inside || !ta.abilities[a.index].autonomous) continue;
         if (abilityLocked(u, ta.abilities[a.index])) continue;
         const AbilitySpec& spec = ta.abilities[a.index];
         if (spec.kind == AbilitySpec::Kind::Generator) { // still channelling the last one

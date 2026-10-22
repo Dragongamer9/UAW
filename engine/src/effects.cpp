@@ -407,6 +407,9 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         } else if (s.abilityType == "SELF_DESTRUCT") {
             s.kind = AbilitySpec::Kind::SelfDestruct;
             s.needsTarget = false;
+        } else if (s.abilityType == "EJECT_GARRISONED" && type.number("Max_Garrison_Capacity").value_or(0) > 0) {
+            s.kind = AbilitySpec::Kind::Unload;
+            s.needsTarget = false;
         } else if (s.abilityType == "SPAWN_CLONES") {
             if (const std::string* v = type.find("Spawn_Clones_Type_To_Spawn"); v && db.find(trim(*v))) {
                 s.kind = AbilitySpec::Kind::SpawnClones;

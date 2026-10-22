@@ -41,6 +41,7 @@
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera,
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
+//             U unloads selected transports (right click your transport to get in),
 //             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
 //             selects every unit of that type on screen
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
@@ -679,6 +680,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_P) placeholders = !placeholders;
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
+                        else if (e.key.key == SDLK_U) control.unload(world);
                         else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
                         else if (e.key.key == SDLK_V) superweaponArmed = true; // next right click fires the selected superweapon
                         else if (e.key.key == SDLK_T) hud.researchOpen = !hud.researchOpen;

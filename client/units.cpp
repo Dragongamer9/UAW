@@ -112,7 +112,7 @@ void UnitControl::boxSelect(alamo::World& w, const View& v, float x0, float y0, 
     if (!add) selected_.clear();
     const float lx = std::min(x0, x1), hx = std::max(x0, x1), ly = std::min(y0, y1), hy = std::max(y0, y1);
     for (const alamo::Unit& u : w.units()) {
-        if (u.owner != player_) continue;
+        if (u.owner != player_ || u.inside) continue;
         float sx, sy;
         if (v.toScreen(u.position, sx, sy) && sx >= lx && sx <= hx && sy >= ly && sy <= hy) selected_.insert(u.id);
     }
@@ -258,6 +258,17 @@ void UnitControl::command(alamo::World& w, const Vec3& ground) {
     }
     for (uint32_t id : w.unitsNear(ground, 10)) {
         const alamo::Unit* u = w.unit(id);
+        // Your own transport: the others get in.
+        if (u && u->owner == player_ && w.garrisonOf(*u->type) && !selected_.count(id)) {
+            std::vector<uint32_t> riders(selected_.begin(), selected_.end());
+            if (w.commandBoard(riders, id) == alamo::OrderResult::Ok) {
+                say("Boarding", w.seconds());
+                lastOrder_ = u->position;
+                lastOrderTime_ = w.seconds();
+                attackOrder_ = false;
+                return;
+            }
+        }
         if (u && w.enemies(player_, u->owner)) {
             w.commandAttack(std::vector<uint32_t>(selected_.begin(), selected_.end()), id);
             lastOrder_ = u->position;
@@ -369,7 +380,15 @@ void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(se
 
 // ------------------------------------------------------------------ drawing
 
+void UnitControl::unload(alamo::World& w) {
+    int n = 0;
+    for (uint32_t id : selected_)
+        if (w.unload(id) == alamo::OrderResult::Ok) ++n;
+    if (n) say("Unloading", w.seconds());
+}
+
 bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
+    if (u.inside) return false;
     if (player_ < 0 || !w.enemies(player_, u.owner)) return true;
     if (u.cloaked && fog) return false;
     if (!fog || !w.fogOfWar()) return true;

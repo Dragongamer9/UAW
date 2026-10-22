@@ -649,6 +649,59 @@ static void testBurst() {
     fs::remove_all(root);
 }
 
+static void testGarrison() {
+    const fs::path root = fs::temp_directory_path() / "uaw_native_test_garrison";
+    fs::remove_all(root);
+    write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
+    write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
+    write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Units Name="APC"><MovementClass>Tracked</MovementClass><Max_Speed>2.0</Max_Speed><Custom_Hard_XExtent>12</Custom_Hard_XExtent>
+    <Tactical_Health>500</Tactical_Health>
+    <BehaviorType Name="GarrisonableBehaviorType"><Max_Garrison_Capacity>2</Max_Garrison_Capacity>
+      <Garrisonable_Attributes>Can_Ride_In_Vehicles</Garrisonable_Attributes><Damage_Percent_On_Destruction>0.5</Damage_Percent_On_Destruction></BehaviorType>
+    <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Out"><Type>EJECT_GARRISONED</Type></Unit_Ability></Unit_Abilities_Data></X_Units>
+  <X_Units Name="Marine"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed><Custom_Hard_XExtent>4</Custom_Hard_XExtent>
+    <Tactical_Health>100</Tactical_Health><Attributes><Can_Ride_In_Vehicles>true</Can_Ride_In_Vehicles></Attributes></X_Units>
+  <X_Units Name="Tank"><MovementClass>Tracked</MovementClass><Max_Speed>2.0</Max_Speed><Custom_Hard_XExtent>8</Custom_Hard_XExtent>
+    <Tactical_Health>300</Tactical_Health></X_Units>
+</Units>)");
+    MegVfs vfs;
+    mountGame(vfs, root);
+    GameDatabase db;
+    db.load(vfs);
+    Map m = openMap();
+    World w(m, db, nullptr, 1, nullptr);
+    const int a = w.addPlayer("Military", 0, 100);
+    const uint32_t apc = w.spawn("APC", a, {500, 500, 0});
+    const uint32_t m1 = w.spawn("Marine", a, {600, 500, 0}), m2 = w.spawn("Marine", a, {600, 540, 0}), m3 = w.spawn("Marine", a, {600, 580, 0});
+    const uint32_t tank = w.spawn("Tank", a, {400, 500, 0});
+    CHECK(w.canBoard(*w.unit(m1), *w.unit(apc)));
+    CHECK(!w.canBoard(*w.unit(tank), *w.unit(apc))); // lacks Can_Ride_In_Vehicles
+    CHECK(w.commandBoard({m1, m2, m3, tank}, apc) == OrderResult::Ok);
+    for (int i = 0; i < 10 * 30; ++i) w.tick();
+    CHECK(w.unit(apc)->passengers.size() == 2); // full at two
+    CHECK(w.unit(m1)->inside == apc && w.unit(m2)->inside == apc);
+    CHECK(!w.unit(m3)->inside && !w.unit(m3)->boarding);
+    CHECK(w.unitsNear(w.unit(apc)->position, 5).size() == 1); // riders are off the map
+    // Drive off: the riders come along.
+    w.commandMove({apc}, {800, 500, 0});
+    for (int i = 0; i < 20 * 30 && w.unit(apc)->moving(); ++i) w.tick();
+    w.tick();
+    CHECK(std::fabs(w.unit(m1)->position[0] - w.unit(apc)->position[0]) < 1);
+    CHECK(w.useAbility(apc, 0) == OrderResult::Ok); // EJECT_GARRISONED
+    CHECK(w.unit(apc)->passengers.empty() && !w.unit(m1)->inside);
+    CHECK(std::hypot(w.unit(m1)->position[0] - w.unit(apc)->position[0], w.unit(m1)->position[1] - w.unit(apc)->position[1]) > 10);
+    // A transport that dies drops its riders, hurt.
+    w.commandBoard({m1}, apc);
+    for (int i = 0; i < 5 * 30 && !w.unit(m1)->inside; ++i) w.tick();
+    CHECK(w.unit(m1)->inside == apc);
+    w.unit(apc)->health = 0;
+    w.tick();
+    CHECK(!w.unit(apc));
+    CHECK(w.unit(m1) && !w.unit(m1)->inside && std::fabs(w.unit(m1)->health - 50) < 1);
+    fs::remove_all(root);
+}
+
 static void testFog(const GameDatabase& db) {
     Map m = openMap();
     World w(m, db, nullptr, 1, nullptr);
@@ -687,6 +740,7 @@ int main() {
     testSuperweapon();
     testBurst();
     testFog(db);
+    testGarrison();
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

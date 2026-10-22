@@ -27,7 +27,7 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 826 of 936 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory); garrisons and teleports still to come |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks, leaps, self-destruct, Orlok's crush, mode switches, beam weapons, clones, point-blank bursts (Masari elemental modes, Orlok's siege/endure modes, shield modes), death explosions; AI uses abilities and Masari modes | done (first version): 826 of 936 ability entries simulated or handled elsewhere (construction; campaign-only retreat and hostile territory); teleports still to come |
 | 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
 | 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
 | 3 | Shields (`ShieldBehaviorType`) and Masari dark-matter armor (`DMA_Max`, driven by the DMA effects) | done (first version); the game has no veterancy |
@@ -127,6 +127,7 @@ squad, or another with `--player N`.
 | Research panel | T (click a suite to start it) | |
 | Jump the camera | click the minimap | |
 | Stop / jump to selection | X / Space | |
+| Load into / unload a transport | right click your transport / U | |
 | Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
 | Place structure / cancel | left click / right click | A / B |
 | Cancel last queued item | Backspace | left stick click |
@@ -431,6 +432,12 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   `Dervish_Spin_Attack_Ability` damages everything within `Attack_Radius` after `Spin_Up_Seconds`,
   `AOE_Damage_Per_Second` plus up to `AOE_Additional_Random_Damage` twice a second. The AI uses both
   with three or more enemies close by.
+* **Transports** (`GarrisonableBehaviorType`: the Military APC, Hierarchy and Masari gunships, the Novus
+  Flying Fortress): riders with one of the `Garrisonable_Attributes` (and none of the anti-attributes) walk to
+  it and get in, up to `Max_Garrison_Capacity`; inside they are off the map and travel with it.
+  `EJECT_GARRISONED` (or U in the viewer) drops them around it; a transport that is destroyed drops them
+  too, minus `Damage_Percent_On_Destruction` of their health. In the viewer, right click your transport
+  with units selected to load them.
 * **Charges** (`Tackle_Ability`, the Brute): a low dash of up to `Tackle_Charge_Distance` at the target,
   which takes `Damage_Amount` when the Brute arrives.
 
