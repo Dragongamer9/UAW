@@ -45,4 +45,40 @@ private:
     std::map<std::string, SfxEvent> events_; // by upper-case name (presets included)
 };
 
+// Music (MusicEvents.xml) and what each faction plays (Factions.xml): ambient and battle music by
+// map environment (Temperate, Desert, Arctic, ...), and the win / lose pieces.
+struct MusicEvent {
+    std::string name;
+    std::vector<std::string> files; // one is picked
+    float volume = 100;             // percent
+    bool loop = true;
+};
+
+class MusicLibrary {
+public:
+    void load(MegVfs& vfs);
+    void parseEvents(std::string_view xml);
+    void parseFactions(std::string_view xml);
+    const MusicEvent* find(std::string_view name) const;
+    // The faction's event for the situation; environment and opponent as in Factions.xml
+    // (falling back to Temperate). nullptr when there is none.
+    const MusicEvent* ambient(std::string_view faction, std::string_view environment) const;
+    const MusicEvent* battle(std::string_view faction, std::string_view environment) const;
+    const MusicEvent* win(std::string_view faction, std::string_view opponent) const;
+    const MusicEvent* lose(std::string_view faction, std::string_view opponent) const;
+    size_t size() const { return events_.size(); }
+
+private:
+    struct FactionMusic {
+        std::map<std::string, std::string> ambient, battle, win, lose; // key upper-case -> event name
+    };
+    const MusicEvent* pick(const std::map<std::string, FactionMusic>::const_iterator& f,
+                           std::map<std::string, std::string> FactionMusic::*list, std::string_view key) const;
+    std::map<std::string, MusicEvent> events_;      // upper-case name
+    std::map<std::string, FactionMusic> factions_; // upper-case faction
+};
+
+// A skirmish map's environment for music, guessed from its name (Sahara: Desert, Siberia: Arctic...).
+std::string mapEnvironment(std::string_view mapName);
+
 } // namespace alamo

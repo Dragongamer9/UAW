@@ -303,6 +303,8 @@ int main(int argc, char** argv) {
         // Sound: the SFX events, and their samples from wherever the game keeps them.
         SfxLibrary sfxLibrary;
         sfxLibrary.load(vfs);
+        MusicLibrary musicLibrary;
+        musicLibrary.load(vfs);
         std::unique_ptr<Audio> audio;
         if (!headless) audio = std::make_unique<Audio>(vfs, sfxLibrary);
         std::printf("sound: %zu SFX events%s\n", sfxLibrary.size(), audio && audio->ok() ? "" : " (no audio device)");
@@ -539,8 +541,28 @@ int main(int argc, char** argv) {
         size_t heardDeaths = world.deaths().size();
         std::unordered_set<uint32_t> heardOwn;
         bool heardFirst = true;
+        float lastCombat = -100;
+        const std::string environment = mapEnvironment(setup.map);
         auto sounds = [&](const Vec3& listenerAt, float yawDeg) {
             if (!audio) return;
+            // Music: the faction's ambient piece, battle music while your units fight (and for 15 s
+            // after), the win or lose piece at the end.
+            if (const Player* me = world.player(control.player()); me && me->faction != "Neutral") {
+                for (const Unit& u : world.units())
+                    if (u.owner == me->id && (u.firedThisTick || u.damagedThisTick)) { lastCombat = world.seconds(); break; }
+                std::string opponent;
+                bool enemyLeft = false;
+                for (const Player& p : world.players())
+                    if (p.id != me->id && world.enemies(me->id, p.id) && p.faction != "Neutral") {
+                        if (opponent.empty()) opponent = p.faction;
+                        enemyLeft = enemyLeft || !defeated(world, p.id);
+                    }
+                const MusicEvent* piece = defeated(world, me->id) ? musicLibrary.lose(me->faction, opponent)
+                                          : (!opponent.empty() && !enemyLeft) ? musicLibrary.win(me->faction, opponent)
+                                          : world.seconds() - lastCombat < 15 ? musicLibrary.battle(me->faction, environment)
+                                                                              : musicLibrary.ambient(me->faction, environment);
+                audio->playMusic(piece);
+            }
             audio->setListener(listenerAt, yawDeg * 3.14159265f / 180.f);
             auto event = [&](const GameObjectType& t, const char* field) -> std::string {
                 const std::string* v = t.find(field);

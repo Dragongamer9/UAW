@@ -86,7 +86,76 @@ Audio::Audio(alamo::MegVfs& vfs, const alamo::SfxLibrary& library) : vfs_(vfs), 
 }
 
 Audio::~Audio() {
+    if (music_) closeMusic(*music_);
+    if (fading_) closeMusic(*fading_);
     if (stream_) SDL_DestroyAudioStream(stream_);
+}
+
+void Audio::closeMusic(Music& m) {
+    if (m.decoder) {
+        drmp3_uninit(static_cast<drmp3*>(m.decoder));
+        delete static_cast<drmp3*>(m.decoder);
+        m.decoder = nullptr;
+    }
+}
+
+void Audio::playMusic(const alamo::MusicEvent* e) {
+    if (music_ && e && music_->event == e) return;
+    if (fading_) closeMusic(*fading_);
+    fading_ = std::move(music_);
+    if (fading_) fading_->fadeRate = 1.f / (2.f * kRate); // two seconds
+    if (!e || e->files.empty()) return;
+    std::uniform_int_distribution<size_t> pick(0, e->files.size() - 1);
+    const std::string name = upper(e->files[pick(rng_)]);
+    auto f = files_.find(name);
+    if (f == files_.end()) {
+        ++missing_;
+        if (std::getenv("UAW_AUDIO_LOG")) std::fprintf(stderr, "audio: no music %s\n", name.c_str());
+        return;
+    }
+    auto m = std::make_unique<Music>();
+    try { m->bytes = vfs_.read(f->second); } catch (const std::exception&) { return; }
+    auto* dec = new drmp3;
+    if (!drmp3_init_memory(dec, m->bytes.data(), m->bytes.size(), nullptr)) {
+        delete dec;
+        return;
+    }
+    m->decoder = dec;
+    m->step = double(dec->sampleRate) / kRate;
+    m->gain = e->volume / 100.f;
+    m->loop = e->loop;
+    m->event = e;
+    music_ = std::move(m);
+}
+
+void Audio::mixMusic(Music& m, float* out, int frames) {
+    auto* dec = static_cast<drmp3*>(m.decoder);
+    if (!dec) return;
+    const int ch = int(dec->channels);
+    for (int i = 0; i < frames; ++i) {
+        // Linear resampling from the file's rate: decode a frame each time we pass one.
+        while (m.frac >= 1) {
+            m.prev[0] = m.next[0], m.prev[1] = m.next[1];
+            float f[8] = {0};
+            if (drmp3_read_pcm_frames_f32(dec, 1, f) == 0) {
+                if (!m.loop || !drmp3_seek_to_pcm_frame(dec, 0) || drmp3_read_pcm_frames_f32(dec, 1, f) == 0) {
+                    closeMusic(m);
+                    return;
+                }
+            }
+            m.next[0] = f[0];
+            m.next[1] = ch > 1 ? f[1] : f[0];
+            m.frac -= 1;
+        }
+        const float t = float(m.frac), g = m.gain * m.fade * musicVolume;
+        out[i * 2] += (m.prev[0] * (1 - t) + m.next[0] * t) * g;
+        out[i * 2 + 1] += (m.prev[1] * (1 - t) + m.next[1] * t) * g;
+        m.frac += m.step;
+        if (m.fadeRate > 0 && (m.fade -= m.fadeRate) <= 0) {
+            closeMusic(m);
+            return;
+        }
+    }
 }
 
 void Audio::setListener(const alamo::Vec3& at, float yaw) {
@@ -181,6 +250,7 @@ void Audio::update() {
         voices_.clear();
         return;
     }
+    if (fading_ && !fading_->decoder) fading_.reset();
     // Keep about a tenth of a second queued.
     const int queued = SDL_GetAudioStreamQueued(stream_) / int(sizeof(float) * 2);
     const int want = kRate / 10 - queued;
@@ -215,6 +285,8 @@ void Audio::update() {
         }
         it = done ? voices_.erase(it) : std::next(it);
     }
+    if (music_) mixMusic(*music_, mix_.data(), want);
+    if (fading_) mixMusic(*fading_, mix_.data(), want);
     for (float& s : mix_) s = std::clamp(s, -1.f, 1.f);
     SDL_PutAudioStreamData(stream_, mix_.data(), int(mix_.size() * sizeof(float)));
 }

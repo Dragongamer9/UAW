@@ -38,6 +38,11 @@ public:
     // Mixes what is playing into the device's queue; call once a frame.
     void update();
 
+    // Music: plays one of the event's files (streamed), fading out what was playing; the same event
+    // again leaves it alone. nullptr stops the music.
+    void playMusic(const alamo::MusicEvent* event);
+    float musicVolume = 0.6f;
+
     size_t samplesMissing() const { return missing_; }
     size_t samplesLoaded() const { return clips_.size(); }
     size_t playing() const { return voices_.size(); }
@@ -78,6 +83,19 @@ private:
     float yaw_ = 0;
     size_t missing_ = 0;
     std::mt19937 rng_{12345};
+    // Streaming music: the file's bytes and an mp3 decoder over them; the previous piece fades out.
+    struct Music {
+        std::vector<uint8_t> bytes;
+        void* decoder = nullptr; // drmp3*
+        double step = 1, frac = 1;
+        float prev[2] = {0, 0}, next[2] = {0, 0};
+        float gain = 1, fade = 1, fadeRate = 0;
+        bool loop = true;
+        const alamo::MusicEvent* event = nullptr;
+    };
+    std::unique_ptr<Music> music_, fading_;
+    void mixMusic(Music& m, float* out, int frames);
+    static void closeMusic(Music& m);
 };
 
 } // namespace uaw
