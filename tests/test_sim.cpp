@@ -662,6 +662,10 @@ static void testSuperweapon() {
     CHECK(!w.unit(near)); // in the blast (500 damage against 300 health)
     CHECK(w.unit(far) && w.unit(far)->health == 300);         // well outside it
     CHECK(w.fireSuperweapon(silo, {700, 700, 0}) == OrderResult::NotAllowed); // recharging
+    // The game option: superweapons off rules the enabler out (build menus leave it out).
+    CHECK(w.allowedByOptions(*db.find("Silo")) && w.allowedByOptions(*db.find("Grunt")));
+    w.setSuperweapons(false);
+    CHECK(!w.allowedByOptions(*db.find("Silo")) && w.allowedByOptions(*db.find("Grunt")));
     fs::remove_all(root);
 }
 
