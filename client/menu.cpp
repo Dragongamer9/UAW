@@ -135,7 +135,7 @@ void MenuPainter::flush(Renderer& r) {
 // ---------------------------------------------------------------- skirmish setup
 
 namespace {
-enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kHost = 5, kJoin = 6, kAiLevel = 7, kCredits = 8, kReplay = 9, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
+enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kHost = 5, kJoin = 6, kAiLevel = 7, kCredits = 8, kReplay = 9, kSuperweapons = 10, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
 }
 
 SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale)
@@ -296,6 +296,7 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
         if (id == kFog) setup_.fog = !setup_.fog;
         if (id == kAiLevel) setup_.aiLevel = (setup_.aiLevel + (e.button.button == SDL_BUTTON_RIGHT ? 2 : 1)) % 3;
         if (id == kCredits) setup_.credits = (setup_.credits + (e.button.button == SDL_BUTTON_RIGHT ? 3 : 1)) % 4;
+        if (id == kSuperweapons) setup_.superweapons = !setup_.superweapons;
         if (id == kLoad) return Result::Load;
         if (id == kReplay) return Result::Replay;
         if (id == kHost && lobby == Lobby::None) return Result::Host;
@@ -486,7 +487,7 @@ void SkirmishMenu::draw(Renderer& r) {
     }
     if (lobby == Lobby::None && !quickSave.empty() && std::ifstream(quickSave).good()) {
         // In the info column, under the game options.
-        const float x2 = W - pad - bw * 1.2f, y2 = 300 * s + 2 * (bh + 8 * s) + 16 * s;
+        const float x2 = W - pad - bw * 1.2f, y2 = 300 * s + 3 * (bh + 8 * s) + 16 * s;
         paint_.button(r, kLoad, "Load saved game", x2, y2, W - pad, y2 + bh, false, mouseX_, mouseY_);
         paint_.button(r, kReplay, "Watch it as a replay", x2, y2 + bh + 8 * s, W - pad, y2 + bh * 2 + 8 * s, false, mouseX_, mouseY_);
     }
@@ -498,6 +499,8 @@ void SkirmishMenu::draw(Renderer& r) {
         paint_.button(r, kAiLevel, ai[std::clamp(setup_.aiLevel, 0, 2)], x2, y2, W - pad, y2 + bh, setup_.aiLevel != 1, mouseX_, mouseY_);
         paint_.button(r, kCredits, cr[std::clamp(setup_.credits, 0, 3)], x2, y2 + bh + 8 * s, W - pad, y2 + bh * 2 + 8 * s,
                       setup_.credits != 1, mouseX_, mouseY_);
+        paint_.button(r, kSuperweapons, setup_.superweapons ? "Superweapons: on" : "Superweapons: off", x2, y2 + 2 * (bh + 8 * s),
+                      W - pad, y2 + 2 * (bh + 8 * s) + bh, !setup_.superweapons, mouseX_, mouseY_);
     }
     paint_.button(r, kFog, setup_.fog ? "Fog of war: on" : "Fog of war: off", W - pad - bw * 3 - 32 * s, by, W - pad - bw * 2 - 32 * s,
                   by + bh, setup_.fog, mouseX_, mouseY_);

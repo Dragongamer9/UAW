@@ -217,6 +217,14 @@ const GameObjectType* World::socketFor(const Unit& u, const GameObjectType& upgr
     return nullptr;
 }
 
+bool World::allowedByOptions(const GameObjectType& t) const {
+    if (superweaponsOn_) return true;
+    if (superweaponOf(t)) return false;
+    if (const std::string* into = t.find("Tactical_Buildable_Constructed")) // a construction site of one
+        if (const GameObjectType* done = db_.find(trim(*into)); done && superweaponOf(*done)) return false;
+    return true;
+}
+
 std::vector<std::string> World::producible(uint32_t id) const {
     const Unit* s = nullptr;
     for (const Unit& u : units_)
@@ -239,9 +247,9 @@ std::vector<std::string> World::producible(uint32_t id) const {
             return t && isStructureType(*t);
         });
     }
-    std::erase_if(out, [&](const std::string& n) { // still to be researched
+    std::erase_if(out, [&](const std::string& n) { // still to be researched, or ruled out by the game's options
         const GameObjectType* t = db_.find(n);
-        return t && typeLocked(owner, *t);
+        return t && (typeLocked(owner, *t) || !allowedByOptions(*t));
     });
     return out;
 }
@@ -303,7 +311,7 @@ std::vector<std::string> World::constructible(uint32_t id) const {
     }
     std::erase_if(out, [&](const std::string& n) {
         const GameObjectType* t = db_.find(n);
-        return t && typeLocked(owner, *t);
+        return t && (typeLocked(owner, *t) || !allowedByOptions(*t));
     });
     return out;
 }

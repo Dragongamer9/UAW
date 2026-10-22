@@ -413,6 +413,10 @@ public:
     const std::vector<Projectile>& projectiles() const { return projectiles_; }
     const std::vector<DeathEvent>& deaths() const { return deaths_; } // everything that has died
     const DamageTable* damageTable() const { return damage_; }            // may be null
+    // Game option: superweapons allowed (off: their enabler structures can't be built).
+    void setSuperweapons(bool on) { superweaponsOn_ = on; }
+    bool superweapons() const { return superweaponsOn_; }
+    bool allowedByOptions(const GameObjectType& t) const;
     // Every player's army strength (sqrt(health x dps) of its units, summed), every ten seconds.
     const std::vector<std::array<float, 8>>& armyHistory() const { return armyHistory_; }
     const std::vector<ImpactEvent>& impacts() const { return impacts_; } // recent projectile landings (the last few thousand)
@@ -656,6 +660,7 @@ private:
     uint32_t nextProjectileId_ = 1;
     std::vector<DeathEvent> deaths_;
     std::vector<std::array<float, 8>> armyHistory_;
+    bool superweaponsOn_ = true;
     std::vector<ResourceNode> resources_;
     const GameDatabase* effects_ = nullptr;
     const EffectLibrary* effectLib_ = nullptr;

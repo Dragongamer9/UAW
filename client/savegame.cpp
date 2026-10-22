@@ -89,7 +89,7 @@ std::string encodeSetup(const SkirmishSetup& s) {
     std::ostringstream out;
     out << s.map << " " << (s.fog ? 1 : 0) << " " << s.slots.size();
     for (const PlayerSlot& p : s.slots) out << " " << slotKind(p.kind) << ":" << p.faction << ":" << p.team << ":" << p.netId;
-    out << " ai:" << s.aiLevel << " credits:" << s.credits; // optional (older saves end before these)
+    out << " ai:" << s.aiLevel << " credits:" << s.credits << " sw:" << (s.superweapons ? 1 : 0); // optional (older saves end before these)
     return out.str();
 }
 
@@ -120,6 +120,7 @@ bool decodeSetup(const std::string& text, SkirmishSetup& s) {
     for (std::string extra; ls >> extra;) {
         if (extra.rfind("ai:", 0) == 0) s.aiLevel = std::clamp(std::atoi(extra.c_str() + 3), 0, 2);
         else if (extra.rfind("credits:", 0) == 0) s.credits = std::clamp(std::atoi(extra.c_str() + 8), 0, 3);
+        else if (extra.rfind("sw:", 0) == 0) s.superweapons = std::atoi(extra.c_str() + 3) != 0;
     }
     return true;
 }
@@ -131,7 +132,7 @@ bool writeSave(const std::string& path, const SaveGame& s) {
     out << "UAWSAVE 1\n";
     out << "map " << s.setup.map << "\n";
     out << "fog " << (s.setup.fog ? 1 : 0) << "\n";
-    out << "options " << s.setup.aiLevel << " " << s.setup.credits << "\n";
+    out << "options " << s.setup.aiLevel << " " << s.setup.credits << " " << (s.setup.superweapons ? 1 : 0) << "\n";
     for (const PlayerSlot& p : s.setup.slots) out << "slot " << slotKind(p.kind) << " " << p.faction << " " << p.team << "\n";
     for (const std::string& m : s.mods) out << "mod " << m << "\n";
     out << "player " << s.player << " " << (s.spectate ? 1 : 0) << "\n";
@@ -165,10 +166,12 @@ bool readSave(const std::string& path, SaveGame& s, std::string* error) {
         if (key == "map") ls >> s.setup.map;
         else if (key == "fog") { int f = 1; ls >> f; s.setup.fog = f != 0; }
         else if (key == "options") {
-            int ai = 1, cr = 1;
+            int ai = 1, cr = 1, sw = 1;
             ls >> ai >> cr;
+            if (!(ls >> sw)) sw = 1; // saves from before the option
             s.setup.aiLevel = std::clamp(ai, 0, 2);
             s.setup.credits = std::clamp(cr, 0, 3);
+            s.setup.superweapons = sw != 0;
         }
         else if (key == "slot") {
             std::string kind;

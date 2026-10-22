@@ -101,7 +101,7 @@ opens the pause menu: resume, restart, back to the setup screen, or exit. Fog of
 off on the setup screen (or `--no-fog`): unexplored ground is dark, explored ground you can't see right now is
 dimmed, and enemies there are hidden (structures you have seen stay on the map). *Computer* sets how hard the
 computer players are (easy, normal, hard: their income x0.7, x1, x1.4) and *Credits* everyone's starting credits
-(low, normal, high, very high: x0.5, x1, x2, x5).
+(low, normal, high, very high: x0.5, x1, x2, x5). *Superweapons: off* takes the superweapon structures out of every build menu.
 
 **LAN games.** On the setup screen, *Host LAN game* opens a game on TCP port 7470 (allow it through the
 firewall); the others click *Join LAN game* and type the host's address (or start with `--join ADDRESS`,

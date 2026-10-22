@@ -469,6 +469,7 @@ int main(int argc, char** argv) {
             spawnTestSquads(world, starts, map);
         } else if (opt.units) {
             // Skirmish start: every taken slot at its start position; open ones stay empty.
+            world.setSuperweapons(setup.superweapons);
             const StartingForces forces = loadStartingForces(vfs);
             for (int slot = 0; slot < int(starts.size()); ++slot) {
                 const PlayerSlot* ps = size_t(slot) < setup.slots.size() ? &setup.slots[size_t(slot)] : nullptr;
