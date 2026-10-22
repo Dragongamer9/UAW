@@ -95,9 +95,16 @@ answer nil and are logged once.
 
 Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds), then
 calls `Set_Depot` / `Set_Drone_Search_Radius` on them (not there yet). `AlienReaperTurret` and
-`SuperWeaponEnablerBehavior` run their loops without errors. Next: the drone methods, player scripts
-(`Get_Script().Call_Function`), and a switch to run the scripts in real games in place of the native
-copies.
+`SuperWeaponEnablerBehavior` run their loops without errors.
+
+Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player.lua` in its own state
+(`Player` bound, `Base_Definitions()` and `Definitions()`, then its threads), and `Call_Function(name,
+...)` / `Get_Variable(name)` reach into it. `Novus_Player.lua` loads and runs its definitions; it asks
+for much more of the engine (research and scoring: `Get_Game_Mode`, `Find_All_Objects_Of_Type`,
+`Create_Position`, `GameScoringManager`, `Get_Game_Text`, ...).
+
+Next: the drone and player-script API those need, then a switch to run scripts in real games in place
+of the native copies.
 
 The VM needed one fix for this: `coroutine.running()` now returns the running coroutine (it gave
 nil), which the framework uses to tell the pumping thread from the others.

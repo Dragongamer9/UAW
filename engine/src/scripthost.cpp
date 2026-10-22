@@ -63,6 +63,7 @@ struct BehaviorHost::Instance {
     std::map<int, LuaValue> players;
     std::map<const GameObjectType*, LuaValue> types;
     uint64_t random = 0;
+    int playerId = -1;                         // a player's script (Player, no Object)
     bool dead = false, finished = false, firstService = true;
     std::set<std::string> said; // log lines already given
     // Handle factories (cached in the maps above).
@@ -98,15 +99,42 @@ std::vector<std::string> BehaviorHost::behaviorsOf(const GameObjectType& t) {
 }
 
 bool BehaviorHost::attach(uint32_t id, const std::vector<std::string>& behaviors, std::string* error) {
-    Unit* u = world_.unit(id);
-    if (!u || behaviors.empty()) {
+    return start(id, -1, behaviors, error);
+}
+
+bool BehaviorHost::attachPlayer(int playerId, std::string* error) {
+    const Player* p = world_.player(playerId);
+    if (!p) {
+        if (error) *error = "no such player";
+        return false;
+    }
+    std::string faction = p->faction;
+    if (!faction.empty()) faction[0] = char(std::toupper(static_cast<unsigned char>(faction[0])));
+    return start(0, playerId, {faction + "_Player"}, error);
+}
+
+BehaviorHost::Instance* BehaviorHost::playerScript(int playerId) {
+    if (auto it = playerScripts_.find(playerId); it != playerScripts_.end()) return it->second;
+    playerScripts_[playerId] = nullptr; // tried once
+    std::string err;
+    if (!attachPlayer(playerId, &err)) {
+        if (log) log("player script " + std::to_string(playerId) + ": " + err);
+        return nullptr;
+    }
+    return playerScripts_[playerId] = instances_.back().get();
+}
+
+bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::string>& behaviors, std::string* error) {
+    Unit* u = playerId >= 0 ? nullptr : world_.unit(id);
+    if ((playerId < 0 && !u) || behaviors.empty()) {
         if (error) *error = "no such unit or no behaviours";
         return false;
     }
     auto in = std::make_unique<Instance>();
     Instance& I = *in;
     I.id = id;
-    I.owner = u->owner;
+    I.playerId = playerId;
+    I.owner = u ? u->owner : playerId;
     I.random = 0x9E3779B97F4A7C15ull ^ id;
     I.vm = std::make_unique<LuaVM>();
     LuaVM& vm = *I.vm;
@@ -176,7 +204,20 @@ bool BehaviorHost::attach(uint32_t id, const std::vector<std::string>& behaviors
             const bool allied = oid == pid || (x && y && x->team >= 0 && x->team == y->team);
             return Values{LuaValue::boolean(oid >= 0 && !allied)};
         });
-        def(p, "Get_Script", [](const Values&) { return Values{}; }); // player scripts: not yet
+        // The player's own script (<Faction>_Player.lua), started on first use.
+        def(p, "Get_Script", [this, pid](const Values&) {
+            Instance* ps = playerScript(pid);
+            if (!ps) return Values{};
+            LuaValue h = table();
+            LuaVM* pvm = ps->vm.get();
+            def(h, "Call_Function", [pvm](const Values& a) {
+                if (a.empty()) return Values{};
+                const LuaValue f = pvm->global(a[0].str());
+                return f.isNil() ? Values{} : pvm->call(f, Values(a.begin() + 1, a.end()));
+            });
+            def(h, "Get_Variable", [pvm](const Values& a) { return a.empty() ? Values{} : Values{pvm->global(a[0].str())}; });
+            return Values{h};
+        });
         return p;
     };
     I.type = [&I](const GameObjectType* t) -> LuaValue {
@@ -292,8 +333,9 @@ bool BehaviorHost::attach(uint32_t id, const std::vector<std::string>& behaviors
         const Values r = vm.call(vm.global("coroutine").get("running"), {});
         return r.empty() ? LuaValue() : r[0];
     };
-    vm.setGlobal("Object", I.object(id));
-    {
+    if (playerId >= 0) vm.setGlobal("Player", I.player(playerId));
+    else vm.setGlobal("Object", I.object(id));
+    if (playerId < 0) {
         LuaValue list = table();
         double n = 0;
         for (const std::string& b : behaviors) list.t->set(LuaValue::number(++n), LuaValue::string(b));
@@ -445,14 +487,14 @@ bool BehaviorHost::attach(uint32_t id, const std::vector<std::string>& behaviors
         return false;
     }
     // The object's script data (Lua_Script_Data: assignments such as MatterEngine = {...}).
-    if (const GameObjectType* t = u->type)
+    if (const GameObjectType* t = u ? u->type : nullptr)
         if (const std::string* data = t->find("Lua_Script_Data"); data && !trim(*data).empty()) {
             std::string e;
             if (!vm.runSource(*data, &e)) say("Lua_Script_Data: " + e);
         }
     // When main() has nothing to service it returns; events are then pumped by this loop instead.
     vm.runSource("function __Pump_Loop() while true do PumpEvents() end end");
-    for (const char* fn : {"Base_Definitions", "Init_Behaviors"})
+    for (const char* fn : {"Base_Definitions", playerId >= 0 ? "Definitions" : "Init_Behaviors"})
         if (const LuaValue f = vm.global(fn); !f.isNil()) vm.call(f, {});
     if (const LuaValue m = vm.global("main"); !m.isNil()) {
         const Values co = vm.call(vm.global("coroutine").get("create"), {m});
@@ -464,6 +506,10 @@ bool BehaviorHost::attach(uint32_t id, const std::vector<std::string>& behaviors
 
 void BehaviorHost::service(Instance& I) {
     LuaVM& vm = *I.vm;
+    if (I.playerId >= 0) { // a player's script: just its threads
+        runThreads(I);
+        return;
+    }
     const Unit* self = world_.unit(I.id);
     if (!self || !self->alive()) {
         if (!I.dead) {
@@ -492,6 +538,11 @@ void BehaviorHost::service(Instance& I) {
         auto range = I.signals.equal_range("OBJECT_OWNER_CHANGED");
         for (auto it = range.first; it != range.second; ++it) I.events.push_back({it->second, {me}});
     }
+    runThreads(I);
+}
+
+void BehaviorHost::runThreads(Instance& I) {
+    LuaVM& vm = *I.vm;
     const LuaValue resume = vm.global("coroutine").get("resume");
     const LuaValue status = vm.global("coroutine").get("status");
     auto say = [&](const std::string& m) {
@@ -512,10 +563,13 @@ void BehaviorHost::service(Instance& I) {
         if (vm.failed()) say("main: " + vm.lastError());
     }
     for (size_t k = 0; k < I.threads.size(); ++k) {
-        Instance::Thread& t = I.threads[k];
-        const Values r = t.started ? vm.call(resume, {t.co}) : vm.call(resume, {t.co, t.param});
-        t.started = true;
-        const Values st = vm.call(status, {t.co});
+        const LuaValue co = I.threads[k].co; // (a thread may start others: the vector can grow)
+        const bool started = I.threads[k].started;
+        I.threads[k].started = true;
+        const Values r = started ? vm.call(resume, {co}) : vm.call(resume, {co, I.threads[k].param});
+        if (!r.empty() && !r[0].truthy()) say("thread: " + (r.size() > 1 ? r[1].str() : std::string("stopped")));
+        if (k >= I.threads.size() || I.threads[k].co.co != co.co) continue; // killed meanwhile
+        const Values st = vm.call(status, {co});
         if (!st.empty() && st[0].str() == "dead") {
             I.threads.erase(I.threads.begin() + long(k));
             --k;
@@ -525,8 +579,8 @@ void BehaviorHost::service(Instance& I) {
 
 void BehaviorHost::update() {
     if (world_.tickCount() % 3 != 0) return; // 10 services a second
-    for (auto& in : instances_)
-        if (!in->finished) service(*in);
+    for (size_t i = 0; i < instances_.size(); ++i) // (player scripts may start meanwhile)
+        if (!instances_[i]->finished) service(*instances_[i]);
 }
 
 } // namespace alamo

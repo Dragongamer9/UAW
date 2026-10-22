@@ -11,6 +11,7 @@
 #include "alamo/sim.hpp"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,6 +26,9 @@ public:
     static std::vector<std::string> behaviorsOf(const GameObjectType& t);
     // Starts the behaviours on unit `id`. False (with a message) when none of them loads.
     bool attach(uint32_t id, const std::vector<std::string>& behaviors, std::string* error = nullptr);
+    // Starts a player's own script (<Faction>_Player.lua: Definitions, then its threads). Objects'
+    // scripts reach it through Get_Owner().Get_Script().Call_Function(...); it starts then if not before.
+    bool attachPlayer(int playerId, std::string* error = nullptr);
     // Call after every simulation tick: events are checked and the scripts serviced (10 times a second).
     void update();
     size_t running() const;
@@ -39,7 +43,11 @@ private:
     World& world_;
     ScriptLibrary& library_;
     std::vector<std::unique_ptr<Instance>> instances_;
+    std::map<int, Instance*> playerScripts_;
+    bool start(uint32_t id, int playerId, const std::vector<std::string>& scripts, std::string* error);
+    Instance* playerScript(int playerId);
     void service(Instance& in);
+    void runThreads(Instance& in); // resumes main (or the event pump) and the Create_Thread threads
 };
 
 } // namespace alamo
