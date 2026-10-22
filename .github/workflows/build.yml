@@ -27,7 +27,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             zlib1g-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
             libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
-            libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev libudev-dev libdbus-1-dev
+            libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev libudev-dev libdbus-1-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -42,7 +43,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          for t in uaw-viewer megtool objdump alotool maptool; do
+          for t in uaw-viewer megtool objdump alotool maptool simtool; do
             for f in build/Release/$t.exe build/$t; do
               [ -f "$f" ] && cp "$f" dist/
             done
