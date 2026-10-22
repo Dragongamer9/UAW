@@ -97,7 +97,11 @@ answer nil and are logged once.
 
 Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds), then
 calls `Set_Depot` / `Set_Drone_Search_Radius` on them (not there yet). `AlienReaperTurret` and
-`SuperWeaponEnablerBehavior` run their loops without errors.
+`SuperWeaponEnablerBehavior` run their loops without errors, and so does a Habitat Walker's set
+(`WalkerPuzzle`, `Generic_Vehicle_Unit_Behavior`, `Defensive_AI_Unit_Behavior`) now that hardpoints are
+handles: `Find_All_Hard_Points_Of_Type` (a list), `Get_All_Hard_Points`, and on a hardpoint `Is_Valid`,
+`Get_Type`, `Get_Health`, `Get_Parent_Object` and `OBJECT_HEALTH_AT_ZERO` signals (`Make_Invulnerable`,
+`Set_Cannot_Be_Killed`, `Enable_Behavior` are accepted: the walker damage rules are the engine's own).
 
 Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player.lua` in its own state
 (`Player` bound, `Base_Definitions()` and `Definitions()`, then its threads), and `Call_Function(name,

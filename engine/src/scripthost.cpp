@@ -62,6 +62,14 @@ struct BehaviorHost::Instance {
     std::map<uint32_t, LuaValue> objects;       // handles, one per id (scripts compare them)
     std::map<int, LuaValue> players;
     std::map<const GameObjectType*, LuaValue> types;
+    std::map<uint64_t, LuaValue> hardpoints;   // handles by (object id << 8 | slot)
+    struct HardPointWatch {
+        uint32_t id;
+        size_t slot;
+        LuaValue fn;
+        bool fired = false;
+    };
+    std::vector<HardPointWatch> hardpointDeaths; // OBJECT_HEALTH_AT_ZERO on a hardpoint
     uint64_t random = 0;
     int playerId = -1;                         // a player's script (Player, no Object)
     bool dead = false, finished = false, firstService = true;
@@ -151,6 +159,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         t.t->set(LuaValue::string("y"), LuaValue::number(p[1]));
         t.t->set(LuaValue::string("z"), LuaValue::number(p[2]));
         def(t, "Get_Position", [t](const Values&) { return Values{t}; });
+        def(t, "Is_Valid", [](const Values&) { return Values{LuaValue::boolean(true)}; });
         return t;
     };
     // Where a handle is: an object's position or a position's coordinates.
@@ -226,6 +235,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         LuaValue h = table();
         I.types[t] = h;
         h.t->set(LuaValue::string("__type"), LuaValue::string(t->name));
+        def(h, "Is_Valid", [](const Values&) { return Values{LuaValue::boolean(true)}; });
         def(h, "Get_Name", [t](const Values&) { return Values{LuaValue::string(upper(t->name))}; });
         def(h, "Get_Type_Value", [t](const Values& a) {
             const std::string* v = a.empty() ? nullptr : t->find(a[0].str());
@@ -296,6 +306,60 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         def(o, "Has_Behavior", [](const Values&) { return Values{LuaValue::boolean(false)}; });
         def(o, "Get_Script", [](const Values&) { return Values{}; });
         def(o, "Service_Wrapper", [](const Values&) { return Values{}; });
+        // Hardpoints (walker legs, cores, weapons) as handles of their own.
+        auto hardpoint = [&I, &w](uint32_t owner, size_t slot) -> LuaValue {
+            const uint64_t key = uint64_t(owner) << 8 | slot;
+            if (auto it = I.hardpoints.find(key); it != I.hardpoints.end()) return it->second;
+            LuaValue h = table();
+            I.hardpoints[key] = h;
+            auto hp = [&w, owner, slot]() -> Unit::HardPoint* {
+                Unit* u = w.unit(owner);
+                return u && u->alive() && slot < u->hardpoints.size() && u->hardpoints[slot].alive() ? &u->hardpoints[slot] : nullptr;
+            };
+            def(h, "Is_Valid", [hp](const Values&) { return Values{LuaValue::boolean(hp() != nullptr)}; });
+            def(h, "Get_Type", [hp, &I](const Values&) {
+                Unit::HardPoint* p = hp();
+                return p ? Values{I.type(p->type)} : Values{};
+            });
+            def(h, "Get_Health", [hp](const Values&) {
+                Unit::HardPoint* p = hp();
+                return Values{LuaValue::number(p ? p->health / std::max(p->maxHealth, 1.f) : 0)};
+            });
+            def(h, "Get_Parent_Object", [&I, owner](const Values&) { return Values{I.object(owner)}; });
+            // The walker's damage rules (legs, then the core) are the engine's own: these are accepted.
+            for (const char* quiet : {"Make_Invulnerable", "Set_Cannot_Be_Killed", "Enable_Behavior"})
+                def(h, quiet, [](const Values&) { return Values{}; });
+            def(h, "Register_Signal_Handler", [&I, owner, slot](const Values& a) {
+                if (a.size() >= 2 && upper(a[1].str()) == "OBJECT_HEALTH_AT_ZERO") I.hardpointDeaths.push_back({owner, slot, a[0]});
+                return Values{};
+            });
+            def(h, "Unregister_Signal_Handler", [&I, owner, slot](const Values& a) {
+                if (a.empty()) return Values{};
+                auto& v = I.hardpointDeaths;
+                v.erase(std::remove_if(v.begin(), v.end(), [&](const auto& x) { return x.id == owner && x.slot == slot && rawEquals(x.fn, a[0]); }), v.end());
+                return Values{};
+            });
+            return h;
+        };
+        def(o, "Find_All_Hard_Points_Of_Type", [alive, hardpoint](const Values& a) {
+            Unit* u = alive();
+            if (!u || a.empty()) return Values{};
+            const std::string want = upper(a[0].isTable() ? a[0].t->get(LuaValue::string("__type")).str() : a[0].str());
+            LuaValue list = table(); // a list, as its name says
+            double n = 0;
+            for (size_t k = 0; k < u->hardpoints.size(); ++k)
+                if (u->hardpoints[k].type && upper(u->hardpoints[k].type->name) == want) list.t->set(LuaValue::number(++n), hardpoint(u->id, k));
+            return n > 0 ? Values{list} : Values{};
+        });
+        def(o, "Get_All_Hard_Points", [alive, hardpoint](const Values&) {
+            Unit* u = alive();
+            if (!u) return Values{};
+            LuaValue list = table();
+            for (size_t k = 0; k < u->hardpoints.size(); ++k) list.t->set(LuaValue::number(double(k + 1)), hardpoint(u->id, k));
+            return Values{list};
+        });
+        for (const char* quiet : {"Make_Invulnerable", "Set_Cannot_Be_Killed", "Enable_Behavior"})
+            def(o, quiet, [](const Values&) { return Values{}; });
         if (oid == I.id) { // events and signals: only on the script's own object
             def(o, "Event_Object_In_Range", [&I](const Values& a) {
                 if (a.size() >= 2) I.ranges.push_back({a[0], float(num(a, 1)), {}});
@@ -582,6 +646,15 @@ void BehaviorHost::service(Instance& I) {
             }
         }
         r.inside = std::move(now);
+    }
+    for (Instance::HardPointWatch& h : I.hardpointDeaths) { // a hardpoint destroyed
+        const Unit* u = world_.unit(h.id);
+        const bool gone = !u || h.slot >= u->hardpoints.size() || !u->hardpoints[h.slot].alive();
+        if (gone && !h.fired) {
+            h.fired = true;
+            const auto it = I.hardpoints.find(uint64_t(h.id) << 8 | h.slot);
+            I.events.push_back({h.fn, {it != I.hardpoints.end() ? it->second : LuaValue()}});
+        }
     }
     if (self->owner != I.owner) {
         I.owner = self->owner;
