@@ -3,6 +3,7 @@
 #include "alamo/gamedata.hpp"
 #include "alamo/nav.hpp"
 #include "alamo/sim.hpp"
+#include "alamo/techtree.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -68,6 +69,23 @@ static GameDatabase testDb(const fs::path& root) {
     <BehaviorType Name="ArmorAndDamageBehaviorType"><Damage_Type>Damage_Shell</Damage_Type></BehaviorType>
     <BehaviorType Name="ProjectileBehaviorType"><Projectile_Blast_Area_Damage>20</Projectile_Blast_Area_Damage>
       <Projectile_Blast_Area_Range>40</Projectile_Blast_Area_Range></BehaviorType></Projectile>
+  <X_Units Name="Builder"><MovementClass>Infantry</MovementClass><Max_Speed>3.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <BehaviorType Name="FleetBehaviorType"><Unit_Pop_Cap>2</Unit_Pop_Cap></BehaviorType>
+    <BehaviorType Name="BuildableObjectBehaviorType"><Tactical_Build_Cost_Multiplayer>200</Tactical_Build_Cost_Multiplayer>
+      <Tactical_Build_Time_Seconds>4</Tactical_Build_Time_Seconds></BehaviorType></X_Units>
+  <X_Structures Name="HQ"><MovementClass>Building</MovementClass><Tactical_Health>2000</Tactical_Health>
+    <Custom_Hard_XExtent>40</Custom_Hard_XExtent><Custom_Hard_YExtent>30</Custom_Hard_YExtent></X_Structures>
+  <X_Structures Name="Barracks"><MovementClass>Building</MovementClass><Tactical_Health>1000</Tactical_Health>
+    <Custom_Hard_XExtent>30</Custom_Hard_XExtent>
+    <BehaviorType Name="BuildableObjectBehaviorType">
+      <Tactical_Under_Construction_Object_Type>Barracks_Construction</Tactical_Under_Construction_Object_Type></BehaviorType></X_Structures>
+  <X_Structures Name="Barracks_Construction"><MovementClass>Building</MovementClass>
+    <BehaviorType Name="BuildableObjectBehaviorType"><Tactical_Build_Cost_Multiplayer>500</Tactical_Build_Cost_Multiplayer>
+      <Tactical_Build_Time_Seconds>10</Tactical_Build_Time_Seconds></BehaviorType></X_Structures>
+  <HardPoint Name="Barracks_Upgrade"><BehaviorType Name="BuildableObjectBehaviorType">
+      <Tactical_Build_Cost_Multiplayer>300</Tactical_Build_Cost_Multiplayer>
+      <Tactical_Build_Time_Seconds>3</Tactical_Build_Time_Seconds></BehaviorType></HardPoint>
   <X_Units Name="Tank"><MovementClass>Tracked</MovementClass><Max_Speed>3.0</Max_Speed>
     <Max_Rate_Of_Turn>4</Max_Rate_Of_Turn><Stopped_Rate_Of_Turn>3</Stopped_Rate_Of_Turn>
     <OverrideAcceleration>0.1</OverrideAcceleration><Custom_Hard_XExtent>14</Custom_Hard_XExtent></X_Units>
@@ -163,6 +181,82 @@ static void testGroups(const GameDatabase& db) {
     CHECK(minGap > 7); // radius 5 each: no stacking
 }
 
+static void testEconomy(const GameDatabase& db) {
+    Map m = wallMap();
+    TechTree tech;
+    tech.add("Builder", {{"HQ"}, {}});
+    tech.add("Barracks", {{}, {"Builder"}});
+    tech.add("Barracks_Upgrade", {{"Barracks"}, {}});
+    tech.add("Gunner", {{"Barracks"}, {"Barracks_Upgrade"}}); // needs the upgrade first
+
+    World w(m, db, nullptr, 1, &tech);
+    const int p = w.addPlayer("Test", 1200, 6);
+    const uint32_t hq = w.spawn("HQ", p, {200, 200, 0});
+    CHECK(w.unit(hq)->structure);
+    w.tick(); // footprint applied to navigation
+    CHECK(!w.nav().passableAt(200, 200) && !w.nav().passableAt(235, 225) && w.nav().passableAt(260, 200));
+
+    // HQ makes builders; builders make barracks; nothing else yet.
+    CHECK(w.producible(hq) == std::vector<std::string>{"Builder"});
+    CHECK(w.queueProduction(hq, "Gunner") == OrderResult::NotAllowed);
+    CHECK(w.queueProduction(hq, "Builder") == OrderResult::Ok);
+    CHECK(w.player(p)->credits == 1000);
+    CHECK(w.popUsed(p) == 2); // queued units count against the cap
+    for (int i = 0; i < 4 * 30; ++i) w.tick();
+    uint32_t builder = 0;
+    for (const Unit& u : w.units())
+        if (u.type->name == "Builder") builder = u.id;
+    CHECK(builder != 0);
+    if (!builder) return;
+    const Unit* bu = w.unit(builder);
+    CHECK(std::fabs(bu->position[0] - 200) > 40 || std::fabs(bu->position[1] - 200) > 30); // came out beside the HQ
+
+    CHECK(w.constructible(hq).empty()); // structures don't construct
+    CHECK(w.constructible(builder) == std::vector<std::string>{"Barracks"});
+    CHECK(w.commandConstruct(builder, "Barracks", {210, 210, 0}) == OrderResult::BlockedSite); // on the HQ
+    CHECK(w.commandConstruct(builder, "Barracks", {300, 600, 0}) == OrderResult::Ok);
+    CHECK(w.player(p)->credits == 500); // cost from Barracks_Construction
+    uint32_t barracks = 0;
+    for (const Unit& u : w.units())
+        if (u.type->name == "Barracks") barracks = u.id;
+    CHECK(w.unit(barracks) && w.unit(barracks)->underConstruction);
+    if (!w.unit(barracks)) return;
+    CHECK(w.producible(barracks).empty()); // not finished
+    int ticks = 0;
+    while (w.unit(barracks)->underConstruction && ticks < 60 * 30) { w.tick(); ++ticks; }
+    CHECK(!w.unit(barracks)->underConstruction);
+    // A few seconds to walk ~400 units at 3/tick, then 10 s of building.
+    CHECK(ticks > 10 * 30 && ticks < 16 * 30);
+    CHECK(w.unit(barracks)->health > 900);
+
+    // The gunner needs the upgrade; the upgrade is researched, not spawned, and only once.
+    CHECK(w.producible(barracks) == std::vector<std::string>{"Barracks_Upgrade"});
+    const size_t unitsBefore = w.units().size();
+    CHECK(w.queueProduction(barracks, "Barracks_Upgrade") == OrderResult::Ok);
+    CHECK(w.queueProduction(barracks, "Barracks_Upgrade") == OrderResult::NotAllowed);
+    for (int i = 0; i < 3 * 30 + 1; ++i) w.tick();
+    CHECK(w.units().size() == unitsBefore);
+    CHECK(w.owns(p, "Barracks_Upgrade"));
+    auto prod = w.producible(barracks);
+    CHECK(std::find(prod.begin(), prod.end(), "Gunner") != prod.end());
+    CHECK(w.player(p)->credits == 200);
+    CHECK(w.queueProduction(barracks, "Gunner") == OrderResult::Ok); // Gunner has no cost set: free
+    w.cancelProduction(barracks);
+    CHECK(w.unit(barracks)->queue.empty());
+
+    // Pop cap 6: builder (2) + two more builders (4) = 6, a third is refused.
+    w.player(p)->credits = 5000;
+    CHECK(w.queueProduction(hq, "Builder") == OrderResult::Ok);
+    CHECK(w.queueProduction(hq, "Builder") == OrderResult::Ok);
+    CHECK(w.queueProduction(hq, "Builder") == OrderResult::PopulationCap);
+
+    // Destroying a structure frees its footprint.
+    w.unit(hq)->health = 0;
+    w.tick();
+    w.tick();
+    CHECK(w.nav().passableAt(200, 200));
+}
+
 static void testCombat(const GameDatabase& db) {
     Map m = wallMap();
     // Weapons from the unit itself and from an attached hardpoint.
@@ -229,6 +323,7 @@ int main() {
     testMovement(db);
     testGroups(db);
     testCombat(db);
+    testEconomy(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

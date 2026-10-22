@@ -1,0 +1,104 @@
+#include "alamo/techtree.hpp"
+
+#include "alamo/xml.hpp"
+
+#include <cctype>
+
+namespace alamo {
+
+namespace {
+
+std::string upper(std::string s) {
+    for (char& c : s) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return s;
+}
+
+std::vector<std::string> names(const XmlNode* n) {
+    std::vector<std::string> out;
+    if (!n) return out;
+    std::string cur;
+    auto flush = [&]() {
+        std::string t = trim(cur);
+        if (!t.empty() && !iequals(t, "null")) out.push_back(t);
+        cur.clear();
+    };
+    for (char c : n->text) {
+        if (c == ',' || c == ' ' || c == '\t' || c == '\n' || c == '\r') flush();
+        else cur += c;
+    }
+    flush();
+    return out;
+}
+
+bool containsCI(const std::vector<std::string>& v, const std::string& s) {
+    for (const auto& x : v)
+        if (iequals(x, s)) return true;
+    return false;
+}
+
+} // namespace
+
+void TechTree::add(const std::string& object, BuildOption option) {
+    const std::string key = upper(object);
+    auto it = byObject_.find(key);
+    if (it == byObject_.end()) {
+        order_.push_back(object);
+        byObject_[key].push_back(std::move(option));
+    } else {
+        it->second.push_back(std::move(option));
+    }
+}
+
+const std::vector<BuildOption>& TechTree::options(const std::string& object) const {
+    static const std::vector<BuildOption> none;
+    auto it = byObject_.find(upper(object));
+    return it == byObject_.end() ? none : it->second;
+}
+
+std::vector<std::string> TechTree::producibleBy(const std::string& producer, const Has& has) const {
+    std::vector<std::string> out;
+    for (const std::string& obj : order_) {
+        for (const BuildOption& o : options(obj)) {
+            if (!containsCI(o.builders, producer)) continue;
+            bool ok = true;
+            for (const auto& b : o.builders) ok = ok && (iequals(b, producer) || has(b));
+            for (const auto& r : o.required) ok = ok && has(r);
+            if (ok) { out.push_back(obj); break; }
+        }
+    }
+    return out;
+}
+
+std::vector<std::string> TechTree::constructibleBy(const std::string& builder, const Has& has) const {
+    std::vector<std::string> out;
+    for (const std::string& obj : order_) {
+        for (const BuildOption& o : options(obj)) {
+            if (!o.builders.empty() || !containsCI(o.required, builder)) continue;
+            bool ok = true;
+            for (const auto& r : o.required) ok = ok && (iequals(r, builder) || has(r));
+            if (ok) { out.push_back(obj); break; }
+        }
+    }
+    return out;
+}
+
+TechTree loadTechTree(MegVfs& vfs) {
+    TechTree tree;
+    const char* path = "Data\\XML\\ProductionDependencies.xml";
+    if (!vfs.exists(path)) return tree;
+    XmlDocument doc = parseXml(readText(vfs, path));
+    const XmlNode* root = doc.root.child("ProductionDependencies");
+    if (!root) return tree;
+    for (const XmlNode* d : root->childrenNamed("Dependency")) {
+        const auto obj = names(d->child("Built_Object"));
+        if (obj.empty()) continue;
+        BuildOption o;
+        o.builders = names(d->child("Tactical_Builder"));
+        o.required = names(d->child("Tactical_Required_Objects"));
+        if (o.builders.empty() && o.required.empty()) continue; // strategic-only entry
+        tree.add(obj.front(), std::move(o));
+    }
+    return tree;
+}
+
+} // namespace alamo

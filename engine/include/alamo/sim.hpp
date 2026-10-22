@@ -13,6 +13,7 @@
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/nav.hpp"
+#include "alamo/techtree.hpp"
 #include "alamo/ted.hpp"
 
 #include <cstdint>
@@ -63,7 +64,45 @@ struct Unit {
     std::vector<WeaponState> weapons;
     float maxRange() const;
     bool alive() const { return health > 0; }
+
+    // Structures and production.
+    bool structure = false;            // immobile, blocks the ground under its footprint
+    float footprintX = 0, footprintY = 0; // half extents
+    int pop = 0;                       // Unit_Pop_Cap
+    bool underConstruction = false;
+    float buildProgress = 1;           // 0..1 while under construction
+    int buildTicks = 0;                // total construction time
+    std::vector<const GameObjectType*> queue; // production queue (front is in progress)
+    int queueTicks = 0;                // progress on queue.front()
+    Vec3 rally{};
+    bool hasRally = false;
+    uint32_t constructing = 0;         // builders: structure they are working on
+    int builderTicks = 0;              // construction ticks that need a builder present (the rest run alone)
+    std::vector<const GameObjectType*> upgrades; // finished upgrades/hardpoints bought at this structure
 };
+
+// Cost and time to build an object. Structures and walkers keep these on their
+// Tactical_Under_Construction_Object_Type (e.g. Novus_Power_Router_Construction);
+// units keep them on themselves. Hierarchy glyphs add a carving phase
+// (Required_Pre_Build_Time_In_Secs) that needs the Glyph Carver; after that the
+// walker finishes on its own.
+struct BuildInfo {
+    float cost = 0;
+    int ticks = 30;
+    int builderTicks = 30;             // part of `ticks` that needs a builder present
+    bool spawnsUnit = true;            // false for upgrades/patches researched at a structure
+};
+BuildInfo buildInfo(const GameObjectType& type, const GameDatabase& db);
+
+struct Player {
+    int id = 0;
+    std::string faction;               // "Novus", "Alien", "Masari", ...
+    float credits = 0;
+    int popCap = 90;
+};
+
+enum class OrderResult { Ok, NotAllowed, NotEnoughCredits, PopulationCap, BlockedSite, InvalidUnit };
+const char* toString(OrderResult r);
 
 struct Projectile {
     int owner = 0;
@@ -87,8 +126,27 @@ struct DeathEvent {
 
 class World {
 public:
-    // `damage` may be null (every modifier is then 1.0).
-    World(const Map& map, const GameDatabase& db, const DamageTable* damage = nullptr, uint64_t seed = 1);
+    // `damage` and `tech` may be null (all modifiers 1.0 / nothing buildable).
+    World(const Map& map, const GameDatabase& db, const DamageTable* damage = nullptr, uint64_t seed = 1,
+          const TechTree* tech = nullptr);
+
+    // Players are numbered from 0 in the order added; unit `owner` refers to them.
+    int addPlayer(const std::string& faction, float credits, int popCap = 90);
+    Player* player(int id);
+    const std::vector<Player>& players() const { return players_; }
+    int popUsed(int owner) const;
+    bool owns(int owner, const std::string& typeName) const; // a finished unit/structure of that type
+
+    // Production: queue a unit at one of the player's structures (pays up front).
+    OrderResult queueProduction(uint32_t structure, const std::string& typeName);
+    void cancelProduction(uint32_t structure);   // refunds the last queued item
+    std::vector<std::string> producible(uint32_t structure) const;
+    void setRally(uint32_t structure, Vec3 p);
+
+    // Construction: the builder walks over and raises the structure (pays up front).
+    OrderResult commandConstruct(uint32_t builder, const std::string& typeName, Vec3 site);
+    std::vector<std::string> constructible(uint32_t builder) const;
+    bool siteClear(const GameObjectType& type, Vec3 site) const;
 
     // Places a unit; returns its id, or 0 if the type is unknown.
     uint32_t spawn(const std::string& typeName, int owner, Vec3 position, float facingRadians = 0);
@@ -126,11 +184,19 @@ private:
     void applyDamage(Unit& victim, float amount, const std::string& damageType);
     void removeDead();
     float random01();
+    void updateProduction(Unit& u);
+    void updateConstruction(Unit& u);
+    void rebuildNav();
+    Vec3 exitPoint(const Unit& structure, const Unit& unit);
 
     const Map& map_;
     const GameDatabase& db_;
     NavGrid nav_;
     const DamageTable* damage_;
+    const TechTree* tech_;
+    NavGrid baseNav_;                  // terrain only; nav_ adds structure footprints
+    bool navDirty_ = false;
+    std::vector<Player> players_;
     std::vector<Unit> units_;
     std::vector<Projectile> projectiles_;
     std::vector<DeathEvent> deaths_;
@@ -140,5 +206,13 @@ private:
 };
 
 float angleDiff(float from, float to); // shortest signed difference, radians
+
+// Skirmish start, as DefaultLandScript.lua sets it up: each faction gets its
+// command structure and one builder at its Marker_Player_N_Start position
+//   Alien:  Alien_Arrival_Site    + Alien_Glyph_Carver
+//   Novus:  Novus_Remote_Terminal + Novus_Constructor
+//   Masari: Masari_Foundation     + Masari_Architect
+// plus the faction's Multiplayer_Starting_Credits and pop cap. Returns the player id.
+int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start);
 
 } // namespace alamo

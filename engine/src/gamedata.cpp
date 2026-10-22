@@ -159,6 +159,8 @@ void GameDatabase::load(MegVfs& vfs) {
                 };
                 fac.humanPlayable = yes("Is_Human_Playable");
                 fac.aiPlayable = yes("Is_AI_Playable");
+                if (const XmlNode* c = f->child("Multiplayer_Starting_Credits")) fac.multiplayerCredits = float(std::atof(c->text.c_str()));
+                if (const XmlNode* c = f->child("Pop_Cap_For_Multiplayer_Games")) fac.multiplayerPopCap = std::atoi(c->text.c_str());
                 factions_.push_back(std::move(fac));
             }
         }
@@ -229,6 +231,12 @@ void GameDatabase::resolveVariants() {
         state[i] = 2;
     };
     for (size_t i = 0; i < objects_.size(); ++i) resolve(i);
+}
+
+const Faction* GameDatabase::faction(std::string_view name) const {
+    for (const auto& f : factions_)
+        if (iequals(f.name, name)) return &f;
+    return nullptr;
 }
 
 const GameObjectType* GameDatabase::findByCrc(uint32_t crc) const {

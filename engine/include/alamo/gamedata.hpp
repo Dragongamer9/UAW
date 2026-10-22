@@ -53,6 +53,8 @@ struct Faction {
     std::string name;
     bool humanPlayable = false;
     bool aiPlayable = false;
+    float multiplayerCredits = 0;  // Multiplayer_Starting_Credits
+    int multiplayerPopCap = 90;    // Pop_Cap_For_Multiplayer_Games
 };
 
 class GameDatabase {
@@ -65,6 +67,7 @@ public:
     const GameObjectType* findByCrc(uint32_t crc) const;
     const std::vector<GameObjectType>& objects() const { return objects_; }
     const std::vector<Faction>& factions() const { return factions_; }
+    const Faction* faction(std::string_view name) const;
     const std::vector<std::string>& warnings() const { return warnings_; }
     size_t fileCount() const { return fileCount_; }
 

@@ -30,6 +30,7 @@ add_library(alamo
   engine/src/nav.cpp
   engine/src/sim.cpp
   engine/src/combat.cpp
+  engine/src/techtree.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB QUIET)
@@ -46,6 +47,9 @@ if(NOT ZLIB_FOUND)
   add_library(ZLIB::ZLIB ALIAS zlibstatic)
 endif()
 target_link_libraries(alamo PUBLIC ZLIB::ZLIB)
+
+add_executable(simtool tools/simtool.cpp)
+target_link_libraries(simtool PRIVATE alamo)
 
 add_executable(maptool tools/maptool.cpp)
 target_link_libraries(maptool PRIVATE alamo)

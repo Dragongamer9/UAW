@@ -20,7 +20,9 @@ redistributed.
 | 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
 | 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
-| 3 | Abilities, melee, hardpoint destruction, walkers, shields, veterancy | next |
+| 3 | Economy: tech tree (`ProductionDependencies.xml`), players with credits and pop cap, structures that block ground, construction by builders, production queues, upgrades, skirmish start forces | done (first version) |
+| 3 | Resource collection (scrap, collectors), HUD with build menus | next |
+| 3 | Abilities, melee, hardpoint destruction, shields, veterancy | planned |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -133,6 +135,13 @@ Overviews shade the terrain, colour it by texture layer (from the real textures
 when `Textures.meg` is available, otherwise a guess from the texture name), and
 mark structures, units, resources, the playable area and numbered start positions.
 
+## simtool
+
+```sh
+simtool "<game>" M25_Grand_Canyon start            # skirmish start for each faction and what it can build
+simtool "<game>" M25_Grand_Canyon opening Novus    # scripted build order with a timeline
+```
+
 ## Format notes
 
 ### TED maps
@@ -235,6 +244,25 @@ Each projectile has `Max_Speed` (units/frame), `Damage_Type`, `Projectile_Damage
 `Projectile_Blast_Area_Damage` / `_Range` and `Projectile_Max_Flight_Distance`.
 Damage is multiplied by the `Damage_To_Armor_Mod` entry for the damage type and
 the victim's `Armor_Type` (1.0 if absent).
+
+### Economy
+
+- **Skirmish start** (from `DefaultLandScript.lua`): Hierarchy gets
+  `Alien_Arrival_Site` + `Alien_Glyph_Carver`, Novus gets `Novus_Remote_Terminal`
+  + `Novus_Constructor`, Masari gets `Masari_Foundation` + `Masari_Architect`.
+  Credits and pop cap come from `Multiplayer_Starting_Credits` (10,000 / 10,000 /
+  1,000) and `Pop_Cap_For_Multiplayer_Games` (90) in Factions.xml.
+- **Tech tree**: `ProductionDependencies.xml`. Entries for one object are OR'd,
+  and the types inside an entry are AND'd. Units name their factory in
+  `Tactical_Builder`; structures name their builder unit in
+  `Tactical_Required_Objects`.
+- **Cost and build time** of structures and walkers live on their
+  `Tactical_Under_Construction_Object_Type` (e.g.
+  `Novus_Power_Router_Construction`: 800 credits, 20 s). Units keep them on
+  themselves. Hierarchy glyphs add `Required_Pre_Build_Time_In_Secs` of
+  carving that needs the Glyph Carver; after that the walker finishes on its own.
+- **Upgrades and patches** (hardpoints and `X12_Novus_Patches`) are researched
+  once per structure rather than spawned, and can unlock further units.
 
 ### MEG archives
 

@@ -33,8 +33,238 @@ float angleDiff(float from, float to) {
     return d;
 }
 
-World::World(const Map& map, const GameDatabase& db, const DamageTable* damage, uint64_t seed)
-    : map_(map), db_(db), nav_(map), damage_(damage), rng_(seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull) {}
+World::World(const Map& map, const GameDatabase& db, const DamageTable* damage, uint64_t seed, const TechTree* tech)
+    : map_(map), db_(db), nav_(map), damage_(damage), tech_(tech), baseNav_(nav_),
+      rng_(seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull) {}
+
+const char* toString(OrderResult r) {
+    switch (r) {
+    case OrderResult::Ok: return "ok";
+    case OrderResult::NotAllowed: return "not available";
+    case OrderResult::NotEnoughCredits: return "not enough credits";
+    case OrderResult::PopulationCap: return "population cap reached";
+    case OrderResult::BlockedSite: return "site blocked";
+    case OrderResult::InvalidUnit: return "invalid unit";
+    }
+    return "?";
+}
+
+BuildInfo buildInfo(const GameObjectType& type, const GameDatabase& db) {
+    const GameObjectType* src = &type;
+    if (const std::string* uc = type.find("Tactical_Under_Construction_Object_Type"))
+        if (const GameObjectType* c = db.find(trim(*uc))) src = c;
+    BuildInfo b;
+    b.cost = float(src->number("Tactical_Build_Cost_Multiplayer").value_or(type.number("Tactical_Build_Cost_Multiplayer").value_or(0)));
+    const double build = src->number("Tactical_Build_Time_Seconds").value_or(type.number("Tactical_Build_Time_Seconds").value_or(10));
+    const double pre = src->number("Required_Pre_Build_Time_In_Secs").value_or(0);
+    b.ticks = std::max(1, int(std::lround((build + pre) * kTicksPerSecond)));
+    const std::string* needs = src->find("Tactical_Build_Requires_Builder");
+    const bool requiresBuilder = !needs || iequals(trim(*needs), "true") || iequals(trim(*needs), "yes");
+    b.builderTicks = pre > 0 ? int(std::lround(pre * kTicksPerSecond)) : (requiresBuilder ? b.ticks : 0);
+    const std::string& cat = type.category;
+    b.spawnsUnit = cat.find("Units") != std::string::npos || cat.find("Heroes") != std::string::npos ||
+                   cat.find("Walkers") != std::string::npos || cat.find("Military") != std::string::npos;
+    return b;
+}
+
+int World::addPlayer(const std::string& faction, float credits, int popCap) {
+    players_.push_back({int(players_.size()), faction, credits, popCap});
+    return players_.back().id;
+}
+
+Player* World::player(int id) { return id >= 0 && id < int(players_.size()) ? &players_[size_t(id)] : nullptr; }
+
+int World::popUsed(int owner) const {
+    int n = 0;
+    for (const Unit& u : units_)
+        if (u.owner == owner) {
+            n += u.pop;
+            for (const GameObjectType* q : u.queue) n += int(q->number("Unit_Pop_Cap").value_or(0));
+        }
+    return n;
+}
+
+bool World::owns(int owner, const std::string& typeName) const {
+    for (const Unit& u : units_) {
+        if (u.owner != owner || u.underConstruction) continue;
+        if (iequals(u.type->name, typeName)) return true;
+        for (const GameObjectType* up : u.upgrades)
+            if (iequals(up->name, typeName)) return true;
+    }
+    return false;
+}
+
+std::vector<std::string> World::producible(uint32_t id) const {
+    const Unit* s = nullptr;
+    for (const Unit& u : units_)
+        if (u.id == id) s = &u;
+    if (!s || !tech_ || s->underConstruction) return {};
+    const int owner = s->owner;
+    return tech_->producibleBy(s->type->name, [&](const std::string& t) { return owns(owner, t); });
+}
+
+std::vector<std::string> World::constructible(uint32_t id) const {
+    const Unit* b = nullptr;
+    for (const Unit& u : units_)
+        if (u.id == id) b = &u;
+    if (!b || !tech_ || b->structure) return {}; // structures only appear as prerequisites
+    const int owner = b->owner;
+    return tech_->constructibleBy(b->type->name, [&](const std::string& t) { return owns(owner, t); });
+}
+
+OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
+    Unit* s = unit(id);
+    if (!s) return OrderResult::InvalidUnit;
+    const GameObjectType* t = db_.find(typeName);
+    if (!t) return OrderResult::InvalidUnit;
+    bool allowed = false;
+    for (const auto& n : producible(id)) allowed = allowed || iequals(n, typeName);
+    if (!allowed) return OrderResult::NotAllowed;
+    const BuildInfo info = buildInfo(*t, db_);
+    if (!info.spawnsUnit) {
+        // Upgrades: once per structure (and not while one is queued).
+        if (owns(s->owner, t->name)) return OrderResult::NotAllowed;
+        for (const GameObjectType* q : s->queue)
+            if (q == t) return OrderResult::NotAllowed;
+    }
+    Player* p = player(s->owner);
+    if (p && p->credits < info.cost) return OrderResult::NotEnoughCredits;
+    if (p && info.spawnsUnit && popUsed(s->owner) + int(t->number("Unit_Pop_Cap").value_or(0)) > p->popCap)
+        return OrderResult::PopulationCap;
+    if (p) p->credits -= info.cost;
+    if (s->queue.empty()) s->queueTicks = 0;
+    s->queue.push_back(t);
+    return OrderResult::Ok;
+}
+
+void World::cancelProduction(uint32_t id) {
+    Unit* s = unit(id);
+    if (!s || s->queue.empty()) return;
+    if (Player* p = player(s->owner)) p->credits += buildInfo(*s->queue.back(), db_).cost;
+    s->queue.pop_back();
+    if (s->queue.empty()) s->queueTicks = 0;
+}
+
+void World::setRally(uint32_t id, Vec3 p) {
+    if (Unit* s = unit(id)) {
+        s->rally = p;
+        s->hasRally = true;
+    }
+}
+
+bool World::siteClear(const GameObjectType& type, Vec3 site) const {
+    const float fx = float(type.number("Custom_Hard_XExtent").value_or(20));
+    const float fy = float(type.number("Custom_Hard_YExtent").value_or(fx));
+    for (float y = site[1] - fy; y <= site[1] + fy; y += nav_.spacing() * 0.5f)
+        for (float x = site[0] - fx; x <= site[0] + fx; x += nav_.spacing() * 0.5f)
+            if (!nav_.passableAt(x, y)) return false;
+    for (const Unit& u : units_)
+        if (u.structure && std::fabs(u.position[0] - site[0]) < fx + u.footprintX &&
+            std::fabs(u.position[1] - site[1]) < fy + u.footprintY)
+            return false;
+    return true;
+}
+
+OrderResult World::commandConstruct(uint32_t builderId, const std::string& typeName, Vec3 site) {
+    Unit* b = unit(builderId);
+    if (!b) return OrderResult::InvalidUnit;
+    const GameObjectType* t = db_.find(typeName);
+    if (!t) return OrderResult::InvalidUnit;
+    bool allowed = false;
+    for (const auto& n : constructible(builderId)) allowed = allowed || iequals(n, typeName);
+    if (!allowed) return OrderResult::NotAllowed;
+    if (!siteClear(*t, site)) return OrderResult::BlockedSite;
+    Player* p = player(b->owner);
+    const BuildInfo info = buildInfo(*t, db_);
+    if (p && p->credits < info.cost) return OrderResult::NotEnoughCredits;
+    if (p) p->credits -= info.cost;
+
+    const int owner = b->owner;
+    const uint32_t sid = spawn(typeName, owner, site, 0);
+    b = unit(builderId); // spawn may have reallocated
+    Unit* s = unit(sid);
+    if (!s) return OrderResult::InvalidUnit;
+    s->underConstruction = true;
+    s->buildProgress = 0;
+    s->buildTicks = info.ticks;
+    s->builderTicks = info.builderTicks;
+    s->health = std::max(1.f, s->maxHealth * 0.05f);
+    b->constructing = sid;
+    b->attackOrder = 0;
+    b->attackMove = false;
+    b->goal = site;
+    b->path = nav_.findPath(b->position, nav_.nearestPassable({site[0] - s->footprintX - b->radius - 10, site[1], 0}));
+    return OrderResult::Ok;
+}
+
+void World::rebuildNav() {
+    nav_ = baseNav_;
+    for (const Unit& u : units_) {
+        if (!u.structure) continue;
+        for (int y = nav_.cellY(u.position[1] - u.footprintY); y <= nav_.cellY(u.position[1] + u.footprintY); ++y)
+            for (int x = nav_.cellX(u.position[0] - u.footprintX); x <= nav_.cellX(u.position[0] + u.footprintX); ++x)
+                nav_.setPassable(x, y, false);
+    }
+    nav_.rebuild();
+    navDirty_ = false;
+}
+
+Vec3 World::exitPoint(const Unit& s, const Unit& u) {
+    // Out the side facing the rally point (or the map centre), clear of the footprint.
+    const Vec3 toward = s.hasRally ? s.rally : Vec3{map_.sizeX() / 2, map_.sizeY() / 2, 0};
+    float dx = toward[0] - s.position[0], dy = toward[1] - s.position[1];
+    const float len = std::max(std::hypot(dx, dy), 1e-3f);
+    dx /= len;
+    dy /= len;
+    const float out = std::max(s.footprintX, s.footprintY) + u.radius + 25;
+    return nav_.nearestPassable({s.position[0] + dx * out, s.position[1] + dy * out, 0});
+}
+
+void World::updateProduction(Unit& s) {
+    if (s.queue.empty() || s.underConstruction) return;
+    const GameObjectType* t = s.queue.front();
+    const BuildInfo info = buildInfo(*t, db_);
+    if (++s.queueTicks < info.ticks) return;
+    s.queue.erase(s.queue.begin());
+    s.queueTicks = 0;
+    if (!info.spawnsUnit) {
+        s.upgrades.push_back(t);
+        return;
+    }
+    const uint32_t sid = s.id;
+    const int owner = s.owner;
+    const float facing = 0;
+    const uint32_t id = spawn(t->name, owner, s.position, facing); // may reallocate units_
+    Unit* nu = unit(id);
+    Unit* st = unit(sid);
+    if (!nu || !st) return;
+    const Vec3 out = exitPoint(*st, *nu);
+    nu->position = {out[0], out[1], map_.heightAt(out[0], out[1])};
+    nu->facing = std::atan2(out[1] - st->position[1], out[0] - st->position[0]);
+    if (st->hasRally) commandMove({id}, st->rally);
+}
+
+void World::updateConstruction(Unit& s) {
+    if (!s.underConstruction) return;
+    // Progress only while one of the owner's builders assigned to it is close.
+    bool working = s.buildProgress * float(s.buildTicks) >= float(s.builderTicks); // past the builder phase
+    for (const Unit& b : units_)
+        if (b.constructing == s.id && b.owner == s.owner &&
+            dist2d(b.position, s.position) <= std::max(s.footprintX, s.footprintY) + b.radius + 40)
+            working = true;
+    if (!working) return;
+    if (s.buildProgress * float(s.buildTicks) + 1 >= float(s.builderTicks))
+        for (Unit& b : units_)
+            if (b.constructing == s.id) b.constructing = 0; // builder phase over: free the builder
+    const float step = 1.f / float(s.buildTicks);
+    s.buildProgress = std::min(1.f, s.buildProgress + step);
+    s.health = std::min(s.maxHealth, s.health + s.maxHealth * step * 0.95f);
+    if (s.buildProgress >= 1) {
+        s.underConstruction = false;
+        for (Unit& b : units_)
+            if (b.constructing == s.id) b.constructing = 0;
+    }
+}
 
 float World::random01() {
     // xorshift64*: deterministic across platforms, so lockstep replays stay in sync.
@@ -70,6 +300,17 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
     u.radius = std::clamp(u.radius, 2.f, 150.f);
     u.maxHealth = u.health = float(t->number("Tactical_Health").value_or(100.0));
     if (const std::string* a = t->find("Armor_Type")) u.armorType = trim(*a);
+    u.pop = int(t->number("Unit_Pop_Cap").value_or(0));
+    const std::string* mc = t->find("MovementClass");
+    u.structure = (mc && iequals(trim(*mc), "Building")) || t->category.find("Structure") != std::string::npos;
+    if (u.structure) {
+        u.footprintX = float(t->number("Custom_Hard_XExtent").value_or(20));
+        u.footprintY = float(t->number("Custom_Hard_YExtent").value_or(u.footprintX));
+        u.maxSpeed = 0;
+        u.radius = std::max(u.footprintX, u.footprintY);
+        u.position = {position[0], position[1], map_.heightAt(position[0], position[1])}; // no snapping to open ground
+        navDirty_ = true;
+    }
     for (const WeaponSpec& w : weaponsFor(*t, db_)) u.weapons.push_back({w, 0, 0, 0});
     units_.push_back(std::move(u));
     return units_.back().id;
@@ -196,7 +437,26 @@ void World::updateTargeting(Unit& u) {
     }
 }
 
+int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start) {
+    const Faction* f = db.faction(faction);
+    const int id = world.addPlayer(f ? f->name : faction, f ? f->multiplayerCredits : 10000.f, f ? f->multiplayerPopCap : 90);
+    struct Start { const char* faction; const char* structure; const char* builder; };
+    static const Start starts[] = {{"Alien", "Alien_Arrival_Site", "Alien_Glyph_Carver"},
+                                   {"Novus", "Novus_Remote_Terminal", "Novus_Constructor"},
+                                   {"Masari", "Masari_Foundation", "Masari_Architect"},
+                                   {"Military", nullptr, "Military_Hummer"}};
+    for (const Start& s : starts) {
+        if (!iequals(s.faction, faction)) continue;
+        const float toCentre = std::atan2(world.map().sizeY() / 2 - start[1], world.map().sizeX() / 2 - start[0]);
+        if (s.structure) world.spawn(s.structure, id, start, 0);
+        const float out = 110;
+        world.spawn(s.builder, id, {start[0] + std::cos(toCentre) * out, start[1] + std::sin(toCentre) * out, 0}, toCentre);
+    }
+    return id;
+}
+
 void World::fireWeapons(Unit& u) {
+    if (u.underConstruction) return;
     const Unit* t = u.target ? unit(u.target) : nullptr;
     if (t && !u.moving()) {
         // Face the target while standing (turrets handle aim while moving).
@@ -295,11 +555,15 @@ void World::updateProjectiles() {
 
 void World::removeDead() {
     for (const Unit& u : units_)
-        if (!u.alive()) deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
+        if (!u.alive()) {
+            deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
+            if (u.structure) navDirty_ = true;
+        }
     units_.erase(std::remove_if(units_.begin(), units_.end(), [](const Unit& u) { return !u.alive(); }), units_.end());
 }
 
 void World::moveUnit(Unit& u) {
+    if (u.structure) return;
     if (u.path.empty()) {
         u.speed = std::max(0.f, u.speed - u.acceleration * 2);
         return;
@@ -358,6 +622,7 @@ void World::separate() {
         for (size_t j = i + 1; j < units_.size(); ++j) {
             Unit& a = units_[i];
             Unit& b = units_[j];
+            if (a.structure || b.structure) continue; // the nav grid keeps units off footprints
             const float dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1];
             const float minD = (a.radius + b.radius) * 0.9f;
             const float d2 = dx * dx + dy * dy;
@@ -379,6 +644,9 @@ void World::separate() {
 }
 
 void World::tick() {
+    if (navDirty_) rebuildNav();
+    for (size_t i = 0; i < units_.size(); ++i) updateConstruction(units_[i]);
+    for (size_t i = 0; i < units_.size(); ++i) updateProduction(units_[i]); // may spawn (index loop on purpose)
     for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
     separate();
