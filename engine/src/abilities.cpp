@@ -914,6 +914,10 @@ OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
     const AbilitySpec& s = abilitiesOf(*u->type).abilities[u->abilities[i].index];
     if (s.kind == AbilitySpec::Kind::Unsupported || s.kind == AbilitySpec::Kind::Deploy || abilityLocked(*u, s)) return OrderResult::NotAllowed;
+    if (s.substitute) { // fire mode switch
+        u->substitute = u->substitute == int(i) ? -1 : int(i);
+        return OrderResult::Ok;
+    }
     if (s.kind == AbilitySpec::Kind::Teleport) {
         const float d = distXY(u->position, point);
         if (d > s.maxRange || d < s.minRange) return OrderResult::NotAllowed;
@@ -937,7 +941,9 @@ void World::autonomousAbilities(Unit& u) {
     for (size_t i = 0; i < u.abilities.size(); ++i) {
         Unit::AbilityState& a = u.abilities[i];
         if (a.cooldown > 0) a.cooldown = std::max(0.f, a.cooldown - u.abilityRate);
-        if (a.cooldown > 0 || u.silenced || u.underConstruction || u.inside || !ta.abilities[a.index].autonomous) continue;
+        const bool mode = u.substitute == int(i); // the alternate fire mode in use acts on its own
+        if (a.cooldown > 0 || u.silenced || u.underConstruction || u.inside || !(ta.abilities[a.index].autonomous || mode)) continue;
+        if (u.substitute >= 0 && !mode && ta.abilities[a.index].kind == AbilitySpec::Kind::Attack) continue; // replaced
         if (abilityLocked(u, ta.abilities[a.index])) continue;
         const AbilitySpec& spec = ta.abilities[a.index];
         if (spec.kind == AbilitySpec::Kind::Deploy || spec.kind == AbilitySpec::Kind::Elsewhere || spec.kind == AbilitySpec::Kind::Weapon) continue; // not used, just there

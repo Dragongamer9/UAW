@@ -97,6 +97,17 @@ static Data testData(const fs::path& root) {
         <Applicable_Unit_Categories>Small | Piloted</Applicable_Unit_Categories>
         <Excluded_Unit_Categories>Flying</Excluded_Unit_Categories></Generic_Attack_Ability>
     </Abilities></X_Units>
+  <X_Units Name="Switcher"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>300</Tactical_Health>
+    <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Heavy_Mode"><Type>ATTACK_SUBSTITUTE</Type>
+      <Recharge_Seconds>0.1</Recharge_Seconds><GUI_Activated_Ability_Name>Heavy_Punch</GUI_Activated_Ability_Name>
+      <Targeting_Type>ENEMY_OBJECT</Targeting_Type></Unit_Ability></Unit_Abilities_Data>
+    <Abilities SubObjectList="Yes">
+      <Generic_Attack_Ability Name="Light_Punch"><Activation_Style>SPECIAL_ATTACK</Activation_Style><Activation_Max_Range>20</Activation_Max_Range>
+        <Damage_Amount>10</Damage_Amount></Generic_Attack_Ability>
+      <Generic_Attack_Ability Name="Heavy_Punch"><Activation_Style>SPECIAL_ATTACK</Activation_Style><Activation_Max_Range>20</Activation_Max_Range>
+        <Damage_Amount>100</Damage_Amount></Generic_Attack_Ability>
+    </Abilities></X_Units>
   <X_Units Name="Squad"><MovementClass>Infantry</MovementClass><Company_Units>Dummy, Dummy,Brawler</Company_Units></X_Units>
   <X_Units Name="Moth_Fire"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
     <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>200</Tactical_Health><CategoryMask>Small</CategoryMask>
@@ -390,6 +401,26 @@ static void testHexAndCharm(const Data& d) {
     CHECK(w.unit(other)->owner == b);
 }
 
+static void testSubstitute(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t sw = w.spawn("Switcher", a, {200, 200, 0});
+    const uint32_t victim = w.spawn("Dummy", b, {214, 200, 0});
+    w.tick();
+    size_t mode = 99;
+    const World::TypeAbilities& ta = w.abilitiesOf(*w.unit(sw)->type);
+    for (size_t i = 0; i < w.unit(sw)->abilities.size(); ++i)
+        if (ta.abilities[w.unit(sw)->abilities[i].index].substitute) mode = i;
+    CHECK(mode != 99);
+    for (int i = 0; i < 3 * 30; ++i) w.tick();
+    const float light = 1000 - w.unit(victim)->health;
+    CHECK(light > 0 && light <= 40); // light punches only
+    CHECK(w.useAbility(sw, mode, 0) == OrderResult::Ok);
+    for (int i = 0; i < 3 * 30; ++i) w.tick();
+    CHECK(1000 - w.unit(victim)->health - light >= 200); // heavy punches while the mode is on
+}
+
 static void testMelee(const Data& d) {
     const Map m = openMap();
     World w(m, d.db);
@@ -621,6 +652,7 @@ int main() {
     testTeleport(d);
     testRedirect(d);
     testDeploy(d);
+    testSubstitute(d);
     testRestrictionsAndFoo(d);
     testHexAndCharm(d);
     testMelee(d);

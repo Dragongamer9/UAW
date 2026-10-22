@@ -175,7 +175,8 @@ struct AbilitySpec {
     float aiHealthBelow = 0;            // only when the user is below this health fraction
     std::string aiCategories;
     bool aiNoAutofire = false;
-    bool needsAmmoRoom = false;         // Check_Ammo_Full: only while the unit's ammo isn't full
+    bool needsAmmoRoom = false;
+    bool substitute = false;            // ATTACK_SUBSTITUTE fire mode: a toggle, used automatically while on         // Check_Ammo_Full: only while the unit's ammo isn't full
     // SpawnClones.
     std::string cloneType;
     int cloneCount = 0;

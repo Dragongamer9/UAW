@@ -315,7 +315,8 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             s.damagePercent = num(lookup(kv, "Damage_Percentage"), 0);
             if (const std::string* v = lookup(kv, "Damage_Type")) s.damageType = trim(*v);
             if (const std::string* v = lookup(kv, "Projectile_Type")) s.projectile = db.find(trim(*v));
-            s.projectileCount = std::max(1, int(num(lookup(kv, "Projectile_Count"), 1)));
+            s.projectileCount = std::max(1, int(num(lookup(kv, "Projectile_Count"), 1))) *
+                                std::max(1, int(num(lookup(kv, "Projectile_Fire_Pulse_Count"), 1)));
             if (s.rechargeTicks == 0) // melee: one swing per attack animation
                 s.rechargeTicks = int(num(lookup(kv, "Animation_Duration_Override"), 1.0f) * 30);
             if (s.projectile && s.damage <= 0) {
@@ -481,7 +482,10 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         }
         // An ATTACK_SUBSTITUTE that recharges like a weapon is an alternate fire mode (it replaces
         // the normal weapon while toggled on), not an extra attack.
-        if (s.abilityType == "ATTACK_SUBSTITUTE" && s.rechargeTicks < 5 * 30) s.kind = AbilitySpec::Kind::Unsupported;
+        // Toggled from its button; while on, the unit attacks with it instead of its usual special attacks.
+        if (s.abilityType == "ATTACK_SUBSTITUTE" && s.rechargeTicks < 5 * 30)
+            s.substitute = s.kind == AbilitySpec::Kind::Attack;
+        if (s.abilityType == "ATTACK_SUBSTITUTE" && s.rechargeTicks < 5 * 30 && !s.substitute) s.kind = AbilitySpec::Kind::Unsupported;
         // Handled by other systems, or only meaningful in the campaign / global conquest.
         if (s.kind == AbilitySpec::Kind::Unsupported &&
             (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability") ||

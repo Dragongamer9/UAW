@@ -306,13 +306,15 @@ std::vector<AbilityButton> UnitControl::abilities(alamo::World& w) const {
                     if (l.rfind(fac, 0) == 0) l = l.substr(std::strlen(fac));
                 for (char& c : l) if (c == '_') c = ' ';
                 b.label = l;
-                b.wantsObject = s.needsTarget;
-                b.wantsPoint = !s.needsTarget && (s.kind == alamo::AbilitySpec::Kind::Leap || s.maxRange > 0);
+                b.wantsObject = s.needsTarget && !s.substitute; // fire modes just switch
+                b.wantsPoint = !s.needsTarget && !s.substitute && (s.kind == alamo::AbilitySpec::Kind::Leap || s.maxRange > 0);
                 b.cooldown = 1e9f;
                 out.push_back(b);
                 it = out.end() - 1;
             }
             it->ready = it->ready || st.cooldown <= 0;
+            const int idx = int(&st - u->abilities.data());
+            it->on = it->on || (s.substitute && u->substitute == idx) || (s.kind == alamo::AbilitySpec::Kind::FooMode && u->fooHeal);
             it->cooldown = std::min(it->cooldown, st.cooldown / float(alamo::kTicksPerSecond));
         }
     }

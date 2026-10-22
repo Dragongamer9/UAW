@@ -386,7 +386,7 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             for (size_t i = 0; i < abilities.size() && y + lhs < H - pad; ++i) {
                 const AbilityButton& b = abilities[i];
                 const bool armed = control.armedAbility() == b.name;
-                std::string line = "F" + std::to_string(i + 1) + "  " + b.label;
+                std::string line = "F" + std::to_string(i + 1) + "  " + b.label + (b.on ? " (on)" : "");
                 if (!b.ready) line += fmt("  (%.0f s)", std::ceil(b.cooldown));
                 textSmall(line, pad, y, armed ? kWarn : b.ready ? kGood : kDim);
                 y += lhs;

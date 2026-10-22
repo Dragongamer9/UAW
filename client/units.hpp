@@ -56,6 +56,7 @@ struct AbilityButton {
     bool ready = false;    // at least one selected unit can use it now
     float cooldown = 0;    // seconds until the soonest one is ready
     bool wantsObject = false, wantsPoint = false; // targeting: a unit, a place, or neither (self)
+    bool on = false;       // a mode switch that is on (fire mode, foo fighters repairing)
 };
 
 class UnitControl {

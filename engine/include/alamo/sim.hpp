@@ -152,6 +152,7 @@ struct Unit {
     float rangeScale = 1, rangeAdd = 0;
     float abilityRate = 1;             // ability recharge speed multiplier
     std::vector<std::pair<std::string, float>> armorMods; // ModifyArmor: damage type -> added modifier
+    int substitute = -1;               // index into abilities of the alternate fire mode switched on, or -1
     bool fooHeal = false;
     uint32_t fooTarget = 0;            // who the fighters are mending (heal mode; for drawing)              // Foo Core: fighters heal friends instead of attacking
     int deployNeed = 0, deployed = 0;  // DEPLOY units: ticks of standing still before the weapon fires
