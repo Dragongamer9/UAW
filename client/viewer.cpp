@@ -1350,6 +1350,14 @@ int main(int argc, char** argv) {
                     ps.kind = kind == "you" ? PlayerSlot::Kind::Human : kind == "ai" ? PlayerSlot::Kind::Computer : PlayerSlot::Kind::Open;
                     if (c1 != std::string::npos) ps.faction = item.substr(c1 + 1, c2 == std::string::npos ? std::string::npos : c2 - c1 - 1);
                     if (c2 != std::string::npos) ps.team = std::atoi(item.c_str() + c2 + 1) - 1;
+                    if (alamo::iequals(ps.faction, "Random")) { // any faction with a skirmish start
+                        static const char* kAll[][2] = {{"Novus", "NOVUS"}, {"Alien", "ALIEN"}, {"Masari", "MASARI"}, {"Military", "MILITARY"}};
+                        std::vector<std::string> can;
+                        const StartingForces forces = loadStartingForces(vfs);
+                        for (const auto& f : kAll)
+                            if (forces.count(f[1])) can.push_back(f[0]);
+                        if (!can.empty()) ps.faction = can[size_t(SDL_GetTicksNS() / 7 + k) % can.size()];
+                    }
                 }
                 const int human = setup.human();
                 opt.player = human >= 0 ? human + 1 : 1;
