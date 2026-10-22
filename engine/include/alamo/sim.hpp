@@ -11,13 +11,16 @@
 #pragma once
 
 #include "alamo/combat.hpp"
+#include "alamo/effects.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/nav.hpp"
+#include "alamo/research.hpp"
 #include "alamo/techtree.hpp"
 #include "alamo/ted.hpp"
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <string_view>
 #include <string>
@@ -65,7 +68,7 @@ struct Unit {
         int pulseTimer = 0;
     };
     std::vector<WeaponState> weapons;
-    float maxRange() const;
+    float maxRange() const;          // with range modifiers
 
     // Hardpoints with their own health (Attached_Hard_Points). When the body itself is
     // invulnerable (Hierarchy walkers: Tactical_Health 999999) damage goes to the leg
@@ -108,6 +111,51 @@ struct Unit {
     int droneTimer = 0;                // depots: progress on the next drone
     bool powered = true;               // Novus structures: on the power network (others always true)
     bool flying() const { return moveClass == MoveClass::Air; }
+
+    // Effects and abilities (abilities.cpp).
+    struct ActiveEffect {
+        const EffectDef* def = nullptr;
+        uint32_t source = 0;           // unit (or effect object) that applied it
+        int sourceOwner = -1;
+        int remaining = -1;            // ticks left; -1 = while its generator keeps it (genKey)
+        uint64_t genKey = 0;           // generator entry that keeps a persistent effect alive
+        uint64_t stamp = 0;            // tick it was last (re)applied by that generator
+        float healthBonus = 0;         // MaxHealth component: what it added
+        int ownerBefore = -1;          // SwitchFaction: owner to return to
+        std::vector<uint32_t> created; // CreateObject with Destroy_On_Remove
+    };
+    std::vector<ActiveEffect> effects;
+    struct GeneratorState {
+        uint16_t index = 0;            // into the type's generators
+        bool active = false;
+        uint32_t target = 0;           // ability target (object), if any
+        Vec3 point{};                  // ...or ground point
+        int age = 0;                   // ticks since activation
+        int life = -1;                 // ticks left; -1 = until switched off
+        bool signalled = false;        // an Application_Signals event this tick
+    };
+    std::vector<GeneratorState> generators;
+    struct AbilityState {
+        uint16_t index = 0;            // into the type's abilities
+        float cooldown = 0;            // ticks until ready
+    };
+    std::vector<AbilityState> abilities;
+    // Summed AttributeModifier values from active effects (upper-case attribute name).
+    std::unordered_map<std::string, float> attributes;
+    float attribute(std::string_view name) const;
+    float attributeUpper(const std::string& upperName) const; // base (type's <Attributes>) + modifiers
+    float baseMaxSpeed = 1;
+    float damageCast = 1, damageTaken = 1; // multipliers
+    float fireRate = 1;                // weapon recharge speed multiplier
+    float rangeScale = 1, rangeAdd = 0;
+    float abilityRate = 1;             // ability recharge speed multiplier
+    std::vector<std::pair<std::string, float>> armorMods; // ModifyArmor: damage type -> added modifier
+    bool immobile = false, disarmed = false, silenced = false; // DisableBehavior / DisableAbility
+    bool damagedThisTick = false, firedThisTick = false;
+    int originalOwner = -1;
+    int lifeTicks = -1;                // effect objects: removed at 0
+    uint32_t actsFor = 0;              // impact objects: the shooter, as the source of their effects
+    float weaponRange(const WeaponState& w) const { return w.spec.maxRange * rangeScale + rangeAdd; }
 };
 
 // Cost and time to build an object. Structures and walkers keep these on their
@@ -130,6 +178,12 @@ struct Player {
     int popCap = 90;
     float baselineBank = 0;            // Factions.xml Baseline_Bank_Capacity (Masari); 0 = no cap
     float earned = 0;                  // total income so far
+    // Research (research.hpp): what is still locked, what is in progress, what is done.
+    ResearchLocks locks;
+    struct Research { const ResearchSuite* suite = nullptr; int ticksLeft = 0; };
+    std::vector<Research> researching;
+    std::set<std::string> researched;  // suite ids, e.g. "A1"
+    int abilitiesUsed = 0;             // statistics
 };
 
 // A pile of scrap (or any object with ResourceBehaviorType) placed on the map.
@@ -240,8 +294,10 @@ public:
     std::vector<std::string> constructible(uint32_t builder) const;
     bool siteClear(const GameObjectType& type, Vec3 site) const;
 
-    // Places a unit; returns its id, or 0 if the type is unknown.
+    // Places a unit; returns its id, or 0 if the type is unknown. A squad type (Company_Units)
+    // places its members around the point and returns the first; spawned() lists them all.
     uint32_t spawn(const std::string& typeName, int owner, Vec3 position, float facingRadians = 0);
+    const std::vector<uint32_t>& spawned() const { return lastSpawned_; }
     Unit* unit(uint32_t id);
     const std::vector<Unit>& units() const { return units_; }
 
@@ -281,6 +337,51 @@ public:
     float bankCap(int owner) const;    // 0 = unlimited
     float incomePerSecond(int owner) const; // passive income only (drones/reapers vary)
 
+    // Effects and abilities. Without a library, abilities and generators do nothing.
+    void setEffectLibrary(const EffectLibrary* lib) { effectLib_ = lib; }
+    const EffectLibrary* effectLibrary() const { return effectLib_; }
+    // Research trees (loadResearchTrees). Each player starts with its faction's locks; without
+    // trees nothing is locked and research is unavailable.
+    void setResearchTrees(const std::vector<ResearchTree>* trees);
+    const ResearchTree* researchTree(int owner) const;
+    // Skirmish research needs no facility (the Enables_Research structures are strategic-map
+    // buildings): one suite at a time, one more per facility owned, at most kMaxResearchSuites.
+    static constexpr int kMaxResearchSuites = 6;
+    int researchFacilities(int owner) const; // finished structures with Enables_Research
+    int researchSlots(int owner) const;
+    // Suites the player could start now (prerequisite done, a slot free, under the cap).
+    std::vector<const ResearchSuite*> availableResearch(int owner) const;
+    OrderResult startResearch(int owner, std::string_view path, int index);
+    struct TypeAbilities {
+        std::vector<GeneratorDef> generators;
+        std::vector<AbilitySpec> abilities;
+        std::vector<std::string> categories;
+        std::string impactGenerator;   // projectiles: Impact_Effect_Generator_Name
+    };
+    const TypeAbilities& abilitiesOf(const GameObjectType& t) const;
+    bool abilityLocked(const Unit& u, const AbilitySpec& s) const;
+    bool generatorLocked(int owner, std::string_view name) const;
+    bool effectLocked(int owner, std::string_view name) const;
+    bool generatorLockedUpper(int owner, const std::string& n) const {
+        return owner >= 0 && owner < int(players_.size()) && players_[size_t(owner)].locks.generatorLockedUpper(n);
+    }
+    bool effectLockedUpper(int owner, const std::string& n) const {
+        return owner >= 0 && owner < int(players_.size()) && players_[size_t(owner)].locks.effectLockedUpper(n);
+    }
+    bool typeLocked(int owner, const GameObjectType& t) const;
+    // Uses an ordered ability (index into unit->abilities). `target` is an object id or 0.
+    OrderResult useAbility(uint32_t unitId, size_t ability, uint32_t target = 0, Vec3 point = {});
+    // A sensible target for the ability right now (0 when it needs none); false when using it
+    // would do nothing (no valid target in range, nothing it affects nearby).
+    bool abilityTarget(const Unit& u, size_t ability, uint32_t& target) const;
+    // Applies an effect to a unit, as if from `source` (null: no source unit).
+    void applyEffect(Unit& target, const EffectDef& def, const Unit* source, int sourceOwner, int durationTicks,
+                     uint64_t genKey = 0);
+    bool hasEffectClass(const Unit& u, std::string_view effectClass) const;
+    // Invisible objects effects create (radiation fields, mines...): they run generators but
+    // are not units for targeting, population or victory.
+    const std::vector<Unit>& effectObjects() const { return effectObjects_; }
+
 private:
     void moveUnit(Unit& u);
     void separate();
@@ -305,6 +406,23 @@ private:
     void deposit(int owner, float amount);
     void updatePower();
     ResourceNode* resourceMut(uint32_t id);
+    void initAbilities(Unit& u);
+    void updateResearch();
+    void updateAbilities();
+    void updateEffects(Unit& u);
+    void updateGenerators(Unit& u);
+    void runGeneratorEntries(Unit& u, Unit::GeneratorState& g, bool force);
+    void deactivateGenerator(Unit& u, Unit::GeneratorState& g);
+    void purgeGenerator(Unit& u, Unit::GeneratorState& g); // drop the persistent effects it applied
+    void activateGenerator(Unit& u, size_t index, uint32_t target, Vec3 point, int life);
+    void autonomousAbilities(Unit& u);
+    void executeAbility(Unit& u, Unit::AbilityState& a, uint32_t target, Vec3 point);
+    void removeEffect(Unit& u, size_t i, bool expired);
+    void recomputeModifiers(Unit& u);
+    bool filterPasses(std::string_view filter, const Unit& source, int sourceOwner, const Unit& target) const;
+    std::vector<Unit*> gather(Unit& source, const GeneratorEntry& e, const Unit::GeneratorState& g);
+    Unit* anyUnit(uint32_t id); // units and effect objects
+    void projectileImpact(const Projectile& p, const Unit* hit); // Impact_Effect_Generator_Name
 
     const Map& map_;
     const GameDatabase& db_;
@@ -319,16 +437,41 @@ private:
     std::vector<DeathEvent> deaths_;
     std::vector<ResourceNode> resources_;
     const GameDatabase* effects_ = nullptr;
+    const EffectLibrary* effectLib_ = nullptr;
+    const std::vector<ResearchTree>* trees_ = nullptr;
+    std::vector<Unit> effectObjects_;
+    std::vector<Unit> pendingObjects_;   // created during a tick, added after it
+    struct PendingSpawn { std::string type; int owner; Vec3 position; };
+    std::vector<PendingSpawn> pendingSpawns_;
+    mutable std::unordered_map<const GameObjectType*, TypeAbilities> abilityCache_;
     Balance balance_ = Balance::defaults();
     mutable std::unordered_map<const GameObjectType*, EconomySpec> economyCache_;
+    mutable std::unordered_map<const GameObjectType*, BuildInfo> buildCache_;
+    const BuildInfo& cachedBuildInfo(const GameObjectType& t) const;
     mutable int anyBaseBuilder_ = -1;
     uint32_t nextId_ = 1;
+    std::vector<uint32_t> lastSpawned_;
     uint64_t ticks_ = 0;
     uint64_t rng_;
 };
 
+// Everything besides the object database a World needs from the game data: the effect
+// library (twice: flattened for the economy's rates, and with components for abilities),
+// research trees and balance. Load once, configure every World with it.
+struct GameRules {
+    GameDatabase effects;
+    EffectLibrary effectLibrary;
+    std::vector<ResearchTree> research;
+    Balance balance = Balance::defaults();
+    void load(MegVfs& vfs);                 // missing parts stay empty
+    void configure(World& w) const;
+};
+
 // Buildings: MovementClass Building or a *Structure* category.
 bool isStructureType(const GameObjectType& t);
+
+// A squad type's members (Company_Units), empty for anything else.
+std::vector<const GameObjectType*> squadMembers(const GameObjectType& t, const GameDatabase& db);
 
 float angleDiff(float from, float to); // shortest signed difference, radians
 

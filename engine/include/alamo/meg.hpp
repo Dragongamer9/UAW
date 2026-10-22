@@ -95,6 +95,9 @@ public:
 
     // Every archived path (normalized), sorted. Loose-only files are not included.
     std::vector<std::string> list() const;
+    // Files under a directory (e.g. "Data\\Scripts\\Miscellaneous\\"), from archives and every
+    // layer's loose folder, as normalized names (upper case, backslashes), sorted.
+    std::vector<std::string> listDirectory(std::string_view dir) const;
 
     size_t archiveCount() const { return archives_.size(); }
     size_t fileCount() const;

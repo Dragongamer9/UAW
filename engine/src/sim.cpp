@@ -1,6 +1,7 @@
 #include "alamo/sim.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace alamo {
@@ -89,9 +90,14 @@ bool atBuildLimit(const World& w, int owner, const GameObjectType& t) {
 } // namespace
 
 int World::addPlayer(const std::string& faction, float credits, int popCap) {
-    Player p{int(players_.size()), faction, credits, popCap};
+    Player p;
+    p.id = int(players_.size());
+    p.faction = faction;
+    p.credits = credits;
+    p.popCap = popCap;
     if (const Faction* f = db_.faction(faction)) p.baselineBank = f->baselineBankCapacity;
-    players_.push_back(p);
+    players_.push_back(std::move(p));
+    if (const ResearchTree* t = researchTree(players_.back().id)) players_.back().locks = ResearchLocks::initial(*t);
     return players_.back().id;
 }
 
@@ -131,6 +137,22 @@ bool World::anyBaseBuilder() const {
     return anyBaseBuilder_ == 1;
 }
 
+std::vector<const GameObjectType*> squadMembers(const GameObjectType& t, const GameDatabase& db) {
+    std::vector<const GameObjectType*> out;
+    const std::string* company = t.find("Company_Units");
+    if (!company) return out;
+    std::string cur;
+    for (char c : *company + ",") {
+        if (c == ',' || std::isspace(static_cast<unsigned char>(c))) {
+            if (const GameObjectType* m = cur.empty() ? nullptr : db.find(cur); m && !m->find("Company_Units")) out.push_back(m);
+            cur.clear();
+        } else {
+            cur += c;
+        }
+    }
+    return out;
+}
+
 bool isStructureType(const GameObjectType& t) {
     const std::string* mc = t.find("MovementClass");
     return (mc && iequals(trim(*mc), "Building")) || t.category.find("Structure") != std::string::npos;
@@ -151,6 +173,10 @@ std::vector<std::string> World::producible(uint32_t id) const {
             return t && isStructureType(*t);
         });
     }
+    std::erase_if(out, [&](const std::string& n) { // still to be researched
+        const GameObjectType* t = db_.find(n);
+        return t && typeLocked(owner, *t);
+    });
     return out;
 }
 
@@ -169,6 +195,10 @@ std::vector<std::string> World::constructible(uint32_t id) const {
         const GameObjectType* t = db_.find(n);
         if (t && isStructureType(*t) && std::find(out.begin(), out.end(), n) == out.end()) out.push_back(n);
     }
+    std::erase_if(out, [&](const std::string& n) {
+        const GameObjectType* t = db_.find(n);
+        return t && typeLocked(owner, *t);
+    });
     return out;
 }
 
@@ -288,10 +318,16 @@ Vec3 World::exitPoint(const Unit& s, const Unit& u) {
     return nav_.nearestPassable({s.position[0] + dx * out, s.position[1] + dy * out, 0});
 }
 
+const BuildInfo& World::cachedBuildInfo(const GameObjectType& t) const {
+    auto it = buildCache_.find(&t);
+    if (it == buildCache_.end()) it = buildCache_.emplace(&t, buildInfo(t, db_)).first;
+    return it->second;
+}
+
 void World::updateProduction(Unit& s) {
     if (s.queue.empty() || s.underConstruction || !s.powered) return; // unpowered Novus structures idle
     const GameObjectType* t = s.queue.front();
-    const BuildInfo info = buildInfo(*t, db_);
+    const BuildInfo info = cachedBuildInfo(*t);
     if (++s.queueTicks < info.ticks) return;
     s.queue.erase(s.queue.begin());
     s.queueTicks = 0;
@@ -302,14 +338,19 @@ void World::updateProduction(Unit& s) {
     const uint32_t sid = s.id;
     const int owner = s.owner;
     const float facing = 0;
-    const uint32_t id = spawn(t->name, owner, s.position, facing); // may reallocate units_
-    Unit* nu = unit(id);
+    spawn(t->name, owner, s.position, facing); // may reallocate units_
+    const std::vector<uint32_t> ids = lastSpawned_; // a squad brings several
     Unit* st = unit(sid);
-    if (!nu || !st) return;
-    const Vec3 out = exitPoint(*st, *nu);
-    nu->position = {out[0], out[1], map_.heightAt(out[0], out[1])};
-    nu->facing = std::atan2(out[1] - st->position[1], out[0] - st->position[0]);
-    if (st->hasRally) commandMove({id}, st->rally);
+    if (!st || ids.empty()) return;
+    for (size_t i = 0; i < ids.size(); ++i) {
+        Unit* nu = unit(ids[i]);
+        if (!nu) continue;
+        Vec3 out = exitPoint(*st, *nu);
+        if (i > 0) out = nav_.nearestPassable({out[0] + float(i % 3) * 9 - 9, out[1] + float(i / 3) * 9, 0});
+        nu->position = {out[0], out[1], map_.heightAt(out[0], out[1])};
+        nu->facing = std::atan2(out[1] - st->position[1], out[0] - st->position[0]);
+    }
+    if (st->hasRally) commandMove(ids, st->rally);
 }
 
 void World::updateConstruction(Unit& s) {
@@ -354,13 +395,25 @@ float World::random01() {
 
 float Unit::maxRange() const {
     float r = 0;
-    for (const auto& w : weapons) r = std::max(r, w.spec.maxRange);
+    for (const auto& w : weapons) r = std::max(r, weaponRange(w));
     return r;
 }
 
 uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, float facing) {
     const GameObjectType* t = db_.find(typeName);
     if (!t) return 0;
+    lastSpawned_.clear();
+    // Squads (Company_Units, e.g. Military_Team_Marines = 5 Marines) arrive as their members.
+    if (const auto members = squadMembers(*t, db_); !members.empty()) {
+        std::vector<uint32_t> ids;
+        for (size_t i = 0; i < members.size(); ++i) {
+            const float a = float(i) * 2.3999632f, r = i == 0 ? 0.f : 10.f + 4.f * std::sqrt(float(i));
+            const uint32_t id = spawn(members[i]->name, owner, {position[0] + std::cos(a) * r, position[1] + std::sin(a) * r, 0}, facing);
+            if (id) ids.push_back(id);
+        }
+        lastSpawned_ = ids;
+        return ids.empty() ? 0 : ids.front();
+    }
     // Masari units that only fight in an elemental mode (Peacebringer, Sentry: weapons on
     // their _Fire/_Ice variants) start in the first mode listed (Type_Switch_Types).
     if (!isStructureType(*t) && weaponsFor(*t, db_).empty())
@@ -429,7 +482,9 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
             u.maxHealth = u.health = std::max(total, 1.f);
         }
     }
+    initAbilities(u);
     units_.push_back(std::move(u));
+    lastSpawned_ = {units_.back().id};
     return units_.back().id;
 }
 
@@ -667,8 +722,9 @@ void World::fireWeapons(Unit& u) {
     }
     for (Unit::WeaponState& w : u.weapons) {
         if (w.cooldown > 0) --w.cooldown;
+        if (u.disarmed) { w.pulsesLeft = 0; continue; }
         const float d = t ? dist2d(u.position, t->position) - t->radius : 1e30f;
-        const bool inRange = t && d <= w.spec.maxRange && d + t->radius >= w.spec.minRange;
+        const bool inRange = t && d <= u.weaponRange(w) && d + t->radius >= w.spec.minRange;
         if (w.pulsesLeft == 0) {
             if (w.cooldown > 0 || !inRange) continue;
             w.pulsesLeft = w.spec.pulseCount; // start a burst
@@ -680,7 +736,7 @@ void World::fireWeapons(Unit& u) {
         }
         if (!inRange) { // target gone mid-burst
             w.pulsesLeft = 0;
-            w.cooldown = w.spec.rechargeTicks;
+            w.cooldown = int(std::lround(float(w.spec.rechargeTicks) / u.fireRate));
             continue;
         }
         const float muzzle = std::max(u.radius * 0.8f, 6.f);
@@ -706,23 +762,29 @@ void World::fireWeapons(Unit& u) {
             const float speed = w.spec.projectileSpeed;
             pr.velocity = {dx / len * speed, dy / len * speed, dz / len * speed};
             pr.distance = std::min(len, w.spec.maxFlight);
-            pr.damage = w.spec.damage;
-            pr.blastDamage = w.spec.blastDamage;
+            pr.damage = w.spec.damage * u.damageCast;
+            pr.blastDamage = w.spec.blastDamage * u.damageCast;
             pr.blastRange = w.spec.blastRange;
             pr.damageType = w.spec.damageType;
             pr.type = w.spec.projectile;
             projectiles_.push_back(std::move(pr));
         }
         --w.pulsesLeft;
+        u.firedThisTick = true;
         w.pulseTimer = w.spec.pulseDelayTicks;
-        if (w.pulsesLeft == 0) w.cooldown = w.spec.rechargeTicks;
+        if (w.pulsesLeft == 0) w.cooldown = int(std::lround(float(w.spec.rechargeTicks) / u.fireRate));
     }
 }
 
 void World::applyDamage(Unit& victim, float amount, const std::string& damageType) {
+    amount *= victim.damageTaken;
+    victim.damagedThisTick = true;
+    float extra = 0; // ModifyArmor effects
+    for (const auto& [type, add] : victim.armorMods)
+        if (iequals(type, damageType)) extra += add;
     if (!victim.shieldedByHardpoints) {
-        const float mod = damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f;
-        victim.health -= amount * mod;
+        const float mod = (damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f) + extra;
+        victim.health -= amount * std::max(0.f, mod);
         return;
     }
     // Legs first, then the core; other hardpoints (weapon crowns) only fall with the body.
@@ -735,7 +797,7 @@ void World::applyDamage(Unit& victim, float amount, const std::string& damageTyp
         for (auto& h : victim.hardpoints)
             if (h.alive() && (h.destroysParent || !anyCore)) { hp = &h; break; }
     if (!hp) { victim.health = 0; return; }
-    const float mod = damage_ ? damage_->modifier(damageType, hp->armorType.empty() ? victim.armorType : hp->armorType) : 1.f;
+    const float mod = std::max(0.f, (damage_ ? damage_->modifier(damageType, hp->armorType.empty() ? victim.armorType : hp->armorType) : 1.f) + extra);
     const float dealt = std::min(hp->health, amount * mod);
     hp->health -= dealt;
     victim.health -= dealt;
@@ -771,6 +833,7 @@ void World::updateProjectiles() {
             for (Unit& o : units_)
                 if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
         if (hit && p.damage > 0) applyDamage(*hit, p.damage, p.damageType);
+        projectileImpact(p, hit);
         if (p.blastDamage > 0 && p.blastRange > 0)
             for (Unit& o : units_)
                 if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= p.blastRange + o.radius)
@@ -876,6 +939,8 @@ void World::tick() {
     for (size_t i = 0; i < units_.size(); ++i) updateConstruction(units_[i]);
     for (size_t i = 0; i < units_.size(); ++i) updateProduction(units_[i]); // may spawn (index loop on purpose)
     updateEconomy();
+    updateResearch();
+    updateAbilities();
     for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
     separate();

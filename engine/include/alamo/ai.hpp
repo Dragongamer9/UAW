@@ -9,7 +9,11 @@
 //   2. keeps every production structure queuing combat units (and a spare builder);
 //   3. gathers the army at a rally point, defends the base when enemies come near and
 //      attacks the nearest enemy structure once the army is big enough (the threshold
-//      grows with game time), regrouping when the attack wave is spent.
+//      grows with game time), regrouping when the attack wave is spent;
+//   4. researches the next suite of its tree whenever credits allow (suites that unlock
+//      units first, then the lowest tier, paths in turn);
+//   5. uses its units' ordered abilities when World::abilityTarget finds a worthwhile
+//      target (respecting the data's Unit_Ability_AI_Only_At_Health_Lower hints).
 // Its random choices use its own seeded generator, so matches replay exactly.
 #pragma once
 
@@ -33,7 +37,7 @@ public:
     const std::string& lastAction() const { return lastAction_; }
 
 private:
-    enum class Role { Economy, Power, Production, Defense, Tech, Other };
+    enum class Role { Economy, Power, Production, Defense, Tech, Research, Other };
     Role roleOf(const GameObjectType& t) const;
     bool isCombatUnit(const GameObjectType& t) const;
     bool isBuilderType(const GameObjectType& t) const;
@@ -41,6 +45,8 @@ private:
     void manageProduction();
     void manageArmy();
     void manageReapers();
+    void manageResearch();
+    void manageAbilities();
     bool tryConstruct(Unit& builder, const std::string& type);
     bool findSite(const GameObjectType& t, Vec3& out);
     bool coveredByPower(Vec3 p, float extra) const;
@@ -50,6 +56,7 @@ private:
     float armyValue(const std::vector<uint32_t>& army) const;
     float enemyStrength() const;
     float wealth() const;
+    float typeStrength(const GameObjectType& t) const; // sqrt(health x dps), cached
 
     World& w_;
     const GameDatabase& db_;
@@ -64,6 +71,7 @@ private:
     int siteSpin_ = 0;
     std::unordered_map<const GameObjectType*, Role> roles_;
     std::unordered_map<const GameObjectType*, bool> combat_, builder_;
+    std::unordered_map<const GameObjectType*, float> strength_;
     std::vector<std::string> producers_; // structure types that produce some combat unit
     std::string lastAction_;
 };

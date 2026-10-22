@@ -30,6 +30,10 @@ add_library(alamo
   engine/src/nav.cpp
   engine/src/sim.cpp
     engine/src/economy.cpp
+    engine/src/effects.cpp
+    engine/src/abilities.cpp
+    engine/src/luavm.cpp
+    engine/src/research.cpp
     engine/src/ai.cpp
   engine/src/combat.cpp
   engine/src/techtree.cpp
@@ -72,6 +76,9 @@ target_link_libraries(megtool PRIVATE alamo)
 add_executable(objdump tools/objdump.cpp)
 target_link_libraries(objdump PRIVATE alamo)
 
+add_executable(test_abilities tests/test_abilities.cpp)
+target_link_libraries(test_abilities PRIVATE alamo)
+
 add_executable(test_xml tests/test_xml.cpp)
 target_link_libraries(test_xml PRIVATE alamo)
 
@@ -79,6 +86,7 @@ enable_testing()
 add_test(NAME xml_and_gamedata COMMAND test_xml)
 add_test(NAME alo_dds_gltf COMMAND test_formats)
 add_test(NAME nav_sim COMMAND test_sim)
+add_test(NAME effects_abilities COMMAND test_abilities)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME meg_roundtrip

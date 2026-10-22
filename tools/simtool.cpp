@@ -76,9 +76,8 @@ int main(int argc, char** argv) {
         db.load(vfs);
         const TechTree tech = loadTechTree(vfs);
         const DamageTable dmg = loadDamageTable(vfs);
-        GameDatabase effects;
-        try { effects.loadEffects(vfs); } catch (const std::exception&) {}
-        const Balance balance = loadBalance(vfs);
+        GameRules rules;
+        rules.load(vfs);
         const std::string mapList = argv[2];
         Map map = loadTed(vfs.read(mapPath(mapList.substr(0, mapList.find(',')))));
         const auto st = starts(map, db);
@@ -90,8 +89,7 @@ int main(int argc, char** argv) {
         std::printf("resource piles on the map: %zu\n", World(map, db).resources().size());
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
-            w.setEffects(&effects);
-            w.setBalance(balance);
+            rules.configure(w);
             std::vector<std::string> factions;
             for (const Faction& f : db.factions())
                 if (f.humanPlayable && forces.count(upper(f.name))) factions.push_back(f.name);
@@ -104,8 +102,7 @@ int main(int argc, char** argv) {
         if (cmd == "opening" && argc > 4) {
             const std::string faction = argv[4];
             World w(map, db, &dmg, 1, &tech);
-            w.setEffects(&effects);
-            w.setBalance(balance);
+            rules.configure(w);
             const int me = addSkirmishPlayer(w, db, faction, st[0], &forces);
             uint32_t builder = 0, hq = 0;
             for (const Unit& u : w.units()) (u.structure ? hq : builder) = u.id;
@@ -191,8 +188,7 @@ int main(int argc, char** argv) {
             const float minutes = argc > 6 ? float(std::atof(argv[6])) : 20.f;
             const uint64_t seed = argc > 7 ? std::strtoull(argv[7], nullptr, 10) : 1;
             World w(map, db, &dmg, seed, &tech);
-            w.setEffects(&effects);
-            w.setBalance(balance);
+            rules.configure(w);
             const int a = addSkirmishPlayer(w, db, argv[4], st[0], &forces);
             const int b = addSkirmishPlayer(w, db, argv[5], st[1], &forces);
             std::vector<SkirmishAI> ais{SkirmishAI(w, a, seed), SkirmishAI(w, b, seed + 7)};
@@ -214,8 +210,9 @@ int main(int argc, char** argv) {
                         int structures = 0, units = 0;
                         for (const Unit& u : w.units())
                             if (u.owner == p->id) (u.structure ? structures : units)++;
-                        std::printf("--- %2d:00 %-8s credits %6.0f earned %7.0f  structures %2d units %3d %s\n", t / (60 * kTicksPerSecond),
-                                    p->faction.c_str(), p->credits, p->earned, structures, units, ai.attacking() ? "ATTACKING" : "");
+                        std::printf("--- %2d:00 %-8s credits %6.0f earned %7.0f  structures %2d units %3d  abilities %4d research %zu %s\n",
+                                    t / (60 * kTicksPerSecond), p->faction.c_str(), p->credits, p->earned, structures, units,
+                                    p->abilitiesUsed, p->researched.size(), ai.attacking() ? "ATTACKING" : "");
                     }
                 }
                 const bool da = defeated(w, a), db2 = defeated(w, b);
@@ -256,8 +253,7 @@ int main(int argc, char** argv) {
                         if (i == j) continue;
                         for (int seed = 1; seed <= seeds; ++seed) {
                             World w(m, db, &dmg, uint64_t(seed), &tech);
-                            w.setEffects(&effects);
-                            w.setBalance(balance);
+                            rules.configure(w);
                             const int a = addSkirmishPlayer(w, db, factions[i], ms[0], &forces);
                             const int b = addSkirmishPlayer(w, db, factions[j], ms[1], &forces);
                             SkirmishAI A(w, a, uint64_t(seed)), B(w, b, uint64_t(seed) + 7);

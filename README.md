@@ -27,9 +27,12 @@ redistributed.
 | 3 | Resources: scrap piles from the map, Novus Input Station + collector drones, Novus power network (routers/signal towers), Hierarchy Reapers, Masari Matter Engines with the bank cap, Military Supply / refineries, build limits | done (first version) |
 | 3 | Skirmish AI: data-driven build orders for any faction/mod, production, rally, defence, attack waves; deterministic | done (first version) |
 | 3 | Hardpoints with health: Hierarchy walkers are killed through their legs and core, weapon hardpoints are lost with them | done (first version) |
-| 3 | Abilities, melee, shields, veterancy, research trees | next |
+| 3 | Effects and abilities: the effect library (773 effects, typed components), effect generators (auras, passives, ordered and auto-cast abilities, projectile impacts, created objects such as radiation fields), melee and special attacks; AI uses abilities | done (first version): 494 of 776 ability entries simulated; leap, crush, self-destruct, elemental mode switching and weapon-mode toggles still to come |
+| 3 | Research trees: read by running the compiled tree scripts (or reading a mod's source); per-player locks on units, generators, effects and abilities; research facilities, costs and times; AI researches | done (first version): all four factions' trees, 48 suites |
+| 3 | Lua 5.1 bytecode interpreter for the game's compiled scripts (custom header: format byte 0x70, 4-byte float numbers, one extra int per function) | done: runs the research trees; no metatables/coroutines yet |
+| 3 | Shields, veterancy, Masari elemental modes and dark-matter armor | next |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
-| 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
+| 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
 
@@ -139,6 +142,11 @@ Point it at the folder that contains `Data/MegaFiles.xml`:
 objdump "<game>" summary              # archives, object counts, factions
 objdump "<game>" units Novus          # buildable units: health, cost, build time, speed, armor
 objdump "<game>" show Alien_Grunt     # every field of one object, variants resolved
+objdump "<game>" weapons Alien_Grunt  # weapons, ranges, damage per second
+objdump "<game>" effect HexEffect     # one effect from the effect library
+objdump "<game>" abilities            # tally: abilities per type, how many are simulated
+objdump "<game>" abilities Alien_Defiler   # its abilities, generators, effects and components
+objdump "<game>" research Alien       # the research tree: suites, costs, times, what they unlock
 objdump "<game>" warnings
 ```
 
@@ -230,6 +238,56 @@ pricier half of its units and more factories. Only units with
 simtool "<game>" M25_Grand_Canyon start            # skirmish start for each faction and what it can build
 simtool "<game>" M25_Grand_Canyon opening Novus    # scripted build order with a timeline
 ```
+
+## Effects and abilities
+
+Almost every special ability in the game is data: an ability switches on an **effect generator**,
+which gathers targets and applies **effects** made of typed components. `engine/src/effects.cpp`
+reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
+
+* **Effects** (`Data/XML/Effects`, 773 with the mods): `Effect_Class`, `Duration` (-1 = until
+  removed) and components. Simulated: `AttributeModifier` (coefficients add up: `Max_Speed_Mult_Coeff`,
+  `Damage_Cast_Mult_Coeff`, `Damage_Taken_Mult_Coeff`, `Weapon_Rate_Multiplier`, `Weapon_Delay_Multiplier`,
+  `Weapon_Range_Mult/Add_Coeff`, `Unit_Ability_Countdown_Rate/Delay_Multiplier`, plus any attribute
+  the filters read), `Damage`, `DamageOverTime`, `Heal`, `HealOverTime`, `DisableBehavior`
+  (locomotors, weapons, abilities), `DisableAbility`, `RemoveEffect`, `BlockEffect`, `SwitchFaction`
+  (mind control, reverted when it ends), `ModifyArmor`, `MaxHealth`, `Destroy`, `ApplyEffectOnRemove`,
+  `ApplyGenerator`/`ActivateGenerator`, `CreateObject`. Visual and sound components are ignored. A
+  target carries one instance of an effect, refreshed by whoever re-applies it, unless the effect says
+  `Allow_Same_Source_Stacking` or `Extends_Same_Source_Duration_Only`.
+* **Generators** (`Effect_Generator_Data` on a unit or projectile): entries with `Effect_Name`,
+  `Duration`, `Base_Delay`, `Target_Gathering_Mask` (Self, Target, SelfAE, TargetAE),
+  `Area_Effect_Radius`, `Target_Filter_C` and `Target_Filter_Categories` (`"Small + Organic + ~Flying"`:
+  `+` and, `|` or, `~` not). `Starts_Active` generators are auras and passives; they re-apply every
+  `Modal_Refresh_Frequency` seconds, and effects with duration -1 drop as soon as a target leaves.
+  `Application_Signals` (OBJECT_DAMAGED, OBJECT_FIRED_WEAPON) trigger on events. `Disable_*_Attribute`
+  pauses them (e.g. while mind-controlled). Target filters are named C++ functions in the original;
+  the common ones (`Is_Enemy`, `Is_Ally`, `Is_Friendly_Unit_Damaged`, `In_Ice_Mode`...) are implemented
+  and any other name rejects the target, so an unknown effect stays off rather than misfiring.
+* **Abilities**: `Unit_Abilities_Data.Unit_Ability` (type, `Recharge_Seconds`, generator, AI hints)
+  linked to an `Abilities` entry (`Generic_Attack_Ability` for melee swings and special shots,
+  `Effect_Generator_Ability`). `Activation_Style SPECIAL_ATTACK` and button-less attacks fire on their
+  own; the rest are ordered (`World::useAbility`), and the skirmish AI orders them when
+  `World::abilityTarget` finds a worthwhile target. It never uses abilities that destroy or cripple
+  their user, and leaves alternate-fire toggles alone.
+* **Projectiles** with `Impact_Effect_Generator_Name` run that generator where they land (radiated
+  shots, Masari fire, crippling shots), on behalf of the shooter.
+* **Created objects** (`CreateObject`): units become real units; invisible effect objects with
+  generators (the Defiler's radiation field) run their generators for `Particle_Lifetime_Frames`.
+
+## Research
+
+The research trees are compiled Lua scripts (`Data/Scripts/Miscellaneous/*_PACKAGED_RESEARCH_TREE.LUA`).
+`LuaVM` (`engine/src/luavm.cpp`) runs them: it reads the game's Lua 5.1 bytecode variant and runs it
+forgivingly (calling an engine function that isn't there just returns nil). `Init_Research_Tree` leaves one
+table per branch: suites with a path (A/B/C) and tier, cost, time, and lists of types, generators,
+effects and abilities they unlock or lock. Mods may ship a tree as plain source (Human Resurgence's
+Military tree); its literal `Branch_* = { ... }` tables are read directly. As `Research_Common` does at game start, everything a suite
+unlocks starts locked, so heroes, walker hardpoints, Novus patches, gamma radiation and many abilities
+need research. A suite needs the tier before it in its path; a player researches one suite at a time
+and at most six per game (as in the original's multiplayer). The `Enables_Research` structures (Novus
+Research Center, Masari Will Processor...) are strategic-map buildings; where a mod makes one buildable in
+skirmish, each adds a parallel research slot.
 
 ## Format notes
 

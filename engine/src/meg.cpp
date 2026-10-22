@@ -167,6 +167,26 @@ std::vector<std::string> MegVfs::list() const {
     return out;
 }
 
+std::vector<std::string> MegVfs::listDirectory(std::string_view dir) const {
+    std::string prefix = normalizePath(dir);
+    if (!prefix.empty() && prefix.back() != '\\') prefix += '\\';
+    std::vector<std::string> out;
+    for (const Layer& l : layers_) {
+        for (const auto& [k, v] : l.index)
+            if (k.rfind(prefix, 0) == 0) out.push_back(k);
+        if (l.loose.empty()) continue;
+        const std::filesystem::path d = findLoose(l.loose, prefix.substr(0, prefix.size() - 1));
+        std::error_code ec;
+        if (d.empty() || !std::filesystem::is_directory(d, ec)) continue;
+        for (auto it = std::filesystem::recursive_directory_iterator(d, ec); !ec && it != std::filesystem::recursive_directory_iterator();
+             it.increment(ec))
+            if (it->is_regular_file(ec)) out.push_back(prefix + normalizePath(std::filesystem::relative(it->path(), d, ec).generic_string()));
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 namespace {
 std::filesystem::path looseIn(const std::filesystem::path& root, std::string_view name) {
     if (root.empty()) return {};

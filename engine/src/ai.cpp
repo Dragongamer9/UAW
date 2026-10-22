@@ -54,7 +54,9 @@ uint32_t SkirmishAI::rand(uint32_t n) {
 bool SkirmishAI::isCombatUnit(const GameObjectType& t) const {
     auto it = combat_.find(&t);
     if (it != combat_.end()) return it->second;
-    bool c = !isStructureType(t) && buildInfo(t, db_).spawnsUnit && !weaponsFor(t, db_).empty();
+    bool armed = !weaponsFor(t, db_).empty();
+    for (const GameObjectType* m : squadMembers(t, db_)) armed = armed || !weaponsFor(*m, db_).empty();
+    bool c = !isStructureType(t) && buildInfo(t, db_).spawnsUnit && armed;
     const EconomySpec& e = w_.economy(t);
     if (e.collector || e.reaper) c = false;
     const_cast<SkirmishAI*>(this)->combat_[&t] = c;
@@ -80,6 +82,8 @@ SkirmishAI::Role SkirmishAI::roleOf(const GameObjectType& t) const {
     if (e.drones > 0 || passive || e.reaper) r = Role::Economy;
     else if (e.power == EconomySpec::Power::Generator || e.power == EconomySpec::Power::Transmitter) r = Role::Power;
     else if (std::find(producers_.begin(), producers_.end(), t.name) != producers_.end()) r = Role::Production;
+    else if (const std::string* er = t.find("Enables_Research"); er && (iequals(trim(*er), "yes") || iequals(trim(*er), "true")))
+        r = Role::Research;
     else if (isStructureType(t) && !weaponsFor(t, db_).empty()) r = Role::Defense;
     else if (isStructureType(t)) r = Role::Tech;
     const_cast<SkirmishAI*>(this)->roles_[&t] = r;
@@ -168,7 +172,7 @@ void SkirmishAI::manageConstruction() {
     const float minutes = w_.seconds() / 60;
     // What we have (built or being built), by type and role.
     std::unordered_map<std::string, int> have;
-    int roleCount[6] = {0, 0, 0, 0, 0, 0};
+    int roleCount[7] = {0, 0, 0, 0, 0, 0, 0};
     bool unpoweredReceiver = false;
     for (const Unit& u : w_.units()) {
         if (u.owner != player_) continue;
@@ -205,6 +209,9 @@ void SkirmishAI::manageConstruction() {
         if (choice.empty() && roleCount[int(Role::Economy)] < wantEconomy) choice = pick(Role::Economy, 99);
         if (choice.empty()) choice = pick(Role::Production, 1);
         if (choice.empty() && roleCount[int(Role::Defense)] < wantDefense) choice = pick(Role::Defense, 99);
+        // Research facilities (where a mod makes them buildable) research a second suite at once.
+        if (choice.empty() && w_.researchTree(player_) && rich > 0.6f && roleCount[int(Role::Research)] < 1 && minutes > 5)
+            choice = pick(Role::Research, 1);
         if (choice.empty() && rich > 0.15f) choice = pick(Role::Tech, 1);
         // Rich: more production lines (and more economy) to turn credits into an army.
         if (choice.empty() && minutes > 2 && rich > 0.25f) choice = pick(Role::Production, 1 + int(rich / 0.2f));
@@ -255,11 +262,18 @@ void SkirmishAI::manageProduction() {
                 combat.push_back(o);
             }
             if (!combat.empty()) {
-                // Rich: buy from the pricier half (stronger units) so credits don't pile up.
-                if (rich > 0.5f && combat.size() > 1) {
+                // The better half by combat value per credit (sqrt(health x dps) / cost); when rich,
+                // weighted toward stronger units so credits don't pile up.
+                if (combat.size() > 1) {
+                    auto score = [&](const std::string& n) {
+                        const GameObjectType* t = db_.find(n);
+                        const float strength = typeStrength(*t);
+                        const float perCredit = strength / std::max(1.f, buildInfo(*t, db_).cost);
+                        return rich > 0.5f ? perCredit * std::sqrt(strength) : perCredit;
+                    };
                     std::sort(combat.begin(), combat.end(), [&](const std::string& x, const std::string& y) {
-                        const float cx = buildInfo(*db_.find(x), db_).cost, cy = buildInfo(*db_.find(y), db_).cost;
-                        return cx != cy ? cx > cy : x < y;
+                        const float sx = score(x), sy = score(y);
+                        return sx != sy ? sx > sy : x < y;
                     });
                     combat.resize((combat.size() + 1) / 2);
                 }
@@ -268,6 +282,22 @@ void SkirmishAI::manageProduction() {
         }
         if (!choice.empty() && w_.queueProduction(s.id, choice) == OrderResult::Ok) lastAction_ = "queue " + choice;
     }
+}
+
+float SkirmishAI::typeStrength(const GameObjectType& t) const {
+    auto it = strength_.find(&t);
+    if (it != strength_.end()) return it->second;
+    float v = 0;
+    if (const auto members = squadMembers(t, db_); !members.empty()) {
+        for (const GameObjectType* m : members) v += typeStrength(*m);
+    } else {
+        float dps = 0;
+        for (const WeaponSpec& w : weaponsFor(t, db_)) dps += w.damagePerSecond();
+        const float health = float(t.number("Tactical_Health").value_or(100));
+        v = std::sqrt(std::max(0.f, std::min(health, 20000.f)) * dps);
+    }
+    const_cast<SkirmishAI*>(this)->strength_[&t] = v;
+    return v;
 }
 
 // Combat strength: sqrt(health x damage per second), summed. Comparable across factions
@@ -397,7 +427,73 @@ void SkirmishAI::update() {
     manageConstruction();
     manageProduction();
     manageReapers();
-    if (tick_ % (kThinkEvery * 4) < kThinkEvery) manageArmy(); // every 2 s
+    manageAbilities();
+    if (tick_ % (kThinkEvery * 4) < kThinkEvery) { // every 2 s
+        manageArmy();
+        manageResearch();
+    }
+}
+
+void SkirmishAI::manageResearch() {
+    const Player* me = w_.player(player_);
+    if (!me || w_.seconds() < 120) return; // the economy first
+    const auto options = w_.availableResearch(player_);
+    if (options.empty()) return;
+    // Suites that unlock units (heroes) first, then the lowest tier; ties in turn (seeded) so the
+    // tree fills out evenly. Placeholder suites that change nothing are skipped.
+    auto unlocksUnits = [](const ResearchSuite* s) {
+        for (const ResearchChange& c : s->changes)
+            if (c.kind == ResearchChange::Kind::Type && !c.locks) return true;
+        return false;
+    };
+    int best = 1 << 30;
+    auto rank = [&](const ResearchSuite* s) { return s->index * 2 - (unlocksUnits(s) ? 3 : 0); };
+    for (const ResearchSuite* s : options)
+        if (!s->changes.empty()) best = std::min(best, rank(s));
+    std::vector<const ResearchSuite*> tier;
+    for (const ResearchSuite* s : options)
+        if (!s->changes.empty() && rank(s) == best) tier.push_back(s);
+    if (tier.empty()) return;
+    const ResearchSuite* pick = tier[rand(uint32_t(tier.size()))];
+    // Keep money for the army: research only from a comfortable bank.
+    if (me->credits < pick->cost * 1.5f && wealth() < 0.7f) return;
+    if (w_.startResearch(player_, pick->path, pick->index) == OrderResult::Ok)
+        lastAction_ = "research " + pick->id() + " " + pick->branch;
+}
+
+void SkirmishAI::manageAbilities() {
+    const EffectLibrary* lib = w_.effectLibrary();
+    std::vector<std::pair<uint32_t, size_t>> todo;
+    for (const Unit& u : w_.units()) {
+        if (u.owner != player_ || u.abilities.empty() || u.silenced || u.underConstruction) continue;
+        const World::TypeAbilities& ta = w_.abilitiesOf(*u.type);
+        for (size_t i = 0; i < u.abilities.size(); ++i) {
+            const AbilitySpec& s = ta.abilities[u.abilities[i].index];
+            if (s.autonomous || u.abilities[i].cooldown > 0 || s.kind == AbilitySpec::Kind::Unsupported) continue;
+            if (s.aiHealthBelow > 0 && u.health >= s.aiHealthBelow * u.maxHealth) continue;
+            // Never sacrifice or cripple the unit (generators that destroy their user or switch off its
+            // weapons / movement: weapon-mode toggles, deploy modes).
+            bool selfDestroy = false;
+            if (lib && s.kind == AbilitySpec::Kind::Generator)
+                for (const GeneratorDef& g : ta.generators)
+                    if (iequals(g.name, s.generator))
+                        for (const GeneratorEntry& e : g.entries)
+                            if (e.mask & GatherSelf)
+                                if (const EffectDef* d = lib->find(e.effect))
+                                    for (const EffectComponent& c : d->components)
+                                        selfDestroy = selfDestroy || c.op == EffectOp::Destroy || c.op == EffectOp::DisableBehavior;
+            if (selfDestroy) continue;
+            // Offensive and self abilities only in a fight.
+            if (!s.targetsAllies && !u.target) continue;
+            todo.push_back({u.id, i});
+        }
+    }
+    for (const auto& [id, i] : todo) {
+        const Unit* u = w_.unit(id);
+        if (!u) continue;
+        uint32_t target = 0;
+        if (w_.abilityTarget(*u, i, target)) w_.useAbility(id, i, target, u->position);
+    }
 }
 
 } // namespace alamo
