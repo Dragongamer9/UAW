@@ -5,6 +5,11 @@ A clean-room, native 64-bit reimplementation of the Alamo engine as used by
 game data from your own install. No Petroglyph assets are included or
 redistributed.
 
+**Playing:** put `uaw-viewer.exe` in the game folder (the one with `Data\MegaFiles.xml`) or next to it and
+double-click it. The skirmish setup screen opens: pick a map, players, factions and teams, and start. In a
+game, F10 shows every key; Esc opens the menu (save, load, sound, graphics, restart). All mods in
+`Game\Mods` are loaded on top of the base game.
+
 ## Status
 
 | Stage | Piece | State |
