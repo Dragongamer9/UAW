@@ -550,6 +550,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                     }
                     for (int k = 0; k < 3; ++k) gpu.tint[k] *= 0.62f;
                 }
+                if (gpu.alt < 0) gm->plain = true;
                 gm->meshes.push_back(gpu);
             }
         }
@@ -900,6 +901,8 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
     if (m.alts) {
         int a = std::clamp(alt, 0, 31);
         while (a > 0 && !(m.alts & (1u << a))) --a;
+        if (!(m.alts & (1u << a)) && !m.plain) // nothing but damaged states: the healthiest one
+            for (a = 0; a < 31 && !(m.alts & (1u << a)); ++a) {}
         alt = a;
     }
     const alamo::Vec3 at{transform.at(0, 3), transform.at(1, 3), transform.at(2, 3)};

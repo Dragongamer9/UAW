@@ -63,6 +63,7 @@ struct GpuModel {
     alamo::Vec3 boundsMin{}, boundsMax{};
     bool loaded = false;
     uint32_t alts = 0;                   // bit n: the model has meshes for damage alternate n
+    bool plain = false;                  // has meshes outside the damage alternates
     alamo::Model skeleton;               // bones only, for posing
     std::vector<alamo::Mat34> restInverse; // inverse rest (bind) world transform per bone
 };
