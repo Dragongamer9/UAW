@@ -21,6 +21,8 @@ layout(location = 2) in vec2 aUv;
 layout(location = 3) in vec4 aColor;
 layout(location = 4) in vec4 aBone;
 layout(location = 5) in vec4 aWeight;
+layout(location = 6) in vec3 aTangent;
+layout(location = 7) in vec3 aBinormal;
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform mat4 uSkin[64];
@@ -29,6 +31,8 @@ out vec3 vNormal;
 out vec2 vUv;
 out vec4 vColor;
 out vec3 vWorld;
+out vec3 vTangent;
+out vec3 vBinormal;
 void main() {
     mat4 skin = mat4(1.0);
     if (uSkinned != 0)
@@ -37,6 +41,8 @@ void main() {
     vec4 world = uModel * skin * vec4(aPos, 1.0);
     vWorld = world.xyz;
     vNormal = mat3(uModel) * mat3(skin) * aNormal;
+    vTangent = mat3(uModel) * mat3(skin) * aTangent;
+    vBinormal = mat3(uModel) * mat3(skin) * aBinormal;
     vUv = aUv;
     vColor = aColor;
     gl_Position = uViewProj * world;
@@ -48,8 +54,12 @@ in vec3 vNormal;
 in vec2 vUv;
 in vec4 vColor;
 in vec3 vWorld;
+in vec3 vTangent;
+in vec3 vBinormal;
 uniform sampler2D uTex;
 uniform int uHasTex;
+uniform sampler2D uBump;  // tangent-space normal map
+uniform int uHasBump;
 uniform vec4 uTint;
 uniform vec3 uLightDir;
 uniform vec3 uSun;       // sun colour x intensity
@@ -95,6 +105,10 @@ void main() {
     if (vWorld.z > uClipZ) discard;
     if (uUnlit != 0) { fragColor = base; return; }
     vec3 n = normalize(vNormal);
+    if (uHasBump != 0 && dot(vTangent, vTangent) > 1e-8 && dot(vBinormal, vBinormal) > 1e-8) {
+        vec3 b = texture(uBump, vUv).rgb * 2.0 - 1.0;
+        n = normalize(normalize(vTangent) * b.x + normalize(vBinormal) * b.y + n * max(b.z, 0.05));
+    }
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
@@ -273,6 +287,10 @@ void GpuMesh::upload(const std::vector<GpuVertex>& verts, const void* indices, s
     glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, bone)));
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, weight)));
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, tangent)));
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE_, stride, reinterpret_cast<void*>(offsetof(GpuVertex, binormal)));
     glBindVertexArray(0);
     indexCount = GLsizei(count);
     indexType = wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT;
@@ -322,9 +340,13 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uSkin_ = glGetUniformLocation(program_, "uSkin");
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
     uTeam_ = glGetUniformLocation(program_, "uTeam");
+    uHasBump_ = glGetUniformLocation(program_, "uHasBump");
+    glUseProgram(program_);
+    glUniform1i(glGetUniformLocation(program_, "uBump"), 4);
 
     terrainProgram_ = link(kTerrainVertexShader, kTerrainFragmentShader);
     shadowsOn_ = std::getenv("UAW_NO_SHADOWS") == nullptr;
+    bumpsOn_ = std::getenv("UAW_NO_BUMPS") == nullptr;
 
     // Unit box (-0.5..0.5 in X/Y, 0..1 in Z) for objects whose model isn't available.
     std::vector<GpuVertex> v;
@@ -414,6 +436,8 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 if (shader.find("Shadow") != std::string::npos) continue;
                 std::vector<GpuVertex> verts;
                 verts.reserve(sm.vertices.size());
+                const std::string* bumpName = sm.material.texture("NormalTexture");
+                const bool hasBump = bumpName && !bumpName->empty() && sm.vertexFormat.find("U3U3") != std::string::npos;
                 // Vertices go in rest model space; when posed, each follows its bone with
                 // posed(bone) * inverse(rest(bone)): the mesh's own bone for rigid meshes, the
                 // vertex's bone-map slot for skinned ones.
@@ -426,6 +450,11 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                     alamo::Vec3 n = sm.skinned() ? v.normal : alamo::transformDir(xf, v.normal);
                     verts.push_back(vtx(p, Mat4::normalize(n), v.uv[0][0], v.uv[0][1], {1, 1, 1, 1}));
                     GpuVertex& gv = verts.back();
+                    if (hasBump) {
+                        const alamo::Vec3 t = sm.skinned() ? v.tangent : alamo::transformDir(xf, v.tangent);
+                        const alamo::Vec3 b = sm.skinned() ? v.binormal : alamo::transformDir(xf, v.binormal);
+                        for (int k = 0; k < 3; ++k) gv.tangent[k] = t[k], gv.binormal[k] = b[k];
+                    }
                     if (sm.skinned() && v.boneIndex[0] < palette.size()) {
                         gv.bone[0] = float(v.boneIndex[0]);
                     } else if (weighted) {
@@ -457,6 +486,7 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                 gpu.upload(verts, sm.indices.data(), sm.indices.size(), false);
                 gpu.palette = std::move(palette);
                 if (const std::string* t = sm.material.texture("BaseTexture"); t && !t->empty()) gpu.texture = texture(*t);
+                if (hasBump) gpu.bump = texture(*bumpName);
                 if (shader.find("Additive") != std::string::npos || shader.find("Glow") != std::string::npos)
                     gpu.blend = GpuMesh::Blend::Additive;
                 else if (shader.find("Alpha") != std::string::npos)
@@ -747,10 +777,15 @@ void Renderer::setFogOfWar(const std::vector<uint8_t>* grid, int w, int h, float
     fowTex_ = uploadTexture(px, w, h);
 }
 
-void Renderer::setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex) {
+void Renderer::setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex, GLuint bump) {
     glUniformMatrix4fv(uModel_, 1, GL_FALSE_, model.data());
     glUniform4fv(uTint_, 1, tint.data());
     glUniform1i(uHasTex_, tex ? 1 : 0);
+    glUniform1i(uHasBump_, bump && tex ? 1 : 0);
+    if (bump) {
+        glActiveTexture(GL_TEXTURE0 + 4);
+        glBindTexture(GL_TEXTURE_2D, bump);
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, tex);
 }
@@ -813,7 +848,7 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
             casters_.push_back({&mesh, transform, kept, clipZ_});
         }
-        setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture);
+        setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture, bumpsOn_ ? mesh.bump : 0);
         setSkin(mesh, pose);
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 1);
         if (mesh.colorize) glUniform4f4(uTeam_, team_);
@@ -871,7 +906,7 @@ void Renderer::endFrame() {
     for (const Deferred& d : transparent_) {
         if (d.mesh->blend == GpuMesh::Blend::Additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        setUniforms(d.transform, d.tint, d.mesh->texture);
+        setUniforms(d.transform, d.tint, d.mesh->texture, bumpsOn_ ? d.mesh->bump : 0);
         setSkin(*d.mesh, d.pose.get());
         d.mesh->draw();
     }

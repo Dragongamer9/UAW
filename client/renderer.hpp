@@ -26,6 +26,9 @@ struct GpuVertex {
     // Animated models: up to four slots in the mesh's bone palette and their weights.
     float bone[4] = {0, 0, 0, 0};
     float weight[4] = {1, 0, 0, 0};
+    // Normal-mapped meshes: the texture's tangent and binormal directions (zero: no normal map).
+    float tangent[3] = {0, 0, 0};
+    float binormal[3] = {0, 0, 0};
 };
 
 struct GpuMesh {
@@ -33,6 +36,7 @@ struct GpuMesh {
     GLsizei indexCount = 0;
     GLenum indexType = GL_UNSIGNED_SHORT;
     GLuint texture = 0;
+    GLuint bump = 0; // NormalTexture (tangent space), 0 = none
     alamo::Vec4 tint{1, 1, 1, 1};
     enum class Blend { Opaque, Alpha, Additive } blend = Blend::Opaque;
     bool colorize = false;  // *Colorize shaders: the owner's colour where the texture's alpha is set
@@ -125,7 +129,7 @@ public:
 
 private:
     GLuint texture(const std::string& name);
-    void setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex);
+    void setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex, GLuint bump = 0);
     void setSkin(const GpuMesh& mesh, const Pose* pose);
     void bindShadow(GLuint program);
     void renderShadows();
@@ -133,7 +137,7 @@ private:
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
     GLint uViewProj_ = -1, uModel_ = -1, uTint_ = -1, uHasTex_ = -1, uTex_ = -1, uLightDir_ = -1, uCamPos_ = -1,
-          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1, uTeam_ = -1;
+          uFogColor_ = -1, uFogRange_ = -1, uUnlit_ = -1, uSkin_ = -1, uSkinned_ = -1, uAlphaTest_ = -1, uTeam_ = -1, uHasBump_ = -1;
     alamo::Vec4 team_{1, 1, 1, 1};
     Mat4 viewProj_;
     alamo::Vec3 camPos_{};
@@ -179,6 +183,7 @@ private:
         float clipZ;
     };
     std::vector<Caster> casters_;
+    bool bumpsOn_ = true;
     bool shadowsOn_ = true, shadowReady_ = false, drawTerrainShadow_ = false;
     GLuint shadowFbo_ = 0, shadowTex_ = 0;
     Mat4 shadowViewProj_;
