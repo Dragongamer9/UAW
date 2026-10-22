@@ -1048,6 +1048,61 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                         {1, 1, 1, 1}, f.anim ? &pose : nullptr);
         }
     r.setTeamColor({1, 1, 1, 1});
+    // Scorch marks where vehicles and structures died: a soft dark patch following the ground,
+    // fading over its last ten seconds (forty in all).
+    if (animate) {
+        if (!scorchTex_) {
+            const int n = 64;
+            std::vector<uint8_t> px(size_t(n) * size_t(n) * 4);
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x < n; ++x) {
+                    const float dx = (float(x) + 0.5f) / n * 2 - 1, dy = (float(y) + 0.5f) / n * 2 - 1;
+                    const float d = std::sqrt(dx * dx + dy * dy);
+                    // ragged edge: a little angular noise
+                    const float edge = 0.78f + 0.06f * std::sin(std::atan2(dy, dx) * 7) + 0.04f * std::sin(std::atan2(dy, dx) * 13);
+                    const float a = std::clamp((edge - d) / 0.5f, 0.f, 1.f);
+                    uint8_t* p = &px[(size_t(y) * size_t(n) + size_t(x)) * 4];
+                    p[0] = 20, p[1] = 16, p[2] = 12, p[3] = uint8_t(a * 210);
+                }
+            scorchTex_ = r.uploadTexture(px, n, n);
+        }
+        std::vector<GpuVertex> scorch;
+        for (auto it = w.deaths().rbegin(); it != w.deaths().rend(); ++it) {
+            const alamo::DeathEvent& d = *it;
+            const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
+            if (age > 40) break;
+            if (d.sold || !d.type) continue;
+            const alamo::MoveClass mc = [&] {
+                const std::string* m = d.type->find("MovementClass");
+                std::string up = m ? alamo::trim(*m) : "";
+                for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                return up == "INFANTRY" ? alamo::MoveClass::Infantry : up == "AIR" || up == "FLYING" ? alamo::MoveClass::Air : alamo::MoveClass::Other;
+            }();
+            if (mc == alamo::MoveClass::Infantry || mc == alamo::MoveClass::Air) continue;
+            if (fog && w.fogOfWar() && player_ >= 0 && w.visibility(player_, d.position[0], d.position[1]) == 0) continue;
+            const float fx = float(d.type->number("Custom_Hard_XExtent").value_or(12));
+            const float rad = std::clamp(fx * (alamo::isStructureType(*d.type) ? 1.6f : 2.2f), 14.f, 140.f);
+            const float alpha = age < 30 ? 1.f : 1 - (age - 30) / 10;
+            const float rot = float(d.id % 360) * 0.0174533f;
+            // A 4x4 grid on the ground.
+            const int g = 4;
+            auto vert = [&](int i, int j) {
+                const float u = float(i) / g, v = float(j) / g;
+                const float lx = (u * 2 - 1) * rad, ly = (v * 2 - 1) * rad;
+                const float x = d.position[0] + lx * std::cos(rot) - ly * std::sin(rot), y = d.position[1] + lx * std::sin(rot) + ly * std::cos(rot);
+                GpuVertex gv{};
+                gv.px = x, gv.py = y, gv.pz = w.map().heightAt(x, y) + 0.6f;
+                gv.u = u, gv.v = v, gv.r = gv.g = gv.b = 1, gv.a = alpha;
+                return gv;
+            };
+            for (int j = 0; j < g; ++j)
+                for (int i = 0; i < g; ++i) {
+                    const GpuVertex a0 = vert(i, j), a1 = vert(i + 1, j), a2 = vert(i + 1, j + 1), a3 = vert(i, j + 1);
+                    scorch.insert(scorch.end(), {a0, a1, a2, a0, a2, a3});
+                }
+        }
+        if (!scorch.empty()) r.drawParticles(scorch, scorchTex_, false);
+    }
     // Wrecks: a dark scorch plate for a few seconds, only when there are no particle effects to show
     // the explosion (they replace it).
     if (!effects)
