@@ -32,6 +32,8 @@ struct SquadSpec {
 // Spawns a small mixed squad for each start position (player 1 Novus, player 2
 // Hierarchy, player 3 Masari, then repeating). Skips types missing from the data.
 void spawnTestSquads(alamo::World& world, const std::vector<alamo::Vec3>& starts, const alamo::Map& map);
+// Player 1 and player 2 squads facing each other across `centre`, `gap` units apart.
+void spawnBattle(alamo::World& world, const alamo::Vec3& centre, float gap);
 
 class UnitControl {
 public:
@@ -48,6 +50,9 @@ public:
     void selectAllVisible(alamo::World& w, const View& v);
     void selectAll(alamo::World& w);
     void moveTo(alamo::World& w, const alamo::Vec3& ground);
+    // Right click / RB: attack an enemy under the point, otherwise move there.
+    void command(alamo::World& w, const alamo::Vec3& ground);
+    void attackMove(alamo::World& w, const alamo::Vec3& ground);
     void stop(alamo::World& w);
 
     void draw(Renderer& r, alamo::World& w, float time) const;
@@ -58,6 +63,7 @@ private:
     std::set<uint32_t> selected_;
     alamo::Vec3 lastOrder_{};
     float lastOrderTime_ = -100;
+    bool attackOrder_ = false;
 };
 
 } // namespace uaw

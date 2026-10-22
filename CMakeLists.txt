@@ -29,6 +29,7 @@ add_library(alamo
   engine/src/assets.cpp
   engine/src/nav.cpp
   engine/src/sim.cpp
+  engine/src/combat.cpp
 )
 target_include_directories(alamo PUBLIC engine/include)
 find_package(ZLIB QUIET)

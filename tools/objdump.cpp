@@ -2,8 +2,10 @@
 //   objdump <game-root> summary
 //   objdump <game-root> units [faction]     buildable units/structures with health, cost, speed
 //   objdump <game-root> show <ObjectName>   every field of one object (variants resolved)
+//   objdump <game-root> weapons <ObjectName> [VictimName...]  weapons, dps, armor modifiers
 //   objdump <game-root> warnings
 // <game-root> is the folder containing Data/MegaFiles.xml.
+#include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 
 #include <algorithm>
@@ -93,6 +95,28 @@ int main(int argc, char** argv) {
                     std::replace_if(one.begin(), one.end(), [](char c) { return c == '\n' || c == '\r' || c == '\t'; }, ' ');
                     std::printf("  %s = %s\n", f.path.c_str(), one.c_str());
                 }
+            }
+            return 0;
+        }
+        if (cmd == "weapons" && argc > 3) {
+            const GameObjectType* o = db.find(argv[3]);
+            if (!o) { std::cerr << "no object named " << argv[3] << "\n"; return 1; }
+            const DamageTable table = loadDamageTable(vfs);
+            const std::string* armor = o->find("Armor_Type");
+            std::printf("%s: health %s, armor %s\n", o->name.c_str(), num(o->number("Tactical_Health")).c_str(),
+                        armor ? trim(*armor).c_str() : "-");
+            for (const WeaponSpec& w : weaponsFor(*o, db)) {
+                std::printf("  %-34s via %-32s range %g-%g, %d x %d pellet(s), burst gap %d, recharge %d ticks\n",
+                            w.projectile->name.c_str(), w.source->name.c_str(), w.minRange, w.maxRange, w.pulseCount,
+                            w.pellets, w.pulseDelayTicks, w.rechargeTicks);
+                std::printf("      %s: %g damage + %g blast (radius %g), speed %g, %.1f dps\n", w.damageType.c_str(), w.damage,
+                            w.blastDamage, w.blastRange, w.projectileSpeed, w.damagePerSecond());
+                if (argc > 4)
+                    for (int i = 4; i < argc; ++i)
+                        if (const GameObjectType* v = db.find(argv[i]))
+                            if (const std::string* va = v->find("Armor_Type"))
+                                std::printf("      vs %-28s (%s): x%g\n", v->name.c_str(), trim(*va).c_str(),
+                                            table.modifier(w.damageType, trim(*va)));
             }
             return 0;
         }

@@ -19,7 +19,8 @@ redistributed.
 | 3 | Navigation: walkable areas from terrain flags, A* with wall clearance and path smoothing | done: start-to-start paths found on every skirmish map checked |
 | 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
-| 3 | Combat: weapons, projectiles, damage vs armor (`DamageToArmor.xml`), death | next |
+| 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
+| 3 | Abilities, melee, hardpoint destruction, walkers, shields, veterancy | next |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
@@ -58,12 +59,19 @@ squad, or another with `--player N`.
 | Rotate / tilt | Q/E, R/F, right- or middle-drag | right stick |
 | Zoom | mouse wheel, +/- | triggers |
 | Select | left click, left-drag box, Shift adds, Tab = all yours | A (hold LB to add), X = all on screen, B = clear |
-| Move | right click | RB |
+| Move / attack | right click (on an enemy = attack) | RB |
+| Attack-move | G then right click, or hold A + right click | D-pad up |
 | Stop / jump to selection | X / Space | |
 | Toggle stand-in boxes | P | Y |
 | Quit | Esc | Back |
 
 Headless check of a move order: `uaw-viewer "<game>" M16_Sahara --order 1900,3000 --run 12 --screenshot out.png`.
+Scripted battle (prints both sides' units and health every 5 seconds):
+`uaw-viewer "<game>" M24_Midwest --battle --run 90 --screenshot out.png`.
+
+`objdump "<game>" weapons Alien_Hero_Orlok Novus_Robotic_Infantry` lists a unit's
+weapons (including hardpoints), damage per second and armor modifiers against the
+named victims.
 
 Objects whose model isn't available are drawn as boxes: grey props, structures
 and units in their owner's colour, cyan scrap piles, and a tall pole at each start position.
@@ -212,6 +220,21 @@ fraction of max speed gained per frame, and `Custom_Hard_XExtent` is the
 collision radius. GameConstants.xml says the game is tuned for 30 frames per
 second. At that rate a Hierarchy Grunt (1.0) crosses a 5,000-unit map in
 about 2¾ minutes, and a Habitat Walker (0.6°/frame) turns 18°/s.
+
+### Combat fields
+
+A unit's weapons come from its own `WeaponBehaviorType`, plus the weapon of every
+hardpoint in `Attached_Hard_Points` (`HP_Type, bone` pairs). Masari units carry
+their guns on Fire/Ice variants, e.g. `Masari_Peacebringer_Fire`. Each weapon has:
+
+- `Projectile_Types`, `Targeting_Min/Max_Attack_Distance`
+- `Projectile_Fire_Recharge_Seconds`, `Projectile_Fire_Pulse_Count` / `_Delay_Seconds`
+- `Projectile_Fire_Spread_Amount` (pellets) and `_Angle`
+
+Each projectile has `Max_Speed` (units/frame), `Damage_Type`, `Projectile_Damage`,
+`Projectile_Blast_Area_Damage` / `_Range` and `Projectile_Max_Flight_Distance`.
+Damage is multiplied by the `Damage_To_Armor_Mod` entry for the damage type and
+the victim's `Armor_Type` (1.0 if absent).
 
 ### MEG archives
 

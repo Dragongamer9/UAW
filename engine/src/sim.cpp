@@ -33,7 +33,22 @@ float angleDiff(float from, float to) {
     return d;
 }
 
-World::World(const Map& map, const GameDatabase& db) : map_(map), db_(db), nav_(map) {}
+World::World(const Map& map, const GameDatabase& db, const DamageTable* damage, uint64_t seed)
+    : map_(map), db_(db), nav_(map), damage_(damage), rng_(seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull) {}
+
+float World::random01() {
+    // xorshift64*: deterministic across platforms, so lockstep replays stay in sync.
+    rng_ ^= rng_ >> 12;
+    rng_ ^= rng_ << 25;
+    rng_ ^= rng_ >> 27;
+    return float((rng_ * 0x2545F4914F6CDD1Dull) >> 40) / float(1u << 24);
+}
+
+float Unit::maxRange() const {
+    float r = 0;
+    for (const auto& w : weapons) r = std::max(r, w.spec.maxRange);
+    return r;
+}
 
 uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, float facing) {
     const GameObjectType* t = db_.find(typeName);
@@ -54,6 +69,8 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
     u.radius = float(t->number("Custom_Hard_XExtent").value_or(t->number("Custom_Soft_Footprint_Radius").value_or(6.0)));
     u.radius = std::clamp(u.radius, 2.f, 150.f);
     u.maxHealth = u.health = float(t->number("Tactical_Health").value_or(100.0));
+    if (const std::string* a = t->find("Armor_Type")) u.armorType = trim(*a);
+    for (const WeaponSpec& w : weaponsFor(*t, db_)) u.weapons.push_back({w, 0, 0, 0});
     units_.push_back(std::move(u));
     return units_.back().id;
 }
@@ -93,6 +110,8 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
             if (d < bestD) { bestD = d; best = s; }
         }
         taken[best] = true;
+        u->attackOrder = 0;
+        u->attackMove = false;
         u->goal = slots[best];
         u->path = nav_.findPath(u->position, slots[best]);
     }
@@ -100,7 +119,184 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
 
 void World::commandStop(const std::vector<uint32_t>& ids) {
     for (uint32_t id : ids)
-        if (Unit* u = unit(id)) u->path.clear();
+        if (Unit* u = unit(id)) {
+            u->path.clear();
+            u->attackOrder = 0;
+            u->attackMove = false;
+        }
+}
+
+void World::commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target) {
+    commandMove(ids, target);
+    for (uint32_t id : ids)
+        if (Unit* u = unit(id); u && !u->weapons.empty()) u->attackMove = true;
+}
+
+void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
+    const Unit* t = unit(target);
+    if (!t) return;
+    for (uint32_t id : ids) {
+        Unit* u = unit(id);
+        if (!u || u->weapons.empty() || !enemies(u->owner, t->owner)) continue;
+        u->attackOrder = target;
+        u->attackMove = false;
+        u->target = target;
+        u->repathTicks = 0;
+    }
+}
+
+void World::updateTargeting(Unit& u) {
+    if (u.weapons.empty()) return;
+    const float range = u.maxRange();
+    auto edgeDistance = [&](const Unit& t) { return dist2d(u.position, t.position) - t.radius; };
+
+    if (u.attackOrder) {
+        const Unit* t = unit(u.attackOrder);
+        if (!t) {
+            u.attackOrder = 0;
+            u.path.clear();
+        } else {
+            u.target = t->id;
+            if (edgeDistance(*t) > range * 0.9f) {
+                // Chase: re-plan now and then, or when the target has moved off the goal.
+                if (--u.repathTicks <= 0 || dist2d(u.goal, t->position) > range * 0.5f) {
+                    u.goal = t->position;
+                    u.path = nav_.findPath(u.position, t->position);
+                    u.repathTicks = kTicksPerSecond;
+                }
+            } else {
+                u.path.clear();
+            }
+            return;
+        }
+    }
+
+    // Keep shooting the current target while it stays (roughly) in range.
+    const Unit* current = unit(u.target);
+    if (!current || edgeDistance(*current) > range + 20) {
+        u.target = 0;
+        float best = 1e30f;
+        for (const Unit& o : units_) {
+            if (!o.alive() || !enemies(u.owner, o.owner)) continue;
+            const float d = edgeDistance(o);
+            if (d <= range && d < best) {
+                best = d;
+                u.target = o.id;
+            }
+        }
+    }
+    if (u.attackMove) {
+        if (u.target) {
+            u.path.clear(); // hold and fight
+        } else if (u.path.empty() && dist2d(u.position, u.goal) > std::max(u.radius * 2, 20.f)) {
+            u.path = nav_.findPath(u.position, u.goal); // area clear: carry on
+        } else if (u.path.empty()) {
+            u.attackMove = false; // arrived
+        }
+    }
+}
+
+void World::fireWeapons(Unit& u) {
+    const Unit* t = u.target ? unit(u.target) : nullptr;
+    if (t && !u.moving()) {
+        // Face the target while standing (turrets handle aim while moving).
+        const float want = std::atan2(t->position[1] - u.position[1], t->position[0] - u.position[0]);
+        const float diff = angleDiff(u.facing, want);
+        const float rate = std::max(u.stoppedTurnRate, u.turnRate * 0.5f);
+        u.facing += std::clamp(diff, -rate, rate);
+    }
+    for (Unit::WeaponState& w : u.weapons) {
+        if (w.cooldown > 0) --w.cooldown;
+        const float d = t ? dist2d(u.position, t->position) - t->radius : 1e30f;
+        const bool inRange = t && d <= w.spec.maxRange && d + t->radius >= w.spec.minRange;
+        if (w.pulsesLeft == 0) {
+            if (w.cooldown > 0 || !inRange) continue;
+            w.pulsesLeft = w.spec.pulseCount; // start a burst
+            w.pulseTimer = 0;
+        }
+        if (w.pulseTimer > 0) {
+            --w.pulseTimer;
+            continue;
+        }
+        if (!inRange) { // target gone mid-burst
+            w.pulsesLeft = 0;
+            w.cooldown = w.spec.rechargeTicks;
+            continue;
+        }
+        const float muzzle = std::max(u.radius * 0.8f, 6.f);
+        const Vec3 from{u.position[0], u.position[1], u.position[2] + muzzle};
+        for (int p = 0; p < w.spec.pellets; ++p) {
+            const float ang = random01() * 6.2831853f, r = random01() * w.spec.inaccuracy;
+            Vec3 aim{t->position[0] + std::cos(ang) * r, t->position[1] + std::sin(ang) * r, 0};
+            if (w.spec.pellets > 1 && w.spec.spreadRadians > 0) {
+                // Rotate the aim point around the shooter within the spread cone.
+                const float off = (random01() - 0.5f) * w.spec.spreadRadians;
+                const float ax = aim[0] - from[0], ay = aim[1] - from[1];
+                aim[0] = from[0] + ax * std::cos(off) - ay * std::sin(off);
+                aim[1] = from[1] + ax * std::sin(off) + ay * std::cos(off);
+            }
+            aim[2] = map_.heightAt(aim[0], aim[1]) + std::max(t->radius * 0.6f, 4.f);
+            Projectile pr;
+            pr.owner = u.owner;
+            pr.shooter = u.id;
+            pr.target = t->id;
+            pr.position = from;
+            const float dx = aim[0] - from[0], dy = aim[1] - from[1], dz = aim[2] - from[2];
+            const float len = std::max(std::sqrt(dx * dx + dy * dy + dz * dz), 1e-3f);
+            const float speed = w.spec.projectileSpeed;
+            pr.velocity = {dx / len * speed, dy / len * speed, dz / len * speed};
+            pr.distance = std::min(len, w.spec.maxFlight);
+            pr.damage = w.spec.damage;
+            pr.blastDamage = w.spec.blastDamage;
+            pr.blastRange = w.spec.blastRange;
+            pr.damageType = w.spec.damageType;
+            pr.type = w.spec.projectile;
+            projectiles_.push_back(std::move(pr));
+        }
+        --w.pulsesLeft;
+        w.pulseTimer = w.spec.pulseDelayTicks;
+        if (w.pulsesLeft == 0) w.cooldown = w.spec.rechargeTicks;
+    }
+}
+
+void World::applyDamage(Unit& victim, float amount, const std::string& damageType) {
+    const float mod = damage_ ? damage_->modifier(damageType, victim.armorType) : 1.f;
+    victim.health -= amount * mod;
+}
+
+void World::updateProjectiles() {
+    std::vector<Projectile> keep;
+    keep.reserve(projectiles_.size());
+    for (Projectile& p : projectiles_) {
+        const float speed = std::sqrt(p.velocity[0] * p.velocity[0] + p.velocity[1] * p.velocity[1] + p.velocity[2] * p.velocity[2]);
+        const float step = std::min(speed, p.distance - p.travelled);
+        const float k = speed > 0 ? step / speed : 0;
+        p.position = {p.position[0] + p.velocity[0] * k, p.position[1] + p.velocity[1] * k, p.position[2] + p.velocity[2] * k};
+        p.travelled += step;
+        if (p.travelled + 1e-3f < p.distance) {
+            keep.push_back(std::move(p));
+            continue;
+        }
+        // Landed. Direct hit on the intended target if it is still under the impact point,
+        // otherwise on any enemy there.
+        Unit* hit = nullptr;
+        if (Unit* t = unit(p.target); t && t->alive() && dist2d(t->position, p.position) <= t->radius + 3) hit = t;
+        if (!hit)
+            for (Unit& o : units_)
+                if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= o.radius) { hit = &o; break; }
+        if (hit && p.damage > 0) applyDamage(*hit, p.damage, p.damageType);
+        if (p.blastDamage > 0 && p.blastRange > 0)
+            for (Unit& o : units_)
+                if (o.alive() && enemies(p.owner, o.owner) && dist2d(o.position, p.position) <= p.blastRange + o.radius)
+                    applyDamage(o, p.blastDamage, p.damageType);
+    }
+    projectiles_.swap(keep);
+}
+
+void World::removeDead() {
+    for (const Unit& u : units_)
+        if (!u.alive()) deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
+    units_.erase(std::remove_if(units_.begin(), units_.end(), [](const Unit& u) { return !u.alive(); }), units_.end());
 }
 
 void World::moveUnit(Unit& u) {
@@ -183,8 +379,12 @@ void World::separate() {
 }
 
 void World::tick() {
+    for (Unit& u : units_) updateTargeting(u);
     for (Unit& u : units_) moveUnit(u);
     separate();
+    for (Unit& u : units_) fireWeapons(u);
+    updateProjectiles();
+    removeDead();
     ++ticks_;
 }
 

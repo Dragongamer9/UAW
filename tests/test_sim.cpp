@@ -1,4 +1,5 @@
 // Tests for navigation and the tactical simulation on a synthetic map.
+#include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/nav.hpp"
 #include "alamo/sim.hpp"
@@ -44,6 +45,29 @@ static GameDatabase testDb(const fs::path& root) {
   <X_Units Name="Trooper"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
     <Max_Rate_Of_Turn>30</Max_Rate_Of_Turn><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
     <Tactical_Health>250</Tactical_Health></X_Units>
+  <X_Units Name="Gunner"><MovementClass>Infantry</MovementClass><Max_Speed>1.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="ArmorAndDamageBehaviorType"><Armor_Type>Armor_Soft</Armor_Type></BehaviorType>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Bullet</Projectile_Types>
+      <Targeting_Max_Attack_Distance>150</Targeting_Max_Attack_Distance>
+      <Projectile_Fire_Recharge_Seconds>1.0</Projectile_Fire_Recharge_Seconds>
+      <Projectile_Fire_Pulse_Count>2</Projectile_Fire_Pulse_Count>
+      <Projectile_Fire_Pulse_Delay_Seconds>0.1</Projectile_Fire_Pulse_Delay_Seconds></BehaviorType></X_Units>
+  <X_Units Name="Turtle"><MovementClass>Tracked</MovementClass><Max_Speed>1.0</Max_Speed>
+    <Custom_Hard_XExtent>10</Custom_Hard_XExtent><Tactical_Health>100</Tactical_Health>
+    <BehaviorType Name="ArmorAndDamageBehaviorType"><Armor_Type>Armor_Hard</Armor_Type></BehaviorType>
+    <Attached_Hard_Points> HP_Mortar, Bone_01 </Attached_Hard_Points></X_Units>
+  <HardPoint Name="HP_Mortar">
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Shell</Projectile_Types>
+      <Targeting_Max_Attack_Distance>300</Targeting_Max_Attack_Distance>
+      <Projectile_Fire_Recharge_Seconds>2.0</Projectile_Fire_Recharge_Seconds></BehaviorType></HardPoint>
+  <Projectile Name="Proj_Bullet"><Max_Speed>30</Max_Speed>
+    <BehaviorType Name="ArmorAndDamageBehaviorType"><Damage_Type>Damage_Bullet</Damage_Type></BehaviorType>
+    <BehaviorType Name="ProjectileBehaviorType"><Projectile_Damage>5</Projectile_Damage></BehaviorType></Projectile>
+  <Projectile Name="Proj_Shell"><Max_Speed>10</Max_Speed>
+    <BehaviorType Name="ArmorAndDamageBehaviorType"><Damage_Type>Damage_Shell</Damage_Type></BehaviorType>
+    <BehaviorType Name="ProjectileBehaviorType"><Projectile_Blast_Area_Damage>20</Projectile_Blast_Area_Damage>
+      <Projectile_Blast_Area_Range>40</Projectile_Blast_Area_Range></BehaviorType></Projectile>
   <X_Units Name="Tank"><MovementClass>Tracked</MovementClass><Max_Speed>3.0</Max_Speed>
     <Max_Rate_Of_Turn>4</Max_Rate_Of_Turn><Stopped_Rate_Of_Turn>3</Stopped_Rate_Of_Turn>
     <OverrideAcceleration>0.1</OverrideAcceleration><Custom_Hard_XExtent>14</Custom_Hard_XExtent></X_Units>
@@ -139,11 +163,72 @@ static void testGroups(const GameDatabase& db) {
     CHECK(minGap > 7); // radius 5 each: no stacking
 }
 
+static void testCombat(const GameDatabase& db) {
+    Map m = wallMap();
+    // Weapons from the unit itself and from an attached hardpoint.
+    const auto gw = weaponsFor(*db.find("Gunner"), db);
+    CHECK(gw.size() == 1 && gw[0].pulseCount == 2 && gw[0].rechargeTicks == 30 && gw[0].pulseDelayTicks == 3);
+    const auto tw = weaponsFor(*db.find("Turtle"), db);
+    CHECK(tw.size() == 1 && tw[0].source->name == "HP_Mortar" && tw[0].blastDamage == 20);
+
+    DamageTable table;
+    table.set("Damage_Bullet", "Armor_Hard", 2.0f);
+    CHECK(table.modifier("damage_bullet", "ARMOR_HARD") == 2.0f && table.modifier("Damage_Bullet", "Armor_Soft") == 1.0f);
+
+    // Gunner vs Turtle at 120 units: bullets do 5 x2 = 10 per shot against hard armor,
+    // two per burst every second -> 100 health gone in about 5 seconds.
+    World w(m, db, &table, 7);
+    const uint32_t gunner = w.spawn("Gunner", 0, {200, 400, 0});
+    const uint32_t turtle = w.spawn("Turtle", 1, {320, 400, 0});
+    // The turtle's mortar (blast 20, 1.0x vs soft) fights back: 100 health in 5 shells, one per 2 s.
+    int ticks = 0;
+    while (w.unit(turtle) && w.unit(gunner) && ticks < 30 * 30) {
+        w.tick();
+        ++ticks;
+    }
+    CHECK(!w.unit(turtle));            // the gunner wins the race
+    CHECK(w.unit(gunner) != nullptr);
+    CHECK(ticks > 4 * 30 && ticks < 6 * 30);
+    CHECK(w.deaths().size() == 1 && w.deaths()[0].id == turtle);
+    if (const Unit* g = w.unit(gunner)) CHECK(g->health < 100 && g->health > 0); // took mortar hits
+    std::printf("gunner beat turtle in %d ticks (%.1f s)\n", ticks, ticks / 30.f);
+
+    // Out of range: nobody shoots.
+    World far(m, db, &table, 7);
+    far.spawn("Gunner", 0, {100, 100, 0});
+    far.spawn("Gunner", 1, {600, 100, 0});
+    for (int i = 0; i < 90; ++i) far.tick();
+    CHECK(far.projectiles().empty() && far.units()[0].health == 100);
+
+    // Attack order: chase into range, then kill.
+    World chase(m, db, &table, 7);
+    const uint32_t hunter = chase.spawn("Gunner", 0, {100, 300, 0});
+    const uint32_t prey = chase.spawn("Tank", 1, {400, 300, 0}); // unarmed
+    chase.commandAttack({hunter}, prey);
+    for (int i = 0; i < 60 * 30 && chase.unit(prey); ++i) chase.tick();
+    CHECK(!chase.unit(prey));
+
+    // Same seed, same battle.
+    auto battle = [&](uint64_t seed) {
+        World b(m, db, &table, seed);
+        for (int i = 0; i < 4; ++i) {
+            b.spawn("Gunner", 0, {200.f, 200.f + i * 25, 0});
+            b.spawn("Gunner", 1, {320.f, 200.f + i * 25, 0});
+        }
+        for (int i = 0; i < 20 * 30; ++i) b.tick();
+        std::vector<float> hp;
+        for (const Unit& u : b.units()) hp.push_back(u.health);
+        return hp;
+    };
+    CHECK(battle(3) == battle(3));
+}
+
 int main() {
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
     testNav();
     testMovement(db);
     testGroups(db);
+    testCombat(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

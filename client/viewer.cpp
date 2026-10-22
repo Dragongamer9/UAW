@@ -4,6 +4,7 @@
 //     --player N          you control player N's squad; camera starts there (default 1)
 //     --all-groups        also show campaign-mission objects
 //     --no-units          don't spawn test squads
+//     --battle            Novus and Hierarchy squads face off mid-map (with --run: prints the battle)
 //     --size WxH          window size (default 1600x900)
 //     --camera x,y,dist,yaw,pitch
 //     --screenshot FILE   render one frame to a PNG and exit (works headless)
@@ -12,10 +13,13 @@
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
-//             Tab select all yours, Space jump to selection, X stop, P stand-in boxes, Esc quit
+//             Tab select all yours, Space jump to selection, X stop, G (or hold A) + right click attack-move,
+//             P stand-in boxes, Esc quit
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
 //   gamepad   left stick pan, right stick rotate/tilt, triggers zoom; reticle at screen centre:
-//             A select (hold LB to add), X select all on screen, B clear, RB move, Y stand-in boxes, Back quit
+//             A select (hold LB to add), X select all on screen, B clear, RB move/attack, D-pad up attack-move,
+//             Y stand-in boxes, Back quit
+//   right click / RB on an enemy unit orders an attack; units also fire at enemies in range on their own
 #include "camera.hpp"
 #include "gl.hpp"
 #include "renderer.hpp"
@@ -23,6 +27,7 @@
 #include "units.hpp"
 
 #include "alamo/assets.hpp"
+#include "alamo/combat.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/sim.hpp"
@@ -47,7 +52,7 @@ namespace {
 struct Options {
     std::string gameRoot, map, screenshot;
     int width = 1600, height = 900, player = 1;
-    bool allGroups = false, haveCamera = false, units = true, haveOrder = false;
+    bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
     float runSeconds = 0;
@@ -89,7 +94,8 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--run") o.runSeconds = float(std::atof(next()));
         else if (a == "--size") std::sscanf(next(), "%dx%d", &o.width, &o.height);
         else if (a == "--camera")
-            o.haveCamera = std::sscanf(next(), "%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3], &o.cam[4]) == 5;
+            o.camSet = o.haveCamera = std::sscanf(next(), "%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3], &o.cam[4]) == 5;
+        else if (a == "--battle") o.battle = true;
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -184,10 +190,25 @@ int main(int argc, char** argv) {
                     opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
 
         // Simulation with a test squad at each start position.
-        World world(map, db);
+        const DamageTable damageTable = loadDamageTable(vfs);
+        World world(map, db, &damageTable);
         std::vector<Vec3> starts;
         for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
-        if (opt.units) spawnTestSquads(world, starts, map);
+        if (opt.battle) {
+            // Squads face off in the middle of the playable area.
+            const Vec3 c{(map.playableMin[0] + map.playableMax[0]) / 2, (map.playableMin[1] + map.playableMax[1]) / 2, 0};
+            spawnBattle(world, c, 420);
+            if (!opt.camSet) {
+                opt.haveCamera = true;
+                opt.cam[0] = c[0];
+                opt.cam[1] = c[1] - 120;
+                opt.cam[2] = 650;
+                opt.cam[3] = 0;
+                opt.cam[4] = 50;
+            }
+        } else if (opt.units) {
+            spawnTestSquads(world, starts, map);
+        }
         UnitControl control(opt.player - 1);
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
@@ -224,7 +245,21 @@ int main(int argc, char** argv) {
                 control.moveTo(world, target);
             }
             const int ticks = int(opt.runSeconds * kTicksPerSecond);
-            for (int t = 0; t < ticks; ++t) world.tick();
+            auto census = [&]() {
+                int alive[4] = {0, 0, 0, 0};
+                float hp[4] = {0, 0, 0, 0};
+                for (const Unit& u : world.units()) {
+                    alive[std::clamp(u.owner, 0, 3)]++;
+                    hp[std::clamp(u.owner, 0, 3)] += u.health;
+                }
+                std::printf("t=%5.1fs  player1: %2d units %6.0f hp   player2: %2d units %6.0f hp   shots in flight %zu\n",
+                            world.seconds(), alive[0], hp[0], alive[1], hp[1], world.projectiles().size());
+            };
+            if (opt.battle) census();
+            for (int t = 1; t <= ticks; ++t) {
+                world.tick();
+                if (opt.battle && t % (5 * kTicksPerSecond) == 0) census();
+            }
             if (opt.haveOrder) {
                 size_t moving = 0;
                 for (const Unit& u : world.units()) moving += u.owner == control.player() && u.moving();
@@ -249,7 +284,7 @@ int main(int argc, char** argv) {
             double simAccumulator = 0;
             int frames = 0;
             // Mouse drag state for box selection / right-click orders.
-            bool leftDown = false, rightDown = false, rightDragged = false;
+            bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false;
             float downX = 0, downY = 0, mouseX = 0, mouseY = 0;
             while (running) {
                 const bool* k = SDL_GetKeyboardState(nullptr);
@@ -263,6 +298,7 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_P) placeholders = !placeholders;
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
+                        else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
                         else if (e.key.key == SDLK_SPACE && !control.selection().empty()) {
                             float sx = 0, sy = 0;
                             for (uint32_t id : control.selection())
@@ -290,7 +326,11 @@ int main(int argc, char** argv) {
                         if (e.button.button == SDL_BUTTON_RIGHT && rightDown) {
                             rightDown = false;
                             Vec3 g;
-                            if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) control.moveTo(world, g);
+                            if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
+                                if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
+                                else control.command(world, g);
+                                attackMoveArmed = false;
+                            }
                         }
                         break;
                     case SDL_EVENT_MOUSE_MOTION:
@@ -319,7 +359,10 @@ int main(int argc, char** argv) {
                         case SDL_GAMEPAD_BUTTON_WEST: control.selectAllVisible(world, view); break;
                         case SDL_GAMEPAD_BUTTON_EAST: control.clear(); break;
                         case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:
-                            if (reticle) control.moveTo(world, g);
+                            if (reticle) control.command(world, g);
+                            break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_UP:
+                            if (reticle) control.attackMove(world, g);
                             break;
                         default: break;
                         }

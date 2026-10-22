@@ -53,25 +53,42 @@ bool View::groundAt(const alamo::Map& m, float px, float py, Vec3& out) const {
 
 // ------------------------------------------------------------------ squads
 
-void spawnTestSquads(alamo::World& world, const std::vector<Vec3>& starts, const alamo::Map& map) {
-    static const std::vector<SquadSpec> squads[3] = {
+namespace {
+const std::vector<SquadSpec> kSquads[3] = {
         {{"Novus_Robotic_Infantry", 6}, {"Novus_Variant", 2}, {"Novus_Antimatter_Tank", 1}, {"Novus_Hero_Mech", 1}},
         {{"Alien_Grunt", 6}, {"Alien_Recon_Tank", 2}, {"Alien_Defiler", 1}, {"Alien_Hero_Orlok", 1}},
-        {{"Masari_Disciple", 6}, {"Masari_Seeker", 2}, {"Masari_Peacebringer", 1}, {"Masari_Hero_Charos", 1}},
-    };
+        {{"Masari_Disciple", 6}, {"Masari_Seeker", 2}, {"Masari_Peacebringer_Fire", 1}, {"Masari_Hero_Charos", 1}},
+};
+
+void placeSquad(alamo::World& world, int player, const Vec3& at, float facing, float ahead) {
+    const float fx = std::cos(facing), fy = std::sin(facing);
+    int i = 0;
+    for (const SquadSpec& spec : kSquads[player % 3]) {
+        for (int k = 0; k < spec.count; ++k, ++i) {
+            const float row = float(i / 5), col = float(i % 5) - 2;
+            const Vec3 p{at[0] + fx * (ahead - row * 40) - fy * col * 40, at[1] + fy * (ahead - row * 40) + fx * col * 40, 0};
+            world.spawn(spec.type, player, p, facing);
+        }
+    }
+}
+} // namespace
+
+void spawnBattle(alamo::World& world, const Vec3& centre, float gap) {
+    placeSquad(world, 0, {centre[0] - gap / 2, centre[1], 0}, 0.f, 0.f);
+    placeSquad(world, 1, {centre[0] + gap / 2, centre[1], 0}, 3.14159265f, 0.f);
+    // Both sides attack-move through each other's starting line.
+    std::vector<uint32_t> a, b;
+    for (const alamo::Unit& u : world.units()) (u.owner == 0 ? a : b).push_back(u.id);
+    world.commandAttackMove(a, {centre[0] + gap / 2, centre[1], 0});
+    world.commandAttackMove(b, {centre[0] - gap / 2, centre[1], 0});
+}
+
+void spawnTestSquads(alamo::World& world, const std::vector<Vec3>& starts, const alamo::Map& map) {
     for (size_t p = 0; p < starts.size(); ++p) {
         const Vec3& s = starts[p];
         const float toCentre = std::atan2(map.sizeY() / 2 - s[1], map.sizeX() / 2 - s[0]);
-        // Place the squad a little in front of the start marker, in rows.
-        const float fx = std::cos(toCentre), fy = std::sin(toCentre);
-        int i = 0;
-        for (const SquadSpec& spec : squads[p % 3]) {
-            for (int k = 0; k < spec.count; ++k, ++i) {
-                const float row = float(i / 5), col = float(i % 5) - 2;
-                const Vec3 at{s[0] + fx * (120 + row * 40) - fy * col * 40, s[1] + fy * (120 + row * 40) + fx * col * 40, 0};
-                world.spawn(spec.type, int(p), at, toCentre);
-            }
-        }
+        // A little in front of the start marker, in rows.
+        placeSquad(world, int(p), s, toCentre, 160.f);
     }
 }
 
@@ -116,6 +133,30 @@ void UnitControl::moveTo(alamo::World& w, const Vec3& ground) {
     lastOrderTime_ = w.seconds();
 }
 
+void UnitControl::command(alamo::World& w, const Vec3& ground) {
+    if (selected_.empty()) return;
+    for (uint32_t id : w.unitsNear(ground, 10)) {
+        const alamo::Unit* u = w.unit(id);
+        if (u && w.enemies(player_, u->owner)) {
+            w.commandAttack(std::vector<uint32_t>(selected_.begin(), selected_.end()), id);
+            lastOrder_ = u->position;
+            lastOrderTime_ = w.seconds();
+            attackOrder_ = true;
+            return;
+        }
+    }
+    attackOrder_ = false;
+    moveTo(w, ground);
+}
+
+void UnitControl::attackMove(alamo::World& w, const Vec3& ground) {
+    if (selected_.empty()) return;
+    w.commandAttackMove(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground);
+    lastOrder_ = ground;
+    lastOrderTime_ = w.seconds();
+    attackOrder_ = true;
+}
+
 void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(selected_.begin(), selected_.end())); }
 
 // ------------------------------------------------------------------ drawing
@@ -147,10 +188,12 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
         }
 
         if (sel) {
-            // Selection plate under the unit and a health bar above it.
             const float s = rad * 2.6f + 4;
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + 0.5f) * Mat4::scale3(s, s, 0.8f),
                       {0.3f, 1.f, 0.4f, 1});
+        }
+        if (sel || u.health < u.maxHealth) {
+            // Health bar above selected or damaged units.
             const float frac = std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f);
             const float barW = std::max(rad * 2.5f, 14.f), top = std::max(rad * 2.4f, 16.f) + 8;
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2] + top) * Mat4::scale3(barW, 2.5f, 2.5f),
@@ -160,11 +203,28 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                       {1 - frac, 0.85f * frac + 0.15f, 0.2f, 1});
         }
     }
-    // Move order marker: shrinking plate for one second.
+    // Shots in flight: small glowing blocks in the shooter's colour.
+    static const Vec4 shot[] = {{0.5f, 0.85f, 1.f, 1}, {1.f, 0.55f, 0.25f, 1}, {0.6f, 1.f, 0.5f, 1}, {1.f, 0.9f, 0.4f, 1}};
+    for (const alamo::Projectile& p : w.projectiles()) {
+        const float sz = p.blastDamage > 0 ? 6.f : 3.5f;
+        r.drawBox(Mat4::translate(p.position[0], p.position[1], p.position[2] - sz / 2) * Mat4::scale(sz), shot[std::clamp(p.owner, 0, 3)]);
+    }
+    // Wrecks: dark scorch plates that fade over 20 seconds.
+    const uint64_t now = w.tickCount();
+    for (const alamo::DeathEvent& d : w.deaths()) {
+        const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
+        if (age > 20) continue;
+        const float k = 1 - age / 20;
+        const float s = 12 + 10 * std::min(age * 3, 1.f);
+        r.drawBox(Mat4::translate(d.position[0], d.position[1], d.position[2] + 0.4f) * Mat4::scale3(s, s, 1.5f * k + 0.3f),
+                  {0.12f + 0.5f * k * (age < 0.5f), 0.1f, 0.08f, 1});
+    }
+    // Order marker: shrinking plate for one second (red for attack orders).
     const float age = time - lastOrderTime_;
     if (age >= 0 && age < 1) {
         const float s = 30 * (1 - age) + 6;
-        r.drawBox(Mat4::translate(lastOrder_[0], lastOrder_[1], lastOrder_[2] + 0.6f) * Mat4::scale3(s, s, 0.8f), {0.3f, 1.f, 0.4f, 1});
+        const Vec4 c = attackOrder_ ? Vec4{1.f, 0.3f, 0.25f, 1} : Vec4{0.3f, 1.f, 0.4f, 1};
+        r.drawBox(Mat4::translate(lastOrder_[0], lastOrder_[1], lastOrder_[2] + 0.6f) * Mat4::scale3(s, s, 0.8f), c);
     }
 }
 
