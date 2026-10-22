@@ -310,6 +310,7 @@ struct Command {
     enum class Kind : uint8_t {
         Move, Stop, AttackMove, Attack, Queue, CancelQueue, Rally, Construct, Superweapon, Research, Ability, Board, Unload,
         Sell, Patrol, Guard, // new kinds go last (saved games name them, but keep the order anyway)
+        Pause,               // network games: pauses or resumes for everyone (not a World order)
     };
     uint64_t tick = 0;              // given before this tick ran
     Kind kind = Kind::Move;

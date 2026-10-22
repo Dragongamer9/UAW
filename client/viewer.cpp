@@ -73,6 +73,7 @@
 #include "alamo/ai.hpp"
 #include "alamo/sfx.hpp"
 
+#include <cstring>
 #include <unordered_set>
 #include "alamo/alo.hpp"
 #include "alamo/assets.hpp"
@@ -531,6 +532,11 @@ int main(int argc, char** argv) {
         // One tick, if the network allows it (LAN games: the turn's orders must be known; at a turn's
         // first tick its orders run). Returns false when it has to wait.
         int64_t turnBegun = -1;
+        // LAN: the network's own tick count, which runs on while the game is paused (the world's
+        // stops); orders and turns go by it. A Pause order pauses or resumes for everyone at once.
+        uint64_t netTick = 0;
+        bool netPaused = false;
+        int netPausedBy = -1;
         uint64_t waitingSince = 0; // LAN: when the simulation last had to wait for the others (0 = not waiting)
         // Watching a saved game (--replay): its orders are given again at their ticks as it plays.
         const bool replaying = save && opt.replay;
@@ -542,21 +548,31 @@ int main(int argc, char** argv) {
                     world.apply(save->commands[replayNext++]);
             }
             if (ls) {
-                const uint64_t t = world.tickCount();
+                const uint64_t t = netTick;
                 if (!ls->canRun(t)) return false;
                 if (t % Lockstep::kTurnTicks == 0 && int64_t(t) != turnBegun) {
                     turnBegun = int64_t(t);
                     const std::vector<alamo::Command> orders = ls->beginTurn(t, world.stateHash());
                     world.setCapture(false);
-                    for (const alamo::Command& c : orders) world.apply(c);
+                    for (const alamo::Command& c : orders) {
+                        if (c.kind == alamo::Command::Kind::Pause) {
+                            netPaused = !netPaused;
+                            netPausedBy = c.owner;
+                        } else {
+                            world.apply(c);
+                        }
+                    }
+                    world.setCapture(true);
                 }
+                ++netTick;
+                if (netPaused) return true;
             }
             stepWorld();
             return true;
         };
         auto pumpNetwork = [&]() {
             if (!ls) return;
-            ls->submit(world.takeCaptured(), world.tickCount());
+            ls->submit(world.takeCaptured(), netTick);
             ls->poll();
         };
         if (world.players().empty())
@@ -800,6 +816,7 @@ int main(int argc, char** argv) {
             hud.draw(renderer, world, control, db, text, padConnected, &view);
             if (ls && !ls->problem().empty()) hud.centreText(renderer, ls->problem());
             else if (ls && waitingSince && SDL_GetTicks() - waitingSince > 600) hud.centreText(renderer, "Waiting for the other players...");
+            else if (ls && netPaused) hud.centreText(renderer, netPausedBy == control.player() ? "Paused (Pause resumes)" : "Paused by another player (Pause resumes)");
             else if (paused && !pause.open) hud.centreText(renderer, "Paused");
             else if (opt.speed != 1) hud.centreText(renderer, opt.speed > 1 ? "Speed x" + std::to_string(int(opt.speed)) : "Speed x0.5", true);
             if (pause.open) pause.draw(renderer);
@@ -856,8 +873,21 @@ int main(int argc, char** argv) {
                             world.seconds(), alive[0], hp[0], alive[1], hp[1], world.projectiles().size());
             };
             if (opt.battle) census();
+            // Test hook (UAW_TEST_PAUSE=A,B): this player pauses the network game at A seconds of network
+            // time and resumes it at B.
+            std::vector<uint64_t> pauseAt;
+            if (const char* tp = std::getenv("UAW_TEST_PAUSE"))
+                for (const char* p = tp; p && *p; p = std::strchr(p, ',') ? std::strchr(p, ',') + 1 : nullptr)
+                    pauseAt.push_back(uint64_t(std::atof(p) * kTicksPerSecond));
             for (int t = 1; t <= ticks; ++t) {
                 if (ls) {
+                    if (std::find(pauseAt.begin(), pauseAt.end(), netTick) != pauseAt.end()) {
+                        alamo::Command c;
+                        c.kind = alamo::Command::Kind::Pause;
+                        c.owner = control.player();
+                        c.tick = netTick;
+                        ls->submit({c}, netTick);
+                    }
                     pumpNetwork();
                     const uint64_t waited = SDL_GetTicks();
                     while (!advance()) {
@@ -866,6 +896,8 @@ int main(int argc, char** argv) {
                         if (SDL_GetTicks() - waited > 15000 || !ls->problem().empty()) break;
                     }
                     if (SDL_GetTicks() - waited > 15000) { std::printf("network: stalled at tick %llu\n", (unsigned long long)world.tickCount()); break; }
+                    if (t == ticks) std::printf("network: tick %llu, world tick %llu, state %016llx\n", (unsigned long long)netTick,
+                                                (unsigned long long)world.tickCount(), (unsigned long long)world.stateHash());
                     if (!ls->problem().empty()) { std::printf("network: %s\n", ls->problem().c_str()); break; }
                 } else {
                     advance();
@@ -1037,7 +1069,15 @@ int main(int argc, char** argv) {
                             end = End::Load;
                             running = false;
                         } else if (e.key.key == SDLK_PAUSE) {
-                            paused = !paused;
+                            if (ls) { // everyone pauses (or resumes) at the same tick
+                                alamo::Command c;
+                                c.kind = alamo::Command::Kind::Pause;
+                                c.owner = control.player();
+                                c.tick = netTick;
+                                ls->submit({c}, netTick);
+                            } else {
+                                paused = !paused;
+                            }
                         } else if (e.key.key == SDLK_RIGHTBRACKET) {
                             opt.speed = std::min(4.f, opt.speed * 2);
                         } else if (e.key.key == SDLK_LEFTBRACKET) {

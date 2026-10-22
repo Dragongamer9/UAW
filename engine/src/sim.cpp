@@ -1485,6 +1485,7 @@ void World::apply(const Command& c) {
     case Command::Kind::Board: commandBoard(c.ids, c.target); break;
     case Command::Kind::Unload: unload(first); break;
     case Command::Kind::Sell: sell(first); break;
+    case Command::Kind::Pause: break; // the network game's, not the world's
     }
 }
 

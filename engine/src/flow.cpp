@@ -26,7 +26,7 @@ bool World::canFlow(const GameObjectType& t) const {
         std::string s = *lb;
         for (char& c : s) c = char(std::toupper(static_cast<unsigned char>(c)));
         for (size_t p = s.find("FLOW"); p != std::string::npos; p = s.find("FLOW", p + 1)) {
-            const bool startOk = p == 0 || !std::isalnum(static_cast<unsigned char>(s[p - 1])) && s[p - 1] != '_';
+            const bool startOk = p == 0 || (!std::isalnum(static_cast<unsigned char>(s[p - 1])) && s[p - 1] != '_');
             const bool endOk = p + 4 >= s.size() || (!std::isalnum(static_cast<unsigned char>(s[p + 4])) && s[p + 4] != '_');
             if (startOk && endOk) { yes = true; break; }
         }
