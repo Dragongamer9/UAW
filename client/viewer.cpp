@@ -42,7 +42,7 @@
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
-//             Tab select all yours, . next idle builder, , your army, Space jump to selection, X stop, G (or hold A) + right click attack-move,
+//             Tab select all yours, . next idle builder, , your army, M sound on/off, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera (right click: orders there),
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
@@ -57,6 +57,7 @@
 //             A select (hold LB to add), X select all on screen, B clear, RB move/attack, D-pad up attack-move,
 //             Y stand-in boxes, Back quit
 //   right click / RB on an enemy unit orders an attack; units also fire at enemies in range on their own
+#include "audio.hpp"
 #include "camera.hpp"
 #include "gl.hpp"
 #include "renderer.hpp"
@@ -69,6 +70,9 @@
 #include "lockstep.hpp"
 
 #include "alamo/ai.hpp"
+#include "alamo/sfx.hpp"
+
+#include <unordered_set>
 #include "alamo/alo.hpp"
 #include "alamo/assets.hpp"
 #include "alamo/combat.hpp"
@@ -296,6 +300,12 @@ int main(int argc, char** argv) {
         GameRules rules;
         rules.load(vfs);
         SDL_Log("%zu effects, %zu research trees", rules.effectLibrary.size(), rules.research.size());
+        // Sound: the SFX events, and their samples from wherever the game keeps them.
+        SfxLibrary sfxLibrary;
+        sfxLibrary.load(vfs);
+        std::unique_ptr<Audio> audio;
+        if (!headless) audio = std::make_unique<Audio>(vfs, sfxLibrary);
+        std::printf("sound: %zu SFX events%s\n", sfxLibrary.size(), audio && audio->ok() ? "" : " (no audio device)");
         const float uiScale = std::max(0.75f, float(opt.height) / 900.f);
         enum class End { Quit, ToMenu, Restart, Load };
         std::string loadPath; // End::Load: the file to load
@@ -523,6 +533,59 @@ int main(int argc, char** argv) {
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
         UnitControl control(replaying ? -1 : opt.player - 1); // a replay is watched, not played
         ParticleEffects effects(vfs, db);
+        // Sound hooks: what has been heard so far this session.
+        std::set<uint32_t> heardSelection;
+        float heardOrderTime = -100;
+        size_t heardDeaths = world.deaths().size();
+        std::unordered_set<uint32_t> heardOwn;
+        bool heardFirst = true;
+        auto sounds = [&](const Vec3& listenerAt, float yawDeg) {
+            if (!audio) return;
+            audio->setListener(listenerAt, yawDeg * 3.14159265f / 180.f);
+            auto event = [&](const GameObjectType& t, const char* field) -> std::string {
+                const std::string* v = t.find(field);
+                return v ? alamo::trim(*v) : std::string();
+            };
+            // Your selection answers; your orders are acknowledged.
+            const std::set<uint32_t>& sel = control.selection();
+            if (sel != heardSelection) {
+                if (!sel.empty())
+                    if (const Unit* u = world.unit(*sel.begin()); u && u->owner == control.player())
+                        audio->play(event(*u->type, "SFXEvent_Select"));
+                heardSelection = sel;
+            }
+            if (control.lastOrderTime() != heardOrderTime) {
+                heardOrderTime = control.lastOrderTime();
+                if (!sel.empty())
+                    if (const Unit* u = world.unit(*sel.begin()); u && u->owner == control.player() && !u->structure)
+                        audio->play(event(*u->type, control.lastOrderWasAttack() ? "SFXEvent_Attack" : "SFXEvent_Move"));
+            }
+            // Gunfire and deaths near the camera.
+            for (const Unit& u : world.units()) {
+                if (!u.firedThisTick || !control.shown(world, u)) continue;
+                if (std::hypot(u.position[0] - listenerAt[0], u.position[1] - listenerAt[1]) > 1800) continue;
+                std::string fire = event(*u.type, "SFXEvent_Fire");
+                if (fire.empty())
+                    for (const auto& wsp : u.weapons) // a hardpoint's own gun sound
+                        if (wsp.spec.source) { fire = event(*wsp.spec.source, "SFXEvent_Fire"); if (!fire.empty()) break; }
+                if (!fire.empty()) audio->play(fire, &u.position);
+            }
+            const auto& deaths = world.deaths();
+            for (; heardDeaths < deaths.size(); ++heardDeaths) {
+                const auto& d = deaths[heardDeaths];
+                if (!d.type || d.sold) continue;
+                const std::string die = event(*d.type, "Death_SFXEvent_Start_Die");
+                if (!die.empty()) audio->play(die, &d.position);
+            }
+            // New units and finished buildings of yours announce themselves.
+            for (const Unit& u : world.units()) {
+                if (u.owner != control.player() || u.underConstruction || heardOwn.count(u.id)) continue;
+                heardOwn.insert(u.id);
+                if (!heardFirst) audio->play(event(*u.type, "SFXEvent_Tactical_Build_Complete"));
+            }
+            heardFirst = false;
+            audio->update();
+        };
         control.effects = &effects;
         control.db_ = &db;
         float lastFrameTime = world.seconds();
@@ -597,6 +660,7 @@ int main(int argc, char** argv) {
                 scene.draw(renderer, placeholders);
             }
             control.draw(renderer, world, world.seconds());
+            sounds(cam.target(map), cam.yaw);
             effects.watch(world, control);
             effects.update(std::clamp(world.seconds() - lastFrameTime, 0.f, 0.25f));
             lastFrameTime = world.seconds();
@@ -836,6 +900,10 @@ int main(int argc, char** argv) {
                             else control.say("No idle builders", world.seconds());
                         }
                         else if (e.key.key == SDLK_COMMA) control.selectArmy(world);
+                        else if (e.key.key == SDLK_M && audio) { // sound on / off
+                            audio->volume = audio->volume > 0 ? 0.f : 0.8f;
+                            control.say(audio->volume > 0 ? "Sound on" : "Sound off", world.seconds());
+                        }
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_U) control.unload(world);
                         else if (e.key.key == SDLK_HOME) {

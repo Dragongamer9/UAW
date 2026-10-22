@@ -1,5 +1,6 @@
 // Unit tests for the tolerant XML parser and the game object database.
 #include "alamo/gamedata.hpp"
+#include "alamo/sfx.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -123,9 +124,29 @@ static void testDatabase() {
     fs::remove_all(root);
 }
 
+static void testSfx() {
+    SfxLibrary lib;
+    lib.parse(R"(<SFXEvents>
+      <SFXEvent Name="Preset_EXP"><Is_Preset>Yes</Is_Preset><Is_3D>Yes</Is_3D><Is_2D>No</Is_2D>
+        <Max_Instances>3</Max_Instances><Volume_Saturation_Distance>400</Volume_Saturation_Distance>
+        <Min_Volume>80</Min_Volume><Max_Volume>90</Max_Volume></SFXEvent>
+      <SFXEvent Name="Boom"><Use_Preset>Preset_EXP</Use_Preset><Samples>EXP_A.wav EXP_B.wav</Samples>
+        <Max_Volume>95</Max_Volume></SFXEvent>
+      <SFXEvent Name="Click"><Is_2D>Yes</Is_2D><Is_GUI>Yes</Is_GUI><Samples>GUI_Click.wav</Samples></SFXEvent>
+    </SFXEvents>)");
+    const SfxEvent* b = lib.find("boom");
+    CHECK(b && b->samples.size() == 2 && b->samples[1] == "EXP_B.wav");
+    CHECK(b && b->is3D && b->maxInstances == 3 && b->saturationDistance == 400); // from the preset
+    CHECK(b && b->minVolume == 80 && b->maxVolume == 95);                        // own field wins
+    const SfxEvent* c = lib.find("Click");
+    CHECK(c && !c->is3D && c->isGUI);
+    CHECK(!lib.find("Nothing"));
+}
+
 int main() {
     testParser();
     testDatabase();
+    testSfx();
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

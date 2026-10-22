@@ -71,6 +71,8 @@ public:
     // Drawn for this player: own and allied units, enemies in sight, enemy structures seen before.
     bool shown(const alamo::World& w, const alamo::Unit& u) const;
     const std::set<uint32_t>& selection() const { return selected_; }
+    float lastOrderTime() const { return lastOrderTime_; } // game seconds of the last move/attack order
+    bool lastOrderWasAttack() const { return attackOrder_; }
 
     void clear() { selected_.clear(); }
     // Click: pick the own unit nearest the ground point (within its radius + slack).

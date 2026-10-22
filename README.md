@@ -39,7 +39,7 @@ redistributed.
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
 | 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war, computer difficulty, starting credits), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI plays by it too: it knows the enemy start bases and what it has seen, and sweeps the map when it has lost track |
-| 4 | Audio | planned: the staged game folder has no audio archives yet |
+| 4 | Audio: the game's SFX events (`SFXEventFiles.xml`, 1,405 events with presets), samples found by name anywhere in the game's files (.wav PCM/ADPCM and .mp3 via dr_wav/dr_mp3), placed sounds fading with distance and panned; unit select/move/attack replies, weapon fire, deaths, finished units and buildings | done (first version); only checked with synthetic sounds and two speech files, as the staged copy has no SFX samples |
 | 4 | LAN multiplayer: deterministic lockstep over TCP (orders only; 0.1 s turns, 0.2 s delay), host/join lobby on the setup screen, checksums to catch desyncs | done (first version): tested with two games on one machine |
 
 ## Mods
@@ -140,6 +140,7 @@ squad, or another with `--player N`.
 | Move / attack | right click (on an enemy = attack) | RB |
 | Queue a move after the current one | Shift + right click | |
 | Next idle builder (camera follows) / your whole army | . / , | |
+| Sound on / off | M | |
 | Orders on the minimap (move, attack-move with A/G, Shift to queue) | right click the minimap | |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Fire superweapon (enabler selected, ready) | V then right click | |

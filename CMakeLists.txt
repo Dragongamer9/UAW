@@ -34,6 +34,7 @@ add_library(alamo
     engine/src/abilities.cpp
     engine/src/superweapons.cpp
     engine/src/particles.cpp
+    engine/src/sfx.cpp
     engine/src/garrison.cpp
     engine/src/luavm.cpp
     engine/src/research.cpp
@@ -122,6 +123,7 @@ if(UAW_BUILD_CLIENT)
     client/hud.cpp
     client/menu.cpp
     client/particles.cpp
+    client/audio.cpp
     client/savegame.cpp
     client/net.cpp
     client/lockstep.cpp
