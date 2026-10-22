@@ -538,6 +538,15 @@ optional `0x1007` visibility bitfield. `0x1009` holds int16 quaternions
 A posed bone's local transform is T × R relative to its parent, replacing the
 rest transform. Skinned vertices are posed with posed(bone) × inverse(rest(bone)).
 
+### Map environment (chunk `0x0100`)
+
+Chunk `0x04` holds lighting presets (`0x06` each, the first is the one in use) as mini-chunks: `0x00` sun
+colour, `0x01`/`0x02` fill light colours, `0x04` ambient, `0x05` sun intensity, `0x0B`-`0x0D` the sun's
+direction (pointing down into the map), `0x0F` fog colour, `0x10` fog on, `0x11`/`0x12` fog start and end,
+`0x14` the preset's name (Night, Afternoon_Sunset...), `0x19` the sky dome object type (`INV_*`, a
+`LandPrimarySkydome`), `0x2F` the cloud texture. `maptool info` prints them; the viewer lights the map with
+them and draws the sky dome round the camera.
+
 ### Terrain flags (chunk `0x010A`)
 
 One uint32 per vertex. Meanings below come from drawing the flags on several maps

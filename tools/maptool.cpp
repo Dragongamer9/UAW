@@ -286,6 +286,11 @@ int main(int argc, char** argv) {
                         *std::max_element(m.heights.begin(), m.heights.end()));
             std::printf("playable: (%.0f, %.0f) - (%.0f, %.0f)\n", m.playableMin[0], m.playableMin[1], m.playableMax[0],
                         m.playableMax[1]);
+            if (const MapEnvironment& e = m.environment; e.valid)
+                std::printf("environment: %s, sun (%.2f %.2f %.2f) x%.2f from (%.2f %.2f %.2f), ambient (%.2f %.2f %.2f), haze (%.2f %.2f %.2f) %.0f-%.0f%s, sky %s\n",
+                            e.name.empty() ? "-" : e.name.c_str(), e.sun[0], e.sun[1], e.sun[2], e.sunIntensity, e.sunDirection[0],
+                            e.sunDirection[1], e.sunDirection[2], e.ambient[0], e.ambient[1], e.ambient[2], e.fogColor[0], e.fogColor[1],
+                            e.fogColor[2], e.fogStart, e.fogEnd, e.fog ? "" : " (off)", e.skyDome.empty() ? "-" : e.skyDome.c_str());
             std::printf("asset banks:");
             for (const auto& b : m.assetBanks) std::printf(" %s", b.c_str());
             std::printf("\ntexture layers: %zu\n", m.layers.size());
