@@ -100,6 +100,7 @@ struct Unit {
     uint32_t constructing = 0;         // builders: structure they are working on
     int builderTicks = 0;              // construction ticks that need a builder present (the rest run alone)
     std::vector<const GameObjectType*> upgrades; // finished upgrades/hardpoints bought at this structure
+    std::vector<const GameObjectType*> socketsUsed; // walkers: socket hardpoints filled (queued or bought)
 
     // Economy.
     enum class Harvest : uint8_t { None, ToNode, Gathering, Returning };
@@ -492,6 +493,14 @@ private:
     mutable std::unordered_map<const GameObjectType*, BuildInfo> buildCache_;
     const BuildInfo& cachedBuildInfo(const GameObjectType& t) const;
     mutable int anyBaseBuilder_ = -1;
+    // Objects placed by any base builder of their faction: no Tactical_Builder and no builder
+    // among their requirements (Hierarchy walkers, carved by Glyph Carvers). Built on first use.
+    mutable std::vector<std::pair<const GameObjectType*, std::vector<std::string>>> fieldBuilt_;
+    mutable bool fieldBuiltReady_ = false;
+    // Hardpoint sockets of a type (Hierarchy walkers buy hardpoints into them), with repeats.
+    const std::vector<const GameObjectType*>& socketsOf(const GameObjectType& t) const;
+    const GameObjectType* socketFor(const Unit& u, const GameObjectType& upgrade) const;
+    mutable std::unordered_map<const GameObjectType*, std::vector<const GameObjectType*>> sockets_;
     uint32_t nextId_ = 1;
     std::vector<uint32_t> lastSpawned_;
     uint64_t ticks_ = 0;

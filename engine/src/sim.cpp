@@ -159,6 +159,59 @@ bool isStructureType(const GameObjectType& t) {
     return (mc && iequals(trim(*mc), "Building")) || t.category.find("Structure") != std::string::npos;
 }
 
+const std::vector<const GameObjectType*>& World::socketsOf(const GameObjectType& type) const {
+    auto it = sockets_.find(&type);
+    if (it != sockets_.end()) return it->second;
+    // Walk the hardpoint tree (walker -> crown/legs -> sockets); a socket is a hardpoint that
+    // some upgrade names as its Tactical_Builder.
+    std::vector<const GameObjectType*> out;
+    std::vector<std::pair<const GameObjectType*, int>> todo{{&type, 0}};
+    while (!todo.empty()) {
+        auto [t, depth] = todo.back();
+        todo.pop_back();
+        const std::string* hps = t->find("Attached_Hard_Points");
+        if (!hps || depth > 4) continue;
+        std::vector<std::string> items;
+        std::string cur;
+        for (char c : *hps + ",") {
+            if (c == ',' || c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+                if (!cur.empty()) items.push_back(cur);
+                cur.clear();
+            } else {
+                cur += c;
+            }
+        }
+        for (size_t i = 0; i < items.size(); i += 2) {
+            const GameObjectType* hp = db_.find(items[i]);
+            if (!hp) continue;
+            // Socket instances are often variants of the socket the tech tree names
+            // (Alien_Walker_Habitat_BACK_HP00 of ..._Body_Socket): count the named one.
+            for (const GameObjectType* v = hp; v && tech_; v = v->variantOf.empty() ? nullptr : db_.find(v->variantOf))
+                if (!tech_->producibleBy(v->name, [](const std::string&) { return true; }).empty()) {
+                    out.push_back(v);
+                    break;
+                }
+            todo.push_back({hp, depth + 1});
+        }
+    }
+    return sockets_.emplace(&type, std::move(out)).first->second;
+}
+
+const GameObjectType* World::socketFor(const Unit& u, const GameObjectType& upgrade) const {
+    // A free socket of `u` that can take the upgrade.
+    if (!tech_) return nullptr;
+    for (const GameObjectType* sock : socketsOf(*u.type)) {
+        bool fits = false;
+        for (const BuildOption& o : tech_->options(upgrade.name))
+            for (const std::string& b : o.builders) fits = fits || iequals(b, sock->name);
+        if (!fits) continue;
+        const auto total = std::count(socketsOf(*u.type).begin(), socketsOf(*u.type).end(), sock);
+        const auto used = std::count(u.socketsUsed.begin(), u.socketsUsed.end(), sock);
+        if (used < total) return sock;
+    }
+    return nullptr;
+}
+
 std::vector<std::string> World::producible(uint32_t id) const {
     const Unit* s = nullptr;
     for (const Unit& u : units_)
@@ -166,6 +219,15 @@ std::vector<std::string> World::producible(uint32_t id) const {
     if (!s || !tech_ || s->underConstruction) return {};
     const int owner = s->owner;
     auto out = tech_->producibleBy(s->type->name, [&](const std::string& t) { return owns(owner, t); });
+    // Hardpoints bought into the unit's own sockets (walker legs, crowns, bodies).
+    for (const GameObjectType* sock : socketsOf(*s->type))
+        for (const std::string& n : tech_->producibleBy(sock->name, [&](const std::string& t) { return owns(owner, t); })) {
+            const GameObjectType* t = db_.find(n);
+            if (!t || std::find(out.begin(), out.end(), n) != out.end()) continue;
+            if (std::find(s->upgrades.begin(), s->upgrades.end(), t) != s->upgrades.end()) continue;
+            if (std::find(s->queue.begin(), s->queue.end(), t) != s->queue.end()) continue;
+            if (socketFor(*s, *t)) out.push_back(n);
+        }
     if (!s->structure) {
         // A mobile builder listed as Tactical_Builder of a structure constructs it on site
         // (mods such as Human Resurgence write it that way); that's constructible(), not production.
@@ -181,6 +243,20 @@ std::vector<std::string> World::producible(uint32_t id) const {
     return out;
 }
 
+namespace {
+// "Alien, Alien_ZM06_KamalRex" lists Alien.
+bool listsFaction(const std::string& affiliation, const std::string& faction) {
+    size_t start = 0;
+    while (start <= affiliation.size()) {
+        size_t end = affiliation.find(',', start);
+        if (end == std::string::npos) end = affiliation.size();
+        if (iequals(trim(std::string_view(affiliation).substr(start, end - start)), faction)) return true;
+        start = end + 1;
+    }
+    return false;
+}
+} // namespace
+
 std::vector<std::string> World::constructible(uint32_t id) const {
     const Unit* b = nullptr;
     for (const Unit& u : units_)
@@ -195,6 +271,32 @@ std::vector<std::string> World::constructible(uint32_t id) const {
     for (const std::string& n : tech_->producibleBy(b->type->name, has)) {
         const GameObjectType* t = db_.find(n);
         if (t && isStructureType(*t) && std::find(out.begin(), out.end(), n) == out.end()) out.push_back(n);
+    }
+    // Builder-less objects (Hierarchy walkers: Tactical_Builder null, only a core required; the
+    // Remix missile silo) are placed by the faction's base builders.
+    if (!fieldBuiltReady_) {
+        fieldBuiltReady_ = true;
+        for (const std::string& obj : tech_->objects()) {
+            const GameObjectType* t = db_.find(obj);
+            if (!t) continue;
+            for (const BuildOption& o : tech_->options(obj)) {
+                if (!o.builders.empty()) continue;
+                bool namesBuilder = false;
+                for (const std::string& r : o.required)
+                    if (const GameObjectType* rt = db_.find(r); rt && isBaseBuilder(*rt)) namesBuilder = true;
+                if (!namesBuilder) fieldBuilt_.push_back({t, o.required});
+            }
+        }
+    }
+    if (const Player* p = const_cast<World*>(this)->player(owner)) {
+        for (const auto& [t, required] : fieldBuilt_) {
+            const std::string* aff = t->find("Affiliation");
+            if (!aff || !listsFaction(*aff, p->faction)) continue;
+            if (std::find(out.begin(), out.end(), t->name) != out.end()) continue;
+            bool ok = true;
+            for (const std::string& r : required) ok = ok && has(r);
+            if (ok) out.push_back(t->name);
+        }
     }
     std::erase_if(out, [&](const std::string& n) {
         const GameObjectType* t = db_.find(n);
@@ -212,8 +314,10 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
     for (const auto& n : producible(id)) allowed = allowed || iequals(n, typeName);
     if (!allowed) return OrderResult::NotAllowed;
     const BuildInfo info = buildInfo(*t, db_);
-    if (!info.spawnsUnit) {
-        // Upgrades: once per structure (and not while one is queued).
+    const GameObjectType* socket = info.spawnsUnit ? nullptr : socketFor(*s, *t);
+    if (!info.spawnsUnit && !socket) {
+        // Upgrades: once per player (and not while one is queued). Socket hardpoints go per unit
+        // (producible() already checked there is a free socket).
         if (owns(s->owner, t->name)) return OrderResult::NotAllowed;
         for (const GameObjectType* q : s->queue)
             if (q == t) return OrderResult::NotAllowed;
@@ -226,6 +330,7 @@ OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
     if (p) p->credits -= info.cost;
     if (s->queue.empty()) s->queueTicks = 0;
     s->queue.push_back(t);
+    if (socket) s->socketsUsed.push_back(socket);
     return OrderResult::Ok;
 }
 
@@ -334,6 +439,9 @@ void World::updateProduction(Unit& s) {
     s.queueTicks = 0;
     if (!info.spawnsUnit) {
         s.upgrades.push_back(t);
+        // A hardpoint brings its weapons (walker turrets, structure turrets).
+        if (std::find(socketsOf(*s.type).begin(), socketsOf(*s.type).end(), t) == socketsOf(*s.type).end())
+            for (const WeaponSpec& w : weaponsFor(*t, db_)) s.weapons.push_back({w, 0, 0, 0});
         return;
     }
     const uint32_t sid = s.id;

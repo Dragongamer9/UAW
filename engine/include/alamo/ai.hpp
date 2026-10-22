@@ -21,6 +21,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace alamo {
@@ -41,6 +42,11 @@ private:
     Role roleOf(const GameObjectType& t) const;
     bool isCombatUnit(const GameObjectType& t) const;
     bool isBuilderType(const GameObjectType& t) const;
+    bool isUtilityUnit(const GameObjectType& t) const;
+    std::string pickUnit(const Unit& structure, const std::vector<std::string>& options, float credits);
+    bool unlocksUnit(const std::string& upgrade) const;
+    bool unlockerOffered(const std::vector<std::string>& options) const;
+    std::string pickUpgrade(const Unit& structure, const std::vector<std::string>& options, float credits);
     void manageConstruction();
     void manageProduction();
     void manageArmy();
@@ -50,6 +56,7 @@ private:
     bool tryConstruct(Unit& builder, const std::string& type);
     bool findSite(const GameObjectType& t, Vec3& out);
     bool coveredByPower(Vec3 p, float extra) const;
+    bool joinsNetwork(Vec3 p, float reach) const;
     Vec3 baseCentre() const;
     Vec3 rallyPoint() const;
     uint32_t rand(uint32_t n);
@@ -73,7 +80,16 @@ private:
     std::unordered_map<const GameObjectType*, bool> combat_, builder_;
     std::unordered_map<const GameObjectType*, float> strength_;
     std::vector<std::string> producers_; // structure types that produce some combat unit
+    std::unordered_set<const GameObjectType*> lineFactories_; // ...non-hero units only (not HQs)
+    bool networkNeeded_ = false;              // Novus: a receiver found no powered site
     std::string lastAction_;
+    std::unordered_map<std::string, float> blockedUntil_; // structure types that found no site
+    std::unordered_map<std::string, bool> unlocks_;
+    std::unordered_map<std::string, int> made_; // units queued so far, by type (roster rotation)
+    float reserve_ = 0;                         // credits kept for the next structure
+    float researchReserve_ = 0;                 // ...and for the next research suite
+    uint32_t savingFor_ = 0;                    // structure saving up for an expensive unit
+    float savingSince_ = 0, unitReserve_ = 0;
 };
 
 // A player is out when it has no structures and no unit able to construct one.

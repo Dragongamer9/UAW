@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace alamo {
 
@@ -11,6 +13,7 @@ namespace {
 float dist2(Vec3 a, Vec3 b) { return std::hypot(a[0] - b[0], a[1] - b[1]); }
 
 constexpr int kThinkEvery = kTicksPerSecond / 2;
+constexpr int kMaxArmy = 160; // combat units alive
 
 } // namespace
 
@@ -30,6 +33,7 @@ SkirmishAI::SkirmishAI(World& world, int player, uint64_t seed)
     // retail data, matching their unit prices). Spending thresholds are fractions of it.
     if (const Player* p = w_.player(player_)) scale_ = std::max(100.f, p->credits);
     // Structures that produce at least one combat unit: the production buildings.
+    std::unordered_map<const GameObjectType*, bool> massProducers_, heroProducers;
     if (const TechTree* tech = w_.tech()) {
         for (const std::string& obj : tech->objects()) {
             const GameObjectType* t = db_.find(obj);
@@ -40,9 +44,13 @@ SkirmishAI::SkirmishAI(World& world, int player, uint64_t seed)
                     // Structures, and units that produce (Hierarchy walkers).
                     if (bt && std::find(producers_.begin(), producers_.end(), bt->name) == producers_.end())
                         producers_.push_back(bt->name);
+                    // Line factories make the army; the HQs that train heroes are not duplicated.
+                    if (bt) (t->category.find("Hero") == std::string::npos ? massProducers_ : heroProducers)[bt] = true;
                 }
         }
     }
+    for (const auto& [t, yes] : massProducers_)
+        if (!heroProducers.count(t)) lineFactories_.insert(t);
 }
 
 uint32_t SkirmishAI::rand(uint32_t n) {
@@ -119,6 +127,18 @@ bool SkirmishAI::coveredByPower(Vec3 p, float extra) const {
     return false;
 }
 
+bool SkirmishAI::joinsNetwork(Vec3 p, float reach) const {
+    bool anyNode = false;
+    for (const Unit& u : w_.units()) {
+        if (u.owner != player_ || u.underConstruction) continue;
+        const EconomySpec& e = w_.economy(*u.type);
+        if (e.power != EconomySpec::Power::Generator && e.power != EconomySpec::Power::Transmitter) continue;
+        anyNode = true;
+        if (u.powered && dist2(u.position, p) <= std::max(reach, e.transmitRadius) - 10) return true;
+    }
+    return !anyNode;
+}
+
 bool SkirmishAI::findSite(const GameObjectType& t, Vec3& out) {
     const Vec3 base = baseCentre();
     const float cx = w_.map().sizeX() / 2, cy = w_.map().sizeY() / 2;
@@ -127,6 +147,60 @@ bool SkirmishAI::findSite(const GameObjectType& t, Vec3& out) {
     const bool needsPower = e.power == EconomySpec::Power::Receiver;
     const bool isNode = e.power == EconomySpec::Power::Generator || e.power == EconomySpec::Power::Transmitter;
     const float extent = float(t.number("Custom_Hard_XExtent").value_or(30));
+    if (e.power == EconomySpec::Power::Transmitter && !joinsNetwork({-1e6f, -1e6f, 0}, 0)) {
+        // Extend the network: a ring around each powered node, inside its transmit reach,
+        // nodes nearest an unpowered receiver (else the map centre) first.
+        Vec3 aim{cx, cy, 0};
+        for (const Unit& u : w_.units())
+            if (u.owner == player_ && u.structure && !u.underConstruction && !u.powered &&
+                w_.economy(*u.type).power == EconomySpec::Power::Receiver) { aim = u.position; break; }
+        std::vector<const Unit*> nodes;
+        for (const Unit& u : w_.units()) {
+            const EconomySpec& ne = w_.economy(*u.type);
+            if (u.owner == player_ && u.powered && !u.underConstruction &&
+                (ne.power == EconomySpec::Power::Generator || ne.power == EconomySpec::Power::Transmitter))
+                nodes.push_back(&u);
+        }
+        std::sort(nodes.begin(), nodes.end(), [&](const Unit* a, const Unit* b) { return dist2(a->position, aim) < dist2(b->position, aim); });
+        for (const Unit* n : nodes) {
+            const float reach = std::max(e.transmitRadius, w_.economy(*n->type).transmitRadius) - 20;
+            const float toAim = std::atan2(aim[1] - n->position[1], aim[0] - n->position[0]);
+            for (float frac : {0.55f, 0.8f, 0.35f})
+                for (int k = 0; k < 12; ++k) {
+                    const float a = toAim + (k % 2 ? 1 : -1) * float((k + 1) / 2) * 0.5236f;
+                    const Vec3 p{n->position[0] + std::cos(a) * reach * frac, n->position[1] + std::sin(a) * reach * frac, 0};
+                    if (p[0] < 100 || p[1] < 100 || p[0] > w_.map().sizeX() - 100 || p[1] > w_.map().sizeY() - 100) continue;
+                    if (w_.siteClear(t, p)) { out = p; return true; }
+                }
+        }
+        return false;
+    }
+    if (needsPower) {
+        // Receivers: inside a powered node's field, nodes nearest the base first.
+        std::vector<const Unit*> nodes;
+        for (const Unit& u : w_.units()) {
+            const EconomySpec& ne = w_.economy(*u.type);
+            if (u.owner == player_ && u.powered && !u.underConstruction && ne.powerRadius > 0 &&
+                (ne.power == EconomySpec::Power::Generator || ne.power == EconomySpec::Power::Transmitter))
+                nodes.push_back(&u);
+        }
+        std::sort(nodes.begin(), nodes.end(), [&](const Unit* a, const Unit* b) { return dist2(a->position, base) < dist2(b->position, base); });
+        for (const Unit* n : nodes) {
+            const float r = w_.economy(*n->type).powerRadius;
+            for (float frac : {0.45f, 0.7f, 0.9f})
+                for (int k = 0; k < 12; ++k) {
+                    const int j = (k + siteSpin_) % 12;
+                    const float a = toCentre + float(j) * 0.5236f;
+                    const Vec3 p{n->position[0] + std::cos(a) * r * frac, n->position[1] + std::sin(a) * r * frac, 0};
+                    if (p[0] < 100 || p[1] < 100 || p[0] > w_.map().sizeX() - 100 || p[1] > w_.map().sizeY() - 100) continue;
+                    if (!coveredByPower(p, extent * 0.5f) || !w_.siteClear(t, p)) continue;
+                    out = p;
+                    ++siteSpin_;
+                    return true;
+                }
+        }
+        return false;
+    }
     // Spiral outward from the base, starting on the side facing the map centre.
     for (int ring = 0; ring < 9; ++ring) {
         const float radius = 200 + ring * 95 + (isNode ? 120 : 0);
@@ -137,6 +211,8 @@ bool SkirmishAI::findSite(const GameObjectType& t, Vec3& out) {
             const Vec3 p{base[0] + std::cos(a) * radius, base[1] + std::sin(a) * radius, 0};
             if (p[0] < 100 || p[1] < 100 || p[0] > w_.map().sizeX() - 100 || p[1] > w_.map().sizeY() - 100) continue;
             if (needsPower && !coveredByPower(p, extent * 0.5f)) continue;
+            // A transmitter has to reach the powered network (or there is no network yet).
+            if (e.power == EconomySpec::Power::Transmitter && !joinsNetwork(p, e.transmitRadius)) continue;
             if (!w_.siteClear(t, p)) continue;
             out = p;
             ++siteSpin_;
@@ -153,6 +229,7 @@ bool SkirmishAI::tryConstruct(Unit& builder, const std::string& type) {
     if (!findSite(*t, site)) return false;
     const OrderResult r = w_.commandConstruct(builder.id, type, site);
     if (r == OrderResult::Ok) lastAction_ = "construct " + type;
+    if (std::getenv("UAW_AI_DEBUG")) std::fprintf(stderr, "[%.0fs p%d] construct %s: %d\n", w_.seconds(), player_, type.c_str(), int(r));
     return r == OrderResult::Ok;
 }
 
@@ -174,54 +251,108 @@ void SkirmishAI::manageConstruction() {
     // What we have (built or being built), by type and role.
     std::unordered_map<std::string, int> have;
     int roleCount[7] = {0, 0, 0, 0, 0, 0, 0};
-    bool unpoweredReceiver = false;
+    bool unpoweredReceiver = false, haveGenerator = false, nodeComing = false;
     for (const Unit& u : w_.units()) {
         if (u.owner != player_) continue;
         ++have[u.type->name];
         if (u.structure || w_.economy(*u.type).reaper || roleOf(*u.type) == Role::Production) ++roleCount[int(roleOf(*u.type))];
-        if (u.structure && !u.underConstruction && !u.powered) unpoweredReceiver = true;
+        if (w_.economy(*u.type).power == EconomySpec::Power::Generator) haveGenerator = true;
+        if (u.structure && u.underConstruction && roleOf(*u.type) == Role::Power) nodeComing = true;
+        if (u.structure && !u.underConstruction && !u.powered && w_.economy(*u.type).power == EconomySpec::Power::Receiver)
+            unpoweredReceiver = true;
     }
-    for (Unit& b : const_cast<std::vector<Unit>&>(w_.units())) {
-        if (b.owner != player_ || b.structure || b.underConstruction || b.constructing || !b.path.empty()) continue;
+    bool planned = false, anyBuilder = false;
+    for (const Unit& u : w_.units()) anyBuilder = anyBuilder || (u.owner == player_ && isBuilderType(*u.type));
+    if (!anyBuilder) reserve_ = 0;
+    // Ids first: constructing spawns the site, which may reallocate the unit list.
+    std::vector<uint32_t> idle;
+    for (const Unit& u : w_.units())
+        if (u.owner == player_ && !u.structure && !u.underConstruction && !u.constructing && u.path.empty()) idle.push_back(u.id);
+    for (uint32_t bid : idle) {
+        Unit* bp = w_.unit(bid);
+        if (!bp) continue;
+        Unit& b = *bp;
         const auto options = w_.constructible(b.id);
         if (options.empty()) continue;
         // Desired counts per role, growing with time.
         const int wantEconomy = 2 + int(minutes / 2.5f);
         const int wantDefense = minutes > 4 ? 1 + int((minutes - 4) / 4) : 0;
-        auto pick = [&](Role role, int limitOfType) -> std::string {
+        bool planning = false; // true: ignore credits (what would we build next?)
+        auto pick = [&](Role role, int limitOfType, bool generatorOnly = false, bool lineOnly = false) -> std::string {
             std::string best;
             int bestHave = 1 << 30;
             float bestCost = 0;
             for (const std::string& o : options) {
                 const GameObjectType* t = db_.find(o);
                 if (!t || roleOf(*t) != role) continue;
+                if (generatorOnly && w_.economy(*t).power != EconomySpec::Power::Generator) continue;
+                if (lineOnly && !lineFactories_.count(t)) continue;
                 const int n = have.count(o) ? have.at(o) : 0;
                 if (n >= limitOfType) continue;
+                if (auto bl = blockedUntil_.find(o); bl != blockedUntil_.end() && bl->second > w_.seconds()) continue;
                 const float cost = buildInfo(*t, db_).cost;
-                if (cost > me->credits) continue;
+                if (cost > me->credits && !planning) continue;
                 // Spread across types; among equals take the cheaper (usually the basic unit factory).
                 if (n < bestHave || (n == bestHave && cost < bestCost)) { bestHave = n; bestCost = cost; best = o; }
             }
             return best;
         };
+        // The build order, as a priority list. With `planning` set it ignores credits.
+        auto next = [&]() {
+            std::string c;
+            // Novus: a generator first, and another node whenever a receiver sits unpowered.
+            if (!haveGenerator) c = pick(Role::Power, 99, true);
+            // One node at a time: wait for the one being built before adding another.
+            if (c.empty() && !nodeComing && (roleCount[int(Role::Power)] == 0 || unpoweredReceiver || networkNeeded_))
+                c = pick(Role::Power, 99);
+            if (c.empty() && roleCount[int(Role::Economy)] < std::min(wantEconomy, 3)) c = pick(Role::Economy, 99);
+            if (c.empty()) c = pick(Role::Production, 1);
+            if (c.empty() && minutes > 4 && roleCount[int(Role::Defense)] < 1) c = pick(Role::Defense, 99);
+            // Then every tech structure once (labs, advanced factories, detectors, superweapons),
+            // cheapest first, so the whole roster comes into play.
+            if (c.empty() && minutes > 4) c = pick(Role::Tech, 1);
+            // Units builders place in the field (Hierarchy scan drones), one each.
+            if (c.empty() && minutes > 4) c = pick(Role::Other, 1);
+            // Research facilities (where a mod makes them buildable) research a second suite at once.
+            if (c.empty() && w_.researchTree(player_) && roleCount[int(Role::Research)] < 1 && minutes > 5) c = pick(Role::Research, 1);
+            if (c.empty() && roleCount[int(Role::Economy)] < wantEconomy) c = pick(Role::Economy, 99);
+            if (c.empty() && roleCount[int(Role::Defense)] < wantDefense) c = pick(Role::Defense, 99);
+            return c;
+        };
+        // The next structure in the build order, whatever it costs. While it is unaffordable nothing
+        // cheaper further down the list jumps the queue, and production keeps its price in the bank
+        // (see manageProduction), so economy, tech, defences and superweapons all get their turn.
+        planning = true;
+        const std::string want = next();
+        planning = false;
+        const GameObjectType* wt = want.empty() ? nullptr : db_.find(want);
+        if (!planned) {
+            planned = true;
+            reserve_ = wt ? buildInfo(*wt, db_).cost : 0;
+        }
         std::string choice;
-        // Novus: a generator first, and another node whenever a receiver sits unpowered.
-        if (roleCount[int(Role::Power)] == 0 || unpoweredReceiver) choice = pick(Role::Power, 99);
-        if (choice.empty() && roleCount[int(Role::Economy)] < wantEconomy) choice = pick(Role::Economy, 99);
-        if (choice.empty()) choice = pick(Role::Production, 1);
-        // More factories as the game goes on: with the mods' population costs of 0, armies are
-        // limited by how fast they can be built.
-        if (choice.empty() && minutes > 2) choice = pick(Role::Production, 1 + int(minutes / 3));
-        if (choice.empty() && roleCount[int(Role::Defense)] < wantDefense) choice = pick(Role::Defense, 99);
-        // Research facilities (where a mod makes them buildable) research a second suite at once.
-        if (choice.empty() && w_.researchTree(player_) && rich > 0.6f && roleCount[int(Role::Research)] < 1 && minutes > 5)
-            choice = pick(Role::Research, 1);
-        if (choice.empty() && rich > 0.15f) choice = pick(Role::Tech, 1);
-        // Rich: more production lines (and more economy) to turn credits into an army.
-        if (choice.empty() && minutes > 2 && rich > 0.25f) choice = pick(Role::Production, 1 + int(rich / 0.2f));
-        if (choice.empty() && minutes > 3 && rich > 0.4f) choice = pick(Role::Economy, 99);
+        if (wt) {
+            if (buildInfo(*wt, db_).cost <= me->credits) choice = want;
+        } else {
+            // Build order done: more factories as the game goes on (the mods' population costs are
+            // 0, so armies are limited by how fast they can be built), and more economy when rich.
+            if (minutes > 2 && rich > 0.35f) choice = pick(Role::Production, 1 + int(minutes / 3), false, true);
+            if (choice.empty() && minutes > 2 && rich > 0.25f) choice = pick(Role::Production, 1 + int(rich / 0.2f), false, true);
+            if (choice.empty() && minutes > 3 && rich > 0.4f) choice = pick(Role::Economy, 99);
+        }
         if (choice.empty()) continue;
-        if (tryConstruct(b, choice)) {
+        if (!tryConstruct(b, choice)) {
+            // No site (or not allowed): try something else for half a minute. A receiver with no
+            // powered ground left asks for the network to be extended.
+            blockedUntil_[choice] = w_.seconds() + 30;
+            if (std::getenv("UAW_AI_DEBUG")) std::fprintf(stderr, "[%.0fs p%d] no site for %s\n", w_.seconds(), player_, choice.c_str());
+            if (w_.economy(*db_.find(choice)).power == EconomySpec::Power::Receiver) networkNeeded_ = true;
+        } else {
+            if (roleOf(*db_.find(choice)) == Role::Power) {
+                networkNeeded_ = false;
+                nodeComing = true;
+            }
+            reserve_ = 0;
             ++have[choice];
             ++roleCount[int(roleOf(*db_.find(choice)))];
         }
@@ -231,9 +362,12 @@ void SkirmishAI::manageConstruction() {
 void SkirmishAI::manageProduction() {
     const Player* me = w_.player(player_);
     if (!me) return;
-    int builders = 0;
-    for (const Unit& u : w_.units())
-        if (u.owner == player_ && isBuilderType(*u.type)) ++builders;
+    int builders = 0, army = 0;
+    for (const Unit& u : w_.units()) {
+        if (u.owner != player_) continue;
+        if (isBuilderType(*u.type)) ++builders;
+        else if (!u.structure && isCombatUnit(*u.type)) ++army;
+    }
     const Vec3 rally = rallyPoint();
     for (const Unit& s : w_.units()) {
         // Queue deeper when rich so credits don't pile up.
@@ -256,38 +390,134 @@ void SkirmishAI::manageProduction() {
                     ++builders;
                     break;
                 }
-        if (choice.empty()) {
-            std::vector<std::string> combat;
-            for (const auto& o : options) {
-                const GameObjectType* t = db_.find(o);
-                if (!t || !isCombatUnit(*t)) continue;
-                const float cost = buildInfo(*t, db_).cost;
-                if (cost > me->credits) continue;
-                // Heroes once in a while only (they have a build limit anyway).
-                if (t->category.find("Hero") != std::string::npos && rand(6) != 0) continue;
-                combat.push_back(o);
-            }
-            if (!combat.empty()) {
-                // The better half by combat value per credit (sqrt(health x dps) / cost); when rich,
-                // weighted toward stronger units so credits don't pile up.
-                if (combat.size() > 1) {
-                    auto score = [&](const std::string& n) {
-                        const GameObjectType* t = db_.find(n);
-                        const float strength = typeStrength(*t);
-                        const float perCredit = strength / std::max(1.f, buildInfo(*t, db_).cost);
-                        return rich > 0.5f ? perCredit * std::sqrt(strength) : perCredit;
-                    };
-                    std::sort(combat.begin(), combat.end(), [&](const std::string& x, const std::string& y) {
-                        const float sx = score(x), sy = score(y);
-                        return sx != sy ? sx > sy : x < y;
-                    });
-                    combat.resize((combat.size() + 1) / 2);
-                }
-                choice = combat[rand(uint32_t(combat.size()))];
-            }
+        // Units and upgrades leave the bank's reserves alone once a defence is standing: the next
+        // structure, the next research suite and an expensive unit another structure saves for.
+        if (savingFor_ && !w_.unit(savingFor_)) savingFor_ = 0;
+        const float unitReserve = savingFor_ && savingFor_ != s.id ? unitReserve_ : 0;
+        float reserve = army >= 4 || w_.seconds() > 240 ? std::max({reserve_, researchReserve_, unitReserve}) : 0;
+        // A capped bank (Masari) can't hold more than its cap: never reserve past it.
+        if (const float cap = w_.bankCap(player_); cap > 0) reserve = std::min(reserve, cap);
+        const float spend = me->credits - reserve;
+        // Now and then an upgrade instead of a unit (only with nothing else in the queue).
+        if (choice.empty() && s.queue.empty() && (rand(3) == 0 || unlockerOffered(options))) choice = pickUpgrade(s, options, spend);
+        // The mods set most population costs to 0, so cap the army ourselves: past this the
+        // simulation slows down and nothing is gained.
+        if (choice.empty() && army < kMaxArmy) choice = pickUnit(s, options, spend);
+        if (!choice.empty() && w_.queueProduction(s.id, choice) == OrderResult::Ok) {
+            lastAction_ = "queue " + choice;
+            ++made_[choice];
         }
-        if (!choice.empty() && w_.queueProduction(s.id, choice) == OrderResult::Ok) lastAction_ = "queue " + choice;
     }
+}
+
+bool SkirmishAI::isUtilityUnit(const GameObjectType& t) const {
+    // Unarmed units with a job (scouts, hackers, field inverters, science teams): a few each.
+    if (isStructureType(t) || isCombatUnit(t) || isBuilderType(t) || !buildInfo(t, db_).spawnsUnit) return false;
+    const EconomySpec& e = w_.economy(t);
+    return !e.collector && !e.reaper && e.drones == 0;
+}
+
+std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& options, float credits) {
+    // Whole roster in rotation: each type's turn comes round in proportion to its combat value
+    // per credit (never below a quarter of the best), so every unit gets built and the efficient
+    // ones most. Utility units are kept at one or two each. An expensive type whose turn has come
+    // is saved for (one structure at a time, for up to a minute) instead of skipped forever.
+    const float rich = wealth();
+    std::unordered_map<std::string, int> alive;
+    for (const Unit& u : w_.units())
+        if (u.owner == player_) ++alive[u.type->name];
+    struct Cand { std::string name; float cost, perCredit; bool utility; };
+    std::vector<Cand> cands;
+    float bestPerCredit = 0;
+    for (const auto& o : options) {
+        const GameObjectType* t = db_.find(o);
+        if (!t) continue;
+        const bool combat = isCombatUnit(*t), utility = !combat && isUtilityUnit(*t);
+        if (!combat && !utility) continue;
+        if (utility && (alive[o] >= (rich > 0.5f ? 2 : 1) || w_.seconds() < 240)) continue;
+        const float cost = buildInfo(*t, db_).cost;
+        const float perCredit = combat ? typeStrength(*t) / std::max(1.f, cost) : 0;
+        bestPerCredit = std::max(bestPerCredit, perCredit);
+        cands.push_back({o, cost, perCredit, utility});
+    }
+    if (cands.empty()) return {};
+    auto key = [&](const Cand& c) {
+        const float weight = c.utility ? 0.5f : std::clamp(c.perCredit / std::max(1e-6f, bestPerCredit), 0.25f, 1.f);
+        const auto it = made_.find(c.name);
+        return float((it == made_.end() ? 0 : it->second) + 1) / weight;
+    };
+    std::sort(cands.begin(), cands.end(), [&](const Cand& x, const Cand& y) {
+        const float kx = key(x), ky = key(y);
+        return kx != ky ? kx < ky : x.name < y.name;
+    });
+    const Cand& turn = cands.front();
+    if (std::getenv("UAW_AI_DEBUG"))
+        std::fprintf(stderr, "[%.0fs p%d] %s: turn %s (%.0f), spend %.0f, saving %u\n", w_.seconds(), player_, s.type->name.c_str(),
+                     turn.name.c_str(), turn.cost, credits, savingFor_);
+    if (turn.cost <= credits) {
+        if (savingFor_ == s.id) { savingFor_ = 0; unitReserve_ = 0; }
+        return turn.name;
+    }
+    // Save up for it when that is realistic (within three times the faction's starting bank); the
+    // other structures then only spend what is above it. Give up after a minute and a half.
+    const bool canSave = turn.cost <= 3 * scale_ && (savingFor_ == 0 || savingFor_ == s.id);
+    if (canSave) {
+        if (savingFor_ != s.id) { savingFor_ = s.id; savingSince_ = w_.seconds(); unitReserve_ = turn.cost; }
+        if (w_.seconds() - savingSince_ < 90) return {};
+        made_[turn.name] += 1; // gave up this time; its next turn comes later
+        savingFor_ = 0;
+        unitReserve_ = 0;
+    }
+    for (const Cand& c : cands)
+        if (c.cost <= credits) return c.name;
+    return {};
+}
+
+bool SkirmishAI::unlockerOffered(const std::vector<std::string>& options) const {
+    for (const auto& o : options)
+        if (const GameObjectType* t = db_.find(o); t && !buildInfo(*t, db_).spawnsUnit && unlocksUnit(o) && !w_.owns(player_, o)) return true;
+    return false;
+}
+
+bool SkirmishAI::unlocksUnit(const std::string& upgrade) const {
+    // Some unit of ours lists it among its requirements.
+    auto it = unlocks_.find(upgrade);
+    if (it != unlocks_.end()) return it->second;
+    bool r = false;
+    if (const TechTree* tech = w_.tech())
+        for (const std::string& obj : tech->objects()) {
+            for (const BuildOption& o : tech->options(obj))
+                for (const std::string& req : o.required) r = r || iequals(req, upgrade);
+            if (r) break;
+        }
+    const_cast<SkirmishAI*>(this)->unlocks_[upgrade] = r;
+    return r;
+}
+
+std::string SkirmishAI::pickUpgrade(const Unit& s, const std::vector<std::string>& options, float credits) {
+    // Upgrades and hardpoints bought at this structure (or walker): once the army is under way
+    // and credits allow, the cheapest one not yet owned.
+    // Upgrades that some unit needs (Instance Generator -> Reflex Trooper) come first and need
+    // only the money; the rest wait for a comfortable bank.
+    if (w_.seconds() < 180) return {};
+    const bool comfortable = w_.seconds() >= 300 && wealth() >= 0.3f;
+    std::string best;
+    float bestCost = 1e30f;
+    bool bestUnlocks = false;
+    for (const auto& o : options) {
+        const GameObjectType* t = db_.find(o);
+        if (!t || buildInfo(*t, db_).spawnsUnit) continue;
+        if (s.structure && w_.owns(player_, o)) continue; // walkers each fill their own sockets
+        bool owned = false;
+        for (const GameObjectType* u : s.upgrades) owned = owned || u == t;
+        if (owned) continue;
+        const bool unlocks = unlocksUnit(o);
+        if (!unlocks && !comfortable) continue;
+        const float cost = buildInfo(*t, db_).cost;
+        if (cost > credits * (unlocks ? 1.f : 0.6f)) continue;
+        if ((unlocks && !bestUnlocks) || (unlocks == bestUnlocks && cost < bestCost)) { bestCost = cost; best = o; bestUnlocks = unlocks; }
+    }
+    return best;
 }
 
 float SkirmishAI::typeStrength(const GameObjectType& t) const {
@@ -449,6 +679,7 @@ void SkirmishAI::manageResearch() {
         if (u.owner == player_ && !u.structure && isCombatUnit(*u.type)) ++army;
     if (army < 6 && w_.seconds() < 480) return;
     const auto options = w_.availableResearch(player_);
+    researchReserve_ = 0;
     if (options.empty()) return;
     // Suites that unlock units (heroes) first, then the lowest tier; ties in turn (seeded) so the
     // tree fills out evenly. Placeholder suites that change nothing are skipped.
@@ -466,10 +697,13 @@ void SkirmishAI::manageResearch() {
         if (!s->changes.empty() && rank(s) == best) tier.push_back(s);
     if (tier.empty()) return;
     const ResearchSuite* pick = tier[rand(uint32_t(tier.size()))];
-    // Keep money for the army: research only from a comfortable bank.
-    if (me->credits < pick->cost * 1.5f && wealth() < 0.7f) return;
-    if (w_.startResearch(player_, pick->path, pick->index) == OrderResult::Ok)
+    // Production keeps the suite's price in the bank until it can be started.
+    researchReserve_ = pick->cost;
+    if (me->credits < pick->cost) return;
+    if (w_.startResearch(player_, pick->path, pick->index) == OrderResult::Ok) {
         lastAction_ = "research " + pick->id() + " " + pick->branch;
+        researchReserve_ = 0;
+    }
 }
 
 void SkirmishAI::manageAbilities() {
