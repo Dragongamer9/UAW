@@ -133,28 +133,32 @@ size_t MegVfs::fileCount() const {
 }
 
 namespace {
-std::filesystem::path findLoose(const std::filesystem::path& root, std::string_view name) {
-    // Loose files on Linux: walk components case-insensitively.
-    std::filesystem::path cur = root;
-    std::string norm = normalizePath(name);
+// Loose files on Linux: walk components case-insensitively. A folder copied from Windows
+// can hold the same directory twice in different case (DATA and Data); every match is
+// followed, so `all` collects each existing path in directory order.
+void findLooseAll(const std::filesystem::path& cur, const std::vector<std::string>& parts, size_t i,
+                  std::vector<std::filesystem::path>& all) {
+    if (i == parts.size()) { all.push_back(cur); return; }
+    std::error_code ec;
+    std::vector<std::filesystem::path> hits;
+    for (const auto& d : std::filesystem::directory_iterator(cur, ec))
+        if (normalizePath(d.path().filename().string()) == parts[i]) hits.push_back(d.path());
+    std::sort(hits.begin(), hits.end());
+    for (const auto& h : hits) findLooseAll(h, parts, i + 1, all);
+}
+std::vector<std::filesystem::path> findLooseAll(const std::filesystem::path& root, std::string_view name) {
+    std::vector<std::string> parts;
+    const std::string norm = normalizePath(name);
     size_t start = 0;
     while (start <= norm.size()) {
         size_t end = norm.find('\\', start);
         std::string part = norm.substr(start, end == std::string::npos ? std::string::npos : end - start);
         start = end == std::string::npos ? norm.size() + 1 : end + 1;
-        if (part.empty()) continue;
-        std::error_code ec;
-        bool found = false;
-        for (const auto& d : std::filesystem::directory_iterator(cur, ec)) {
-            if (normalizePath(d.path().filename().string()) == part) {
-                cur = d.path();
-                found = true;
-                break;
-            }
-        }
-        if (!found) return {};
+        if (!part.empty()) parts.push_back(std::move(part));
     }
-    return cur;
+    std::vector<std::filesystem::path> all;
+    findLooseAll(root, parts, 0, all);
+    return all;
 }
 } // namespace
 
@@ -175,12 +179,13 @@ std::vector<std::string> MegVfs::listDirectory(std::string_view dir) const {
         for (const auto& [k, v] : l.index)
             if (k.rfind(prefix, 0) == 0) out.push_back(k);
         if (l.loose.empty()) continue;
-        const std::filesystem::path d = findLoose(l.loose, prefix.substr(0, prefix.size() - 1));
+        for (const std::filesystem::path& d : findLooseAll(l.loose, prefix.substr(0, prefix.size() - 1))) {
         std::error_code ec;
-        if (d.empty() || !std::filesystem::is_directory(d, ec)) continue;
+        if (!std::filesystem::is_directory(d, ec)) continue;
         for (auto it = std::filesystem::recursive_directory_iterator(d, ec); !ec && it != std::filesystem::recursive_directory_iterator();
              it.increment(ec))
             if (it->is_regular_file(ec)) out.push_back(prefix + normalizePath(std::filesystem::relative(it->path(), d, ec).generic_string()));
+        }
     }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -190,9 +195,10 @@ std::vector<std::string> MegVfs::listDirectory(std::string_view dir) const {
 namespace {
 std::filesystem::path looseIn(const std::filesystem::path& root, std::string_view name) {
     if (root.empty()) return {};
-    auto p = findLoose(root, name);
     std::error_code ec;
-    return !p.empty() && std::filesystem::is_regular_file(p, ec) ? p : std::filesystem::path{};
+    for (const auto& p : findLooseAll(root, name))
+        if (std::filesystem::is_regular_file(p, ec)) return p;
+    return {};
 }
 std::vector<uint8_t> readFile(const std::filesystem::path& p) {
     std::ifstream in(p, std::ios::binary);

@@ -15,7 +15,7 @@ redistributed.
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
 | 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
-| 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: first version; untextured until Textures.meg is available |
+| 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: textured models from Models.meg/Textures.meg and the mods' loose art; every buildable unit and structure of all four factions has its model (`--lineup`) |
 | 3 | Navigation: walkable areas from terrain flags, A* with wall clearance and path smoothing | done: start-to-start paths found on every skirmish map checked |
 | 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
@@ -114,6 +114,15 @@ squad, or another with `--player N`.
 Headless check of a move order: `uaw-viewer "<game>" M16_Sahara --order 1900,3000 --run 12 --screenshot out.png`.
 Scripted battle (prints both sides' units and health every 5 seconds):
 `uaw-viewer "<game>" M24_Midwest --battle --run 90 --screenshot out.png`.
+Model gallery of a faction's buildable units, or its structures, on a flat floor (largest at the
+back; an optional third field keeps only names containing it):
+`uaw-viewer "<game>" M25_Grand_Canyon --lineup Masari --screenshot units.png`,
+`--lineup Novus:structures`, `--lineup Alien:units:Walker`.
+`UAW_MODEL_ERRORS=1` prints why a model could not be loaded.
+
+A few textures named by mod models ship with no mod (`SeI_e5`, `Nb_shield*`, `NB_Girder2`,
+`zb_foundationv_v2`, `redflash`, `Ev_tiecrawlertreads*`, `W_cannon_flash`); those meshes are drawn
+untextured grey, and translucent layers without their texture are skipped.
 
 `objdump "<game>" weapons Alien_Hero_Orlok Novus_Robotic_Infantry` lists a unit's
 weapons (including hardpoints), damage per second and armor modifiers against the

@@ -52,6 +52,7 @@ public:
     explicit UnitControl(int player) : player_(player) {}
 
     int player() const { return player_; }
+    bool showResources = true; // scrap piles (off in the model gallery)
     const std::set<uint32_t>& selection() const { return selected_; }
 
     void clear() { selected_.clear(); }

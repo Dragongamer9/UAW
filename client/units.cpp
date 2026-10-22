@@ -243,7 +243,7 @@ void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(se
 void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     // Scrap piles: the model when available, else a gold heap that shrinks as it is mined.
     for (const alamo::ResourceNode& n : w.resources()) {
-        if (n.remaining <= 0) continue;
+        if (n.remaining <= 0 || !showResources) continue;
         const float frac = std::clamp(n.remaining / std::max(n.initial, 1.f), 0.f, 1.f);
         const GpuModel* model = nullptr;
         if (const std::string* name = n.type->find("Land_Model_Name"); name && !alamo::trim(*name).empty())

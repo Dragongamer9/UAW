@@ -3,6 +3,8 @@
 #include "alamo/assets.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
@@ -243,8 +245,14 @@ const GpuModel* Renderer::model(const std::string& aloName) {
                     if (auto* d = std::get_if<alamo::Vec4>(&it->second)) gpu.tint = {(*d)[0], (*d)[1], (*d)[2], 1};
                 if (gpu.tint[0] + gpu.tint[1] + gpu.tint[2] < 0.05f) gpu.tint = {1, 1, 1, 1};
                 // Texture named but not available (e.g. Textures.meg not installed): neutral grey, not glaring white.
-                if (!gpu.texture && sm.material.texture("BaseTexture"))
+                if (!gpu.texture && sm.material.texture("BaseTexture")) {
+                    // A glow or shield layer without its texture would be an opaque grey shell: skip it.
+                    if (gpu.blend != GpuMesh::Blend::Opaque) {
+                        gpu.release();
+                        continue;
+                    }
                     for (int k = 0; k < 3; ++k) gpu.tint[k] *= 0.62f;
+                }
                 gm->meshes.push_back(gpu);
             }
         }
@@ -253,7 +261,8 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         gm->boundsMax = {mx[0], mx[1], mx[2]};
         gm->loaded = true;
         ++modelsLoaded_;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        if (std::getenv("UAW_MODEL_ERRORS")) std::fprintf(stderr, "model %s: %s\n", aloName.c_str(), e.what());
         for (auto& mesh : gm->meshes) mesh.release();
         gm.reset();
         ++modelsMissing_;

@@ -16,6 +16,9 @@
 //     --demo              (with --screenshot) start a construction and a production order first
 //     --spawn TYPE        place a finished TYPE for you near your base (repeatable), e.g. Novus_Input_Station
 //     --battle            Novus and Hierarchy squads face off mid-map (with --run: prints the battle)
+//     --lineup F[:units|:structures[:NAME]]  every buildable unit (or structure) of faction F,
+//                         optionally only names containing NAME, on a flat floor without terrain
+//                         or props, largest at the back: a model gallery
 //     --size WxH          window size (default 1600x900)
 //     --camera x,y,dist,yaw,pitch
 //     --screenshot FILE   render one frame to a PNG and exit (works headless)
@@ -42,6 +45,7 @@
 #include "units.hpp"
 
 #include "alamo/ai.hpp"
+#include "alamo/alo.hpp"
 #include "alamo/assets.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/dds.hpp"
@@ -74,6 +78,7 @@ struct Options {
     bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
     bool squads = false, demo = false, ai = true, spectate = false;
     std::vector<std::string> spawns;
+    std::string lineup;
     std::string faction = "Novus", enemy = "Alien";
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
@@ -127,6 +132,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--camera")
             o.camSet = o.haveCamera = std::sscanf(next(), "%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3], &o.cam[4]) == 5;
         else if (a == "--battle") o.battle = true;
+        else if (a == "--lineup") o.lineup = next();
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -241,6 +247,8 @@ int main(int argc, char** argv) {
         rules.load(vfs);
         SDL_Log("%zu effects, %zu research trees", rules.effectLibrary.size(), rules.research.size());
         World world(map, db, &damageTable, 1, &techTree);
+        bool lineupMode = false; // model gallery: no map props
+        Vec3 lineupFloor{};      // its floor: centre x, y and size
         rules.configure(world);
         std::vector<Vec3> starts;
         for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
@@ -256,6 +264,101 @@ int main(int argc, char** argv) {
                 opt.cam[3] = 0;
                 opt.cam[4] = 50;
             }
+        } else if (!opt.lineup.empty()) {
+            // Model gallery: the faction's buildable types in rows, facing a camera to the south.
+            const std::string fac = opt.lineup.substr(0, opt.lineup.find(':'));
+            const bool structures = opt.lineup.find(":structures") != std::string::npos;
+            // Optional third field: only types whose name contains it (F:units:Tank).
+            const size_t c2 = opt.lineup.find(':', opt.lineup.find(':') + 1);
+            const std::string only = c2 == std::string::npos || opt.lineup.find(':') == std::string::npos ? "" : opt.lineup.substr(c2 + 1);
+            std::vector<const GameObjectType*> types;
+            auto up = [](std::string v) { for (char& ch : v) ch = char(std::toupper(static_cast<unsigned char>(ch))); return v; };
+            for (const std::string& name : techTree.objects()) {
+                const GameObjectType* t = db.find(name);
+                if (!t || isStructureType(*t) != structures) continue;
+                if (!only.empty() && up(t->name).find(up(only)) == std::string::npos) continue;
+                const std::string* aff = t->find("Affiliation");
+                if (!aff || up(*aff).find(up(fac)) == std::string::npos) continue;
+                if (!structures && !buildInfo(*t, db).spawnsUnit) continue; // upgrades and patches
+                if (!t->find("Land_Model_Name") && squadMembers(*t, db).empty()) continue;
+                types.push_back(t);
+            }
+            std::sort(types.begin(), types.end(), [](auto* a, auto* b) { return a->name < b->name; });
+            // Each slot is as wide as its type: hard extents, or the spread of a squad's members.
+            auto extent = [&](const GameObjectType& t) {
+                // Half the widest horizontal span of the model as drawn (XML extents as fallback).
+                auto one = [&](const GameObjectType& m) {
+                    float r = float(std::max(m.number("Custom_Hard_XExtent").value_or(m.number("Custom_Soft_Footprint_Radius").value_or(6.0)),
+                                             m.number("Custom_Hard_YExtent").value_or(0.0)));
+                    if (const std::string* model = m.find("Land_Model_Name"); model && !trim(*model).empty())
+                        if (const GpuModel* gm = renderer.model(trim(*model))) {
+                            const float scale = float(m.number("Scale_Factor").value_or(1.0));
+                            r = scale * std::max({std::fabs(gm->boundsMin[0]), std::fabs(gm->boundsMax[0]),
+                                                  std::fabs(gm->boundsMin[1]), std::fabs(gm->boundsMax[1])});
+                        }
+                    return r;
+                };
+                const auto members = squadMembers(t, db);
+                if (members.empty()) return one(t);
+                float r = 0;
+                for (const auto* m : members) r = std::max(r, one(*m));
+                return r * 2.2f * std::sqrt(float(members.size())) + 8;
+            };
+            std::vector<float> slot;
+            float area = 0;
+            {
+                std::vector<std::pair<float, const GameObjectType*>> sized;
+                for (const auto* t : types) sized.push_back({std::max(structures ? 90.f : 34.f, extent(*t) * 2.4f + 16), t});
+                // Biggest at the back, so rows hold similar sizes and nothing hides behind a larger model.
+                std::stable_sort(sized.begin(), sized.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+                types.clear();
+                for (const auto& [s, t] : sized) {
+                    types.push_back(t);
+                    slot.push_back(s);
+                    area += s * s;
+                }
+            }
+            // Rows about 16:9 wide, flowed left to right; each row centred, rows spaced by their tallest slot.
+            const float rowWidth = std::max(slot.empty() ? 0.f : *std::max_element(slot.begin(), slot.end()), std::sqrt(area * 1.9f));
+            struct Row { std::vector<size_t> items; float width = 0, depth = 0; };
+            std::vector<Row> layout(1);
+            for (size_t i = 0; i < types.size(); ++i) {
+                if (!layout.back().items.empty() && layout.back().width + slot[i] > rowWidth) layout.emplace_back();
+                layout.back().items.push_back(i);
+                layout.back().width += slot[i];
+                layout.back().depth = std::max(layout.back().depth, slot[i]);
+            }
+            float total = 0;
+            for (const Row& r : layout) total += r.depth;
+            // Gallery on a flat floor at the map's middle: terrain and props are hidden and every
+            // unit is put at floor height (keeping its flying altitude).
+            const Vec3 c{(map.playableMin[0] + map.playableMax[0]) / 2, (map.playableMin[1] + map.playableMax[1]) / 2, 0};
+            const int pid = world.addPlayer(fac, 0, 999);
+            float y = c[1] + total / 2;
+            for (const Row& r : layout) {
+                y -= r.depth / 2;
+                float x = c[0] - r.width / 2;
+                for (size_t i : r.items) {
+                    world.spawn(types[i]->name, pid, {x + slot[i] / 2, y, 0}, -1.5707963f);
+                    std::printf("lineup: %-34s slot %6.0f at %6.0f,%6.0f\n", types[i]->name.c_str(), slot[i], x + slot[i] / 2, y);
+                    x += slot[i];
+                }
+                y -= r.depth / 2;
+            }
+            lineupMode = true;
+            for (const Unit& u : world.units())
+                if (Unit* m = world.unit(u.id)) m->position[2] -= map.heightAt(u.position[0], u.position[1]);
+            lineupFloor = {c[0], c[1], std::max(rowWidth, total) + 400};
+            if (!opt.camSet) {
+                opt.haveCamera = true;
+                opt.cam[0] = c[0];
+                opt.cam[1] = c[1] - total * 0.12f;
+                opt.cam[2] = std::max(rowWidth * 0.5f, total * 0.95f) + 40;
+                opt.cam[3] = 0;
+                opt.cam[4] = 48;
+            }
+            opt.ai = false;
+            opt.units = false; // no skirmish start
         } else if (opt.units && opt.squads) {
             spawnTestSquads(world, starts, map);
         } else if (opt.units) {
@@ -301,6 +404,7 @@ int main(int argc, char** argv) {
             for (size_t i = 0; i < std::max<size_t>(starts.size(), 4); ++i) world.addPlayer("Test", 10000, 90);
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
         UnitControl control(opt.player - 1);
+        control.showResources = !lineupMode;
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
 
@@ -326,7 +430,11 @@ int main(int argc, char** argv) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
             renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
             view = View{rc.eye, rc.target, rc.fovY, w, h, renderer.viewProj()};
-            scene.draw(renderer, placeholders);
+            if (lineupMode)
+                renderer.drawBox(Mat4::translate(lineupFloor[0], lineupFloor[1], -1) * Mat4::scale3(lineupFloor[2], lineupFloor[2], 2),
+                                 {0.36f, 0.38f, 0.36f, 1});
+            else
+                scene.draw(renderer, placeholders);
             control.draw(renderer, world, world.seconds());
             renderer.endFrame();
             hud.draw(renderer, world, control, db, text, padConnected);

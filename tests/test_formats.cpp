@@ -417,6 +417,13 @@ static void testModLayers() {
     const alamo::Faction* mil = db.faction("Military");
     CHECK(mil && mil->humanPlayable);
     CHECK(db.faction("Novus") && db.faction("Novus")->humanPlayable);
+    // Loose art in a second, differently cased copy of the data folder (DATA next to Data, as
+    // a mod unpacked on Linux can leave it) is still found, and listed once.
+    writeFile(modB / "DATA/ART/MODELS/MECH.ALO", "mech");
+    writeFile(modB / "Data/Art/Models/Jeep.alo", "jeep");
+    CHECK(vfs.exists("Data\\Art\\Models\\Mech.alo") && vfs.read("Data\\Art\\Models\\Mech.alo").size() == 4);
+    CHECK(vfs.exists("Data\\Art\\Models\\JEEP.ALO"));
+    CHECK(vfs.listDirectory("Data\\Art\\Models").size() == 2);
     const alamo::TechTree tech = alamo::loadTechTree(vfs);
     CHECK(tech.options("Tank").size() == 1 && tech.options("Tank")[0].builders[0] == "Motor_Pool");
     CHECK(tech.options("Jeep").size() == 1 && tech.options("Sniper").size() == 1);
