@@ -523,6 +523,25 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
     vm.setFunction("Find_Object_Type", [&w, &I](const Values& a) {
         return Values{a.empty() ? LuaValue() : I.type(w.db().find(a[0].str()))};
     });
+    // Parts of the engine with no simulation behind them yet (the GUI, scoring): any method answers
+    // nil, noted once, so scripts that only report to them carry on.
+    auto stub = [say](const std::string& label) {
+        LuaValue t = table();
+        t.t->meta = std::make_shared<LuaTable>();
+        t.t->meta->set(LuaValue::string("__index"), LuaValue::function([say, label](const Values& a) {
+            const std::string key = a.size() > 1 ? a[1].str() : "?";
+            return Values{LuaValue::function([say, label, key](const Values&) {
+                say("stub " + label + "." + key);
+                return Values{};
+            })};
+        }));
+        return t;
+    };
+    vm.setFunction("Get_Game_Mode_GUI_Scene", [stub](const Values&) { return Values{stub("GUI scene")}; });
+    vm.setGlobal("GameScoringManager", stub("GameScoringManager"));
+    for (const char* quiet : {"Register_Game_Scoring_Commands", "Raise_Game_Event"})
+        vm.setFunction(quiet, [](const Values&) { return Values{}; });
+
     // ---- common engine globals
     vm.setFunction("Is_Campaign_Game", [](const Values&) { return Values{LuaValue::boolean(false)}; });
     vm.setFunction("Get_Game_Mode", [](const Values&) { return Values{LuaValue::string("Land")}; });
