@@ -58,6 +58,14 @@ std::vector<uint8_t> minimapPixels(const alamo::Map& map, alamo::MegVfs& vfs, in
             const float dx = map.heightAt(wx + 20, wy) - map.heightAt(wx - 20, wy), dy = map.heightAt(wx, wy + 20) - map.heightAt(wx, wy - 20);
             float shade = std::clamp(1.0f + (-dx + dy) * 0.012f, 0.55f, 1.35f);
             if (!map.vertexFlags.empty() && !(map.vertexFlags[size_t(vy) * map.width + vx] & 0x01)) shade *= 0.6f;
+            if (map.water.on && map.heightAt(wx, wy) < map.water.level) { // under water: the water's colour
+                const float d = std::clamp((map.water.level - map.heightAt(wx, wy)) / 40.f, 0.3f, 1.f);
+                for (int k = 0; k < 3; ++k) {
+                    const float wc = std::array<float, 3>{0.2f, 0.32f, 0.45f}[size_t(k)] * std::clamp(map.water.color[size_t(k)], 0.3f, 1.f) * 1.4f;
+                    c[k] = c[k] * (1 - d) + wc * d;
+                }
+                shade = 1;
+            }
             for (int k = 0; k < 3; ++k) px[(size_t(py) * N + pxl) * 4 + k] = uint8_t(std::clamp(c[k] * shade * 255.f, 0.f, 255.f));
             px[(size_t(py) * N + pxl) * 4 + 3] = 255;
         }
