@@ -869,20 +869,55 @@ void Renderer::setSkin(const GpuMesh& mesh, const Pose* pose) {
     glUniform1i(uSkinned_, 1);
 }
 
+bool Renderer::sphereVisible(const Mat4& vp, const alamo::Vec3& c, float r) {
+    // Against the six clip planes of `vp` (rows combined, Gribb & Hartmann).
+    for (int p = 0; p < 6; ++p) {
+        const int row = p / 2;
+        const float sign = (p % 2) ? -1.f : 1.f;
+        float plane[4];
+        for (int k = 0; k < 4; ++k) plane[k] = vp.at(3, k) + sign * vp.at(row, k);
+        const float len = std::sqrt(plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2]);
+        if (len <= 0) continue;
+        if ((plane[0] * c[0] + plane[1] * c[1] + plane[2] * c[2] + plane[3]) / len < -r) return false;
+    }
+    return true;
+}
+
 void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::Vec4& tint, const Pose* pose) {
     const alamo::Vec3 at{transform.at(0, 3), transform.at(1, 3), transform.at(2, 3)};
     const float depth = lengthOf(Mat4::sub(at, camPos_));
+    // Culling: a bounding sphere around the model's (rest) bounds, with room for animation. Off
+    // screen it is skipped, unless it can still cast a shadow into the shadowed area.
+    bool onScreen = true, casts = shadowsOn_;
+    {
+        const alamo::Vec3 mid{(m.boundsMin[0] + m.boundsMax[0]) / 2, (m.boundsMin[1] + m.boundsMax[1]) / 2,
+                              (m.boundsMin[2] + m.boundsMax[2]) / 2};
+        const alamo::Vec3 half{(m.boundsMax[0] - m.boundsMin[0]) / 2, (m.boundsMax[1] - m.boundsMin[1]) / 2,
+                               (m.boundsMax[2] - m.boundsMin[2]) / 2};
+        float scale = 0;
+        for (int c = 0; c < 3; ++c)
+            scale = std::max(scale, std::sqrt(transform.at(0, c) * transform.at(0, c) + transform.at(1, c) * transform.at(1, c) +
+                                              transform.at(2, c) * transform.at(2, c)));
+        const float r = std::sqrt(half[0] * half[0] + half[1] * half[1] + half[2] * half[2]) * scale * (pose ? 1.6f : 1.1f) + 1;
+        alamo::Vec3 c;
+        for (int i = 0; i < 3; ++i) c[i] = transform.at(i, 0) * mid[0] + transform.at(i, 1) * mid[1] + transform.at(i, 2) * mid[2] + transform.at(i, 3);
+        onScreen = sphereVisible(viewProj_, c, r);
+        if (casts) casts = shadowReady_ ? sphereVisible(shadowViewProj_, c, r + 50) : onScreen;
+        if (!onScreen && !casts) return;
+    }
     std::shared_ptr<const Pose> kept;
     for (const GpuMesh& mesh : m.meshes) {
         if (mesh.blend != GpuMesh::Blend::Opaque) {
+            if (!onScreen) continue;
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
             transparent_.push_back({&mesh, transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], tint[3]}, depth, kept});
             continue;
         }
-        if (shadowsOn_ && tint[3] > 0.99f) {
+        if (casts && tint[3] > 0.99f) {
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
             casters_.push_back({&mesh, transform, kept, clipZ_});
         }
+        if (!onScreen) continue;
         setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture, bumpsOn_ ? mesh.bump : 0);
         setSkin(mesh, pose);
         if (mesh.alphaTest) glUniform1i(uAlphaTest_, 1);

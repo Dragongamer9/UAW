@@ -87,6 +87,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -840,11 +841,15 @@ int main(int argc, char** argv) {
             }
             lastFrameTime = world.seconds();
             // Let attached effects (engine glows, flames) build up for half a second first.
+            const auto frameStart = std::chrono::steady_clock::now();
             for (int k = 0; k < 15; ++k) {
                 drawFrame(w, h);
                 effects.update(1.f / 30);
             }
             drawFrame(w, h);
+            (void)renderer.readPixels(1, 1); // wait for the GPU
+            std::printf("frame time: %.1f ms\n",
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count() / 16);
             std::printf("particles: %zu in %zu systems\n", effects.particleCount(), effects.systemCount());
             Image img;
             img.width = uint32_t(w);

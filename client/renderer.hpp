@@ -146,6 +146,7 @@ private:
     void setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex, GLuint bump = 0);
     void setSkin(const GpuMesh& mesh, const Pose* pose);
     void bindShadow(GLuint program);
+    static bool sphereVisible(const Mat4& viewProj, const alamo::Vec3& centre, float radius);
     void renderShadows();
 
     alamo::MegVfs& vfs_;
