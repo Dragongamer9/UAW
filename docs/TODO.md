@@ -70,4 +70,17 @@ and every texture its model names.
 
 The AI now builds nearly everything (README, AI section). Left over: research-locked heroes that its
 research order doesn't reach, Novus' top tier (Providence 30,000, Flying Fortress) and some Novus patches,
-superweapons are built and fired (README, Superweapons).
+superweapons are built and fired (README, Superweapons). `UAW_ROSTER=1 simtool ... match` lists what a side
+could have built and never did. In a 22-minute Novus game the Remix Material Center (Hailfire, Armored
+Assault Tank, Providence) only went up at minute 12, so its units rarely appear; tech structures that
+unlock units could come before the others.
+
+## Bigger pieces still to do
+
+- A Lua scripting host: the engine API the game's own scripts call (unit behaviours, the skirmish AI
+  scripts, story missions). The VM itself is complete enough (metatables, coroutines).
+- A Lua source compiler, for mods that ship scripts uncompiled (today only their literal data is read).
+- The campaign (story maps, Global Conquest).
+- Levels of detail by distance (only `_LOD0` is drawn now).
+- GitHub Actions stopped running on 2026-10-22 (the account's billing / spending limit); builds resume
+  once that is sorted.
