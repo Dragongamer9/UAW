@@ -130,9 +130,9 @@ The top bar shows credits, the Masari bank cap and passive income per second.
 On Windows you can also put `uaw-viewer.exe` in the game folder (the one with
 `Data\MegaFiles.xml`) or next to it and double-click it to open the setup screen.
 
-Each start position gets a test squad (player 1 Novus, player 2 Hierarchy,
-player 3 Masari: infantry, vehicles and a hero). You command player 1's
-squad, or another with `--player N`.
+A skirmish starts every taken position with its faction's starting forces (`--squads` instead gives each
+start a mixed test squad: player 1 Novus, player 2 Hierarchy, player 3 Masari). You play position 1, or
+another with `--player N`.
 
 | | Keyboard / mouse | Gamepad (reticle at screen centre) |
 |---|---|---|
