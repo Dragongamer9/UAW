@@ -557,7 +557,30 @@ int main(int argc, char** argv) {
         bool heardFirst = true;
         float lastCombat = -100;
         const std::string environment = mapEnvironment(setup.map);
+        std::set<uint32_t> announced; // your structures, announced when finished
+        bool announcedFirst = true;
+        std::set<std::string> researchSeen;
         auto sounds = [&](const Vec3& listenerAt, float yawDeg) {
+            // Messages: a structure of yours finished, a research suite done.
+            for (const Unit& u : world.units()) {
+                if (u.owner != control.player() || !u.structure || u.underConstruction || announced.count(u.id)) continue;
+                announced.insert(u.id);
+                if (!announcedFirst) control.say("Construction complete: " + text.displayName(*u.type), world.seconds());
+            }
+            if (const Player* me = world.player(control.player())) {
+                for (const std::string& r : me->researched)
+                    if (researchSeen.insert(r).second && !announcedFirst) {
+                        std::string title = r;
+                        if (const alamo::ResearchTree* tree = world.researchTree(me->id))
+                            for (const alamo::ResearchSuite& su : tree->suites)
+                                if (su.id() == r) {
+                                    title = su.title;
+                                    if (const std::string* t = text.get(su.title)) title = *t;
+                                }
+                        control.say("Research complete: " + title, world.seconds());
+                    }
+            }
+            announcedFirst = false;
             if (!audio) { control.takeSounds(); return; }
             // Music: the faction's ambient piece, battle music while your units fight (and for 15 s
             // after), the win or lose piece at the end.
