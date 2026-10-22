@@ -1,6 +1,9 @@
 #include "alamo/gamedata.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <iterator>
 #include <cstdlib>
 #include <functional>
 #include <unordered_set>
@@ -102,78 +105,185 @@ std::string readText(MegVfs& vfs, std::string_view path) {
     return std::string(bytes.begin(), bytes.end());
 }
 
-std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot) {
-    vfs.setLooseRoot(gameRoot);
-    std::vector<std::string> missing;
-    XmlDocument doc = parseXml(readText(vfs, "Data\\MegaFiles.xml"));
+namespace {
+
+// Case-insensitive lookup of a backslash path under `root`; empty when absent.
+std::filesystem::path resolveOnDisk(const std::filesystem::path& root, const std::string& rel) {
+    std::filesystem::path cur = root;
+    std::string part;
+    bool ok = true;
+    auto step = [&](const std::string& name) {
+        if (name.empty() || !ok) return;
+        std::error_code ec;
+        for (const auto& d : std::filesystem::directory_iterator(cur, ec))
+            if (iequals(d.path().filename().string(), name)) { cur = d.path(); return; }
+        ok = false;
+    };
+    for (char c : rel) {
+        if (c == '\\' || c == '/') { step(part); part.clear(); }
+        else part += c;
+    }
+    step(part);
+    std::error_code ec;
+    return ok && std::filesystem::is_regular_file(cur, ec) ? cur : std::filesystem::path{};
+}
+
+std::vector<std::string> megaFileList(const std::vector<uint8_t>& bytes) {
+    std::vector<std::string> out;
+    XmlDocument doc = parseXml(std::string(bytes.begin(), bytes.end()));
     const XmlNode* list = doc.root.child("Mega_Files");
     if (!list) throw MegError("MegaFiles.xml has no <Mega_Files> element");
-    for (const XmlNode* f : list->childrenNamed("File")) {
-        std::string rel = cleanIncludePath(f->text);
-        // Resolve case-insensitively on disk.
-        std::filesystem::path cur = gameRoot;
-        bool ok = true;
-        std::string part;
-        auto step = [&](const std::string& name) {
-            if (name.empty() || !ok) return;
-            std::error_code ec;
-            for (const auto& d : std::filesystem::directory_iterator(cur, ec))
-                if (iequals(d.path().filename().string(), name)) { cur = d.path(); return; }
-            ok = false;
-        };
-        for (char c : rel) {
-            if (c == '\\' || c == '/') { step(part); part.clear(); }
-            else part += c;
+    for (const XmlNode* f : list->childrenNamed("File")) out.push_back(cleanIncludePath(f->text));
+    return out;
+}
+
+} // namespace
+
+std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot,
+                                   const std::vector<std::filesystem::path>& mods) {
+    // Base layer: the game folder and its MegaFiles.xml archives.
+    vfs.setLooseRoot(gameRoot);
+    std::vector<std::string> missing;
+    std::vector<std::string> mounted; // archives the base list covers (normalized)
+    const auto baseList = resolveOnDisk(gameRoot, "Data\\MegaFiles.xml");
+    if (baseList.empty()) throw MegError("Data\\MegaFiles.xml not found in " + gameRoot.string());
+    std::ifstream in(baseList, std::ios::binary);
+    for (const std::string& rel : megaFileList({std::istreambuf_iterator<char>(in), {}})) {
+        mounted.push_back(normalizePath(rel)); // handled (or reported) by the base layer
+        if (auto p = resolveOnDisk(gameRoot, rel); !p.empty()) {
+            vfs.mount(p);
+        } else {
+            missing.push_back(rel);
         }
-        step(part);
-        if (ok && std::filesystem::is_regular_file(cur)) vfs.mount(cur);
-        else missing.push_back(rel);
+    }
+    // One layer per mod, bottom to top. Each mod's MegaFiles.xml repeats the base list
+    // plus its own archives; the ones inside the mod folder go into its layer, any base
+    // archive the game list didn't have goes into the base layer's set.
+    for (const auto& mod : mods) {
+        vfs.addLayer(mod, mod.filename().string());
+        const auto listPath = resolveOnDisk(mod, "Data\\MegaFiles.xml");
+        if (listPath.empty()) continue; // loose-file-only mod
+        std::ifstream ml(listPath, std::ios::binary);
+        for (const std::string& rel : megaFileList({std::istreambuf_iterator<char>(ml), {}})) {
+            if (auto p = resolveOnDisk(mod, rel); !p.empty()) {
+                vfs.mount(p);
+            } else if (std::find(mounted.begin(), mounted.end(), normalizePath(rel)) == mounted.end()) {
+                missing.push_back(mod.filename().string() + ": " + rel);
+            }
+        }
     }
     return missing;
 }
 
+std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot,
+                                   const std::filesystem::path& modRoot) {
+    std::vector<std::filesystem::path> mods;
+    if (!modRoot.empty()) mods.push_back(modRoot);
+    return mountGame(vfs, gameRoot, mods);
+}
+
+std::vector<std::filesystem::path> installedMods(const std::filesystem::path& gameRoot) {
+    std::vector<std::filesystem::path> out;
+    std::error_code ec;
+    for (const auto& dir : {gameRoot / "Mods", gameRoot.parent_path() / "Mods"}) {
+        if (!std::filesystem::is_directory(dir, ec)) continue;
+        for (const auto& d : std::filesystem::directory_iterator(dir, ec))
+            if (d.is_directory() && !resolveOnDisk(d.path(), "Data\\MegaFiles.xml").empty()) out.push_back(d.path());
+        if (!out.empty()) break;
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+        return normalizePath(a.filename().string()) < normalizePath(b.filename().string());
+    });
+    return out;
+}
+
+std::filesystem::path findMod(const std::filesystem::path& gameRoot, const std::string& mod) {
+    std::filesystem::path p(mod);
+    std::error_code ec;
+    if (std::filesystem::is_directory(p, ec)) return p;
+    // A bare name: look in <game>\Mods and <game>\..\Mods, case-insensitively and by prefix.
+    for (const auto& dir : {gameRoot / "Mods", gameRoot.parent_path() / "Mods"}) {
+        if (!std::filesystem::is_directory(dir, ec)) continue;
+        std::filesystem::path best;
+        for (const auto& d : std::filesystem::directory_iterator(dir, ec)) {
+            if (!d.is_directory()) continue;
+            const std::string n = d.path().filename().string();
+            if (iequals(n, mod)) return d.path();
+            if (n.size() > mod.size() && iequals(n.substr(0, mod.size()), mod) && best.empty()) best = d.path();
+        }
+        if (!best.empty()) return best;
+    }
+    return {};
+}
+
 void GameDatabase::load(MegVfs& vfs) {
-    XmlDocument list = parseXml(readText(vfs, "Data\\XML\\GameObjectFiles.xml"));
-    const XmlNode* root = list.root.child("Game_Object_Files");
-    if (!root) throw MegError("GameObjectFiles.xml has no <Game_Object_Files> element");
-    for (const XmlNode* f : root->childrenNamed("File")) {
-        std::string path = "Data\\XML\\" + trim(f->text);
-        try {
-            loadObjectFile(vfs, path);
-        } catch (const std::exception& e) {
-            warnings_.push_back(path + ": " + e.what());
+    // Every layer's GameObjectFiles.xml contributes its files (union, first-seen order).
+    std::vector<std::string> files;
+    std::unordered_set<std::string> seen;
+    for (const auto& v : vfs.readAllLayers("Data\\XML\\GameObjectFiles.xml")) {
+        XmlDocument list = parseXml(std::string(v.data.begin(), v.data.end()));
+        const XmlNode* root = list.root.child("Game_Object_Files");
+        if (!root) {
+            warnings_.push_back(v.layer + ": GameObjectFiles.xml has no <Game_Object_Files> element");
+            continue;
+        }
+        for (const XmlNode* f : root->childrenNamed("File")) {
+            std::string path = "Data\\XML\\" + trim(f->text);
+            if (seen.insert(normalizePath(path)).second) files.push_back(path);
         }
     }
+    if (files.empty()) throw MegError("no GameObjectFiles.xml");
+    // Load layer by layer, so a mod's definition of an object replaces the one below it.
+    for (size_t layer = 0; layer < vfs.layerCount(); ++layer) {
+        for (const std::string& path : files) {
+            try {
+                auto data = vfs.readInLayer(layer, path);
+                if (data) loadObjectFile(vfs, path, layer, std::string(data->begin(), data->end()));
+            } catch (const std::exception& e) {
+                warnings_.push_back(path + ": " + e.what());
+            }
+        }
+    }
+    for (const std::string& path : files)
+        if (!vfs.exists(path)) warnings_.push_back(path + ": file not found");
     resolveVariants();
     for (size_t i = 0; i < objects_.size(); ++i) byCrc_[crc32(upper(objects_[i].name))] = i;
 
-    if (vfs.exists("Data\\XML\\Factions.xml")) {
-        XmlDocument fd = parseXml(readText(vfs, "Data\\XML\\Factions.xml"));
-        if (const XmlNode* fr = fd.root.child("Factions")) {
-            for (const XmlNode* f : fr->childrenNamed("Faction")) {
-                Faction fac;
-                if (const std::string* n = f->attr("Name")) fac.name = trim(*n);
-                auto yes = [&](const char* tag) {
-                    const XmlNode* c = f->child(tag);
-                    return c && (iequals(c->text, "yes") || iequals(c->text, "true") || c->text == "1");
-                };
-                fac.humanPlayable = yes("Is_Human_Playable");
-                fac.aiPlayable = yes("Is_AI_Playable");
-                if (const XmlNode* c = f->child("Multiplayer_Starting_Credits")) fac.multiplayerCredits = float(std::atof(c->text.c_str()));
-                if (const XmlNode* c = f->child("Pop_Cap_For_Multiplayer_Games")) fac.multiplayerPopCap = std::atoi(c->text.c_str());
-                factions_.push_back(std::move(fac));
-            }
+    // Factions: each layer's Factions.xml, later layers replacing factions by name.
+    for (const auto& v : vfs.readAllLayers("Data\\XML\\Factions.xml")) {
+        XmlDocument fd = parseXml(std::string(v.data.begin(), v.data.end()));
+        const XmlNode* fr = fd.root.child("Factions");
+        if (!fr) continue;
+        for (const XmlNode* f : fr->childrenNamed("Faction")) {
+            Faction fac;
+            if (const std::string* n = f->attr("Name")) fac.name = trim(*n);
+            auto yes = [&](const char* tag) {
+                const XmlNode* c = f->child(tag);
+                return c && (iequals(trim(c->text), "yes") || iequals(trim(c->text), "true") || trim(c->text) == "1");
+            };
+            fac.humanPlayable = yes("Is_Human_Playable");
+            fac.aiPlayable = yes("Is_AI_Playable");
+            if (const XmlNode* c = f->child("Multiplayer_Starting_Credits")) fac.multiplayerCredits = float(std::atof(c->text.c_str()));
+            if (const XmlNode* c = f->child("Pop_Cap_For_Multiplayer_Games")) fac.multiplayerPopCap = std::atoi(c->text.c_str());
+            auto it = std::find_if(factions_.begin(), factions_.end(), [&](const Faction& x) { return iequals(x.name, fac.name); });
+            if (it != factions_.end()) *it = std::move(fac);
+            else factions_.push_back(std::move(fac));
         }
     }
 }
 
 void GameDatabase::loadObjectFile(MegVfs& vfs, const std::string& path) {
+    loadObjectFile(vfs, path, vfs.layerCount() ? vfs.layerCount() - 1 : 0, readText(vfs, path));
+}
+
+void GameDatabase::loadObjectFile(MegVfs& vfs, const std::string& path, size_t layer, const std::string& text) {
+    // Includes resolve from this layer down, as that mod would have seen them.
     auto resolver = [&](std::string_view inc) -> std::optional<std::string> {
-        std::string p = cleanIncludePath(inc);
-        if (!vfs.exists(p)) return std::nullopt;
-        return readText(vfs, p);
+        auto d = vfs.readUpTo(layer, cleanIncludePath(inc));
+        if (!d) return std::nullopt;
+        return std::string(d->begin(), d->end());
     };
-    XmlDocument doc = parseXml(readText(vfs, path), resolver);
+    XmlDocument doc = parseXml(text, resolver);
     for (const auto& w : doc.warnings) warnings_.push_back(path + ": " + w);
     ++fileCount_;
 
@@ -185,14 +295,19 @@ void GameDatabase::loadObjectFile(MegVfs& vfs, const std::string& path) {
             obj.name = trim(*name);
             obj.category = el->tag;
             obj.sourceFile = normalizePath(path);
+            obj.layer = layer;
             if (const XmlNode* v = el->child("Variant_Of_Existing_Type")) obj.variantOf = trim(v->text);
             flatten(*el, "", obj);
 
             std::string key = upper(obj.name);
             auto it = byName_.find(key);
             if (it != byName_.end()) {
-                warnings_.push_back("duplicate object " + obj.name + " in " + path + " (first in " +
-                                    objects_[it->second].sourceFile + "); later definition wins");
+                // Replacing a lower layer's definition is what mods do; only flag clashes within one layer.
+                if (objects_[it->second].layer == layer)
+                    warnings_.push_back("duplicate object " + obj.name + " in " + path + " (first in " +
+                                        objects_[it->second].sourceFile + "); later definition wins");
+                else
+                    ++overridden_;
                 objects_[it->second] = std::move(obj);
             } else {
                 byName_.emplace(key, objects_.size());

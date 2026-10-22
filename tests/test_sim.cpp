@@ -317,7 +317,27 @@ static void testCombat(const GameDatabase& db) {
     CHECK(battle(3) == battle(3));
 }
 
+static void testStartingForces() {
+    const char* lua = R"(
+    StartingForces = {
+        ["ALIEN"] = { "ALIEN_ARRIVAL_SITE", "ALIEN_GLYPH_CARVER", },
+        -- a comment with "quotes" in it
+        ["MILITARY"] = {
+            "Military_Bunker",
+            'Military_Build_Bot',
+        },
+    }
+    Other = { ["X"] = { "Y" } })";
+    const StartingForces f = parseStartingForces(lua);
+    CHECK(f.size() == 2);
+    CHECK(f.count("MILITARY") && f.at("MILITARY").size() == 2 && f.at("MILITARY")[1] == "Military_Build_Bot");
+    CHECK(f.count("ALIEN") && f.at("ALIEN")[0] == "ALIEN_ARRIVAL_SITE");
+    CHECK(parseStartingForces("nothing here").empty());
+    CHECK(defaultStartingForces().count("NOVUS"));
+}
+
 int main() {
+    testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
     testNav();
     testMovement(db);

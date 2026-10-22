@@ -31,6 +31,7 @@ public:
     std::string name;
     std::string category;    // element tag, e.g. X10_Alien_Units
     std::string sourceFile;  // e.g. DATA\XML\UNITS\ALIEN_INF_GRUNT.XML
+    size_t layer = 0;        // VFS layer it came from (0 = base game, then each mod)
     std::string variantOf;   // base type name, empty if none
 
     // Exact path lookup (case-insensitive). Returns the last value.
@@ -70,9 +71,11 @@ public:
     const Faction* faction(std::string_view name) const;
     const std::vector<std::string>& warnings() const { return warnings_; }
     size_t fileCount() const { return fileCount_; }
+    size_t overriddenCount() const { return overridden_; } // objects a mod replaced
 
 private:
     void loadObjectFile(MegVfs& vfs, const std::string& path);
+    void loadObjectFile(MegVfs& vfs, const std::string& path, size_t layer, const std::string& text);
     void resolveVariants();
 
     std::vector<GameObjectType> objects_;
@@ -81,11 +84,25 @@ private:
     std::vector<Faction> factions_;
     std::vector<std::string> warnings_;
     size_t fileCount_ = 0;
+    size_t overridden_ = 0;
 };
 
 // Mounts every archive listed in <gameRoot>/Data/MegaFiles.xml, in order, and
 // uses gameRoot for loose-file overrides. Returns archives that are listed but missing.
-std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot);
+// Mounts the base game, then each mod as a layer on top (bottom to top, so the last
+// mod wins where they overlap). Returns archives listed but not found.
+std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot,
+                                   const std::vector<std::filesystem::path>& mods);
+std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gameRoot,
+                                   const std::filesystem::path& modRoot = {});
+
+// Mod folders (those with Data\MegaFiles.xml) under <game>\Mods or <game>\..\Mods,
+// sorted by name: the default load order, bottom to top.
+std::vector<std::filesystem::path> installedMods(const std::filesystem::path& gameRoot);
+
+// Resolves --mod: a folder path, or a mod name (or prefix) under the game's Mods folder.
+// Returns empty when nothing matches.
+std::filesystem::path findMod(const std::filesystem::path& gameRoot, const std::string& mod);
 
 // Reads a text file through the VFS (bytes as-is; game data is ASCII/Latin-1).
 std::string readText(MegVfs& vfs, std::string_view path);

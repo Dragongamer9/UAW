@@ -5,6 +5,7 @@
 //   maptool <game-root> overview <MAP> <out.png> [pixels] [--group NAME] [--nav] [--paths]
 //                                                  top-down picture: shaded terrain, objects, starts
 // <MAP> is a name like M16_Sahara or a full path inside the archives.
+#include "common.hpp"
 #include "alamo/assets.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gamedata.hpp"
@@ -238,11 +239,12 @@ static int overview(MegVfs& vfs, const GameDatabase& db, const Map& m, const std
 }
 
 int main(int argc, char** argv) {
+    const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
     const std::string cmd = argv[2];
     try {
         MegVfs vfs;
-        mountGame(vfs, argv[1]);
+        tools::mountWithMods(vfs, argv[1], modArg);
         GameDatabase db;
         db.load(vfs);
 

@@ -5,6 +5,7 @@
 //   alotool <game-root> anim   <X.ALA>                frame count, fps, animated bones
 //   alotool <game-root> unit   <ObjectName> <out.glb> [--all]   export a game object's land model
 //   alotool <game-root> texture <NAME.tga|.dds> <out.png>
+#include "common.hpp"
 #include "alamo/ala.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/assets.hpp"
@@ -88,11 +89,12 @@ static int exportModel(MegVfs& vfs, const std::string& path, const std::string& 
 }
 
 int main(int argc, char** argv) {
+    const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
     const std::string cmd = argv[2];
     try {
         MegVfs vfs;
-        mountGame(vfs, argv[1]);
+        tools::mountWithMods(vfs, argv[1], modArg);
 
         if (cmd == "check") {
             size_t meshes = 0, particles = 0, failed = 0, warned = 0, tris = 0, anims = 0, frames = 0;

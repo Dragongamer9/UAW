@@ -3,7 +3,11 @@
 //   uaw-viewer <game-root> <MAP> [options]
 //     --player N          you control player N's squad; camera starts there (default 1)
 //     --all-groups        also show campaign-mission objects
-//     --faction F         your faction for the skirmish start: Novus (default), Alien or Masari
+//     --no-mods           the original game only (by default every mod in Game\\Mods is
+//                         layered on top, in name order; later mods win where they overlap)
+//     --mods A,B          only these mods, bottom to top (names under Game\\Mods or folders)
+//     --faction F         your faction for the skirmish start: Novus (default), Alien, Masari
+//                         (or Military with a mod that makes it playable, e.g. Human Resurgence)
 //     --enemy F           opponent's faction (default Alien)
 //     --squads            instead of a skirmish start, give every start position a mixed test squad
 //     --no-units          no units at all
@@ -60,7 +64,8 @@ using namespace uaw;
 namespace {
 
 struct Options {
-    std::string gameRoot, map, screenshot;
+    std::string gameRoot, map, screenshot, mods;
+    bool noMods = false;
     int width = 1600, height = 900, player = 1;
     bool allGroups = false, haveCamera = false, camSet = false, units = true, haveOrder = false, battle = false;
     bool squads = false, demo = false;
@@ -104,6 +109,8 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--no-units") o.units = false;
         else if (a == "--squads") o.squads = true;
         else if (a == "--faction") o.faction = next();
+        else if (a == "--mods" || a == "--mod") o.mods = next();
+        else if (a == "--no-mods") o.noMods = true;
         else if (a == "--enemy") o.enemy = next();
         else if (a == "--demo") o.demo = true;
         else if (a == "--order") o.haveOrder = std::sscanf(next(), "%f,%f", &o.order[0], &o.order[1]) == 2;
@@ -152,7 +159,20 @@ int main(int argc, char** argv) {
     GameDatabase db;
     Map map;
     try {
-        mountGame(vfs, opt.gameRoot);
+        std::vector<std::filesystem::path> mods;
+        if (!opt.noMods && opt.mods.empty()) mods = installedMods(opt.gameRoot);
+        for (size_t s = 0; !opt.noMods && s <= opt.mods.size() && !opt.mods.empty();) {
+            size_t e = opt.mods.find(',', s);
+            if (e == std::string::npos) e = opt.mods.size();
+            const std::string name = opt.mods.substr(s, e - s);
+            s = e + 1;
+            if (name.empty()) continue;
+            auto p = findMod(opt.gameRoot, name);
+            if (p.empty()) throw std::runtime_error("mod not found: " + name);
+            mods.push_back(p);
+        }
+        for (const auto& m : mods) SDL_Log("mod: %s", m.filename().string().c_str());
+        mountGame(vfs, opt.gameRoot, mods);
         db.load(vfs);
         const std::string path = mapPath(opt.map);
         if (!vfs.exists(path)) throw std::runtime_error("map not found: " + path);
@@ -230,9 +250,10 @@ int main(int argc, char** argv) {
             // Skirmish start: you at your start position, the opponent at the next one.
             const int you = opt.player - 1;
             const int them = (you + 1) % int(starts.size());
+            const StartingForces forces = loadStartingForces(vfs);
             for (int slot = 0; slot < int(starts.size()); ++slot) {
-                if (slot == you) addSkirmishPlayer(world, db, opt.faction, starts[size_t(slot)]);
-                else if (slot == them) addSkirmishPlayer(world, db, opt.enemy, starts[size_t(slot)]);
+                if (slot == you) addSkirmishPlayer(world, db, opt.faction, starts[size_t(slot)], &forces);
+                else if (slot == them) addSkirmishPlayer(world, db, opt.enemy, starts[size_t(slot)], &forces);
                 else world.addPlayer("Neutral", 0, 0);
             }
         }

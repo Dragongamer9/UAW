@@ -1,6 +1,7 @@
 // simtool: exercise the simulation against real game data without a window.
 //   simtool <game-root> <MAP> start            skirmish start for Novus/Hierarchy/Masari: what each can build
 //   simtool <game-root> <MAP> opening FACTION  scripted build order (construct, produce) with a timeline
+#include "common.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/sim.hpp"
@@ -54,14 +55,20 @@ static void listOptions(World& w) {
     }
 }
 
+static std::string upper(std::string s) {
+    for (char& c : s) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return s;
+}
+
 int main(int argc, char** argv) {
+    const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 4) {
-        std::cerr << "usage: simtool <game-root> <MAP> start | opening <Novus|Alien|Masari>\n";
+        std::cerr << "usage: simtool <game-root> <MAP> start | opening <Novus|Alien|Masari|Military> [--mods A,B | --no-mods]\n";
         return 2;
     }
     try {
         MegVfs vfs;
-        mountGame(vfs, argv[1]);
+        tools::mountWithMods(vfs, argv[1], modArg);
         GameDatabase db;
         db.load(vfs);
         const TechTree tech = loadTechTree(vfs);
@@ -72,10 +79,14 @@ int main(int argc, char** argv) {
         const std::string cmd = argv[3];
         std::printf("tech tree: %zu buildable objects\n", tech.size());
 
+        const StartingForces forces = loadStartingForces(vfs);
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
-            const char* factions[] = {"Novus", "Alien", "Masari"};
-            for (size_t i = 0; i < 3 && i < st.size(); ++i) addSkirmishPlayer(w, db, factions[i], st[i]);
+            std::vector<std::string> factions;
+            for (const Faction& f : db.factions())
+                if (f.humanPlayable && forces.count(upper(f.name))) factions.push_back(f.name);
+            if (factions.empty()) factions = {"Novus", "Alien", "Masari"};
+            for (size_t i = 0; i < factions.size() && i < st.size(); ++i) addSkirmishPlayer(w, db, factions[i], st[i], &forces);
             for (const Player& p : w.players()) std::printf("player %d %s: %.0f credits, pop cap %d\n", p.id, p.faction.c_str(), p.credits, p.popCap);
             listOptions(w);
             return 0;
@@ -83,7 +94,7 @@ int main(int argc, char** argv) {
         if (cmd == "opening" && argc > 4) {
             const std::string faction = argv[4];
             World w(map, db, &dmg, 1, &tech);
-            const int me = addSkirmishPlayer(w, db, faction, st[0]);
+            const int me = addSkirmishPlayer(w, db, faction, st[0], &forces);
             uint32_t builder = 0, hq = 0;
             for (const Unit& u : w.units()) (u.structure ? hq : builder) = u.id;
             const Vec3 base = w.unit(hq)->position;
@@ -147,6 +158,11 @@ int main(int argc, char** argv) {
                     for (const Unit& u : w.units()) (u.structure ? structures : units)++;
                     std::printf("--- %d:00  credits %.0f  pop %d/%d  structures %zu  units %zu\n", sec / 60,
                                 w.player(me)->credits, w.popUsed(me), w.player(me)->popCap, structures, units);
+                    if (const Unit* b = w.unit(builder); b && b->constructing)
+                        if (const Unit* s = w.unit(b->constructing))
+                            std::printf("    builder at (%.0f,%.0f) site (%.0f,%.0f) %s, path %zu, progress %.0f%%\n", b->position[0],
+                                        b->position[1], s->position[0], s->position[1], s->type->name.c_str(), b->path.size(),
+                                        s->buildProgress * 100);
                 }
             }
             return 0;

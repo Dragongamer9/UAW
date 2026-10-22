@@ -104,10 +104,32 @@ std::vector<uint8_t> MegArchive::read(const MegEntry& entry) {
     return data;
 }
 
+MegVfs::Layer& MegVfs::top() {
+    if (layers_.empty()) layers_.push_back({"base", {}, {}});
+    return layers_.back();
+}
+
 void MegVfs::mount(const std::filesystem::path& megPath) {
     archives_.push_back(std::make_unique<MegArchive>(megPath));
     MegArchive* a = archives_.back().get();
-    for (const auto& e : a->entries()) index_[normalizePath(e.name)] = {a, &e};
+    Layer& l = top();
+    for (const auto& e : a->entries()) l.index[normalizePath(e.name)] = {a, &e};
+}
+
+void MegVfs::setLooseRoot(const std::filesystem::path& root) {
+    if (layers_.empty()) layers_.push_back({"base", {}, {}});
+    layers_.front().loose = root;
+}
+
+size_t MegVfs::addLayer(const std::filesystem::path& looseRoot, std::string name) {
+    layers_.push_back({std::move(name), looseRoot, {}});
+    return layers_.size() - 1;
+}
+
+size_t MegVfs::fileCount() const {
+    size_t n = 0;
+    for (const Layer& l : layers_) n += l.index.size();
+    return n;
 }
 
 namespace {
@@ -138,28 +160,67 @@ std::filesystem::path findLoose(const std::filesystem::path& root, std::string_v
 
 std::vector<std::string> MegVfs::list() const {
     std::vector<std::string> out;
-    out.reserve(index_.size());
-    for (const auto& [k, v] : index_) out.push_back(k);
+    for (const Layer& l : layers_)
+        for (const auto& [k, v] : l.index) out.push_back(k);
     std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
 }
 
+namespace {
+std::filesystem::path looseIn(const std::filesystem::path& root, std::string_view name) {
+    if (root.empty()) return {};
+    auto p = findLoose(root, name);
+    std::error_code ec;
+    return !p.empty() && std::filesystem::is_regular_file(p, ec) ? p : std::filesystem::path{};
+}
+std::vector<uint8_t> readFile(const std::filesystem::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), {}};
+}
+} // namespace
+
+std::filesystem::path MegVfs::loosePath(std::string_view name) const {
+    for (auto l = layers_.rbegin(); l != layers_.rend(); ++l)
+        if (auto p = looseIn(l->loose, name); !p.empty()) return p;
+    return {};
+}
+
 bool MegVfs::exists(std::string_view name) const {
-    if (!looseRoot_.empty() && !findLoose(looseRoot_, name).empty()) return true;
-    return index_.count(normalizePath(name)) != 0;
+    const std::string key = normalizePath(name);
+    for (auto l = layers_.rbegin(); l != layers_.rend(); ++l)
+        if (!looseIn(l->loose, name).empty() || l->index.count(key)) return true;
+    return false;
 }
 
 std::vector<uint8_t> MegVfs::read(std::string_view name) {
-    if (!looseRoot_.empty()) {
-        auto p = findLoose(looseRoot_, name);
-        if (!p.empty() && std::filesystem::is_regular_file(p)) {
-            std::ifstream in(p, std::ios::binary);
-            return {std::istreambuf_iterator<char>(in), {}};
-        }
+    const std::string key = normalizePath(name);
+    for (auto l = layers_.rbegin(); l != layers_.rend(); ++l) {
+        if (auto p = looseIn(l->loose, name); !p.empty()) return readFile(p);
+        if (auto it = l->index.find(key); it != l->index.end()) return it->second.first->read(*it->second.second);
     }
-    auto it = index_.find(normalizePath(name));
-    if (it == index_.end()) throw MegError("file not found: " + std::string(name));
-    return it->second.first->read(*it->second.second);
+    throw MegError("file not found: " + std::string(name));
+}
+
+std::optional<std::vector<uint8_t>> MegVfs::readInLayer(size_t layer, std::string_view name) {
+    if (layer >= layers_.size()) return std::nullopt;
+    Layer& l = layers_[layer];
+    if (auto p = looseIn(l.loose, name); !p.empty()) return readFile(p);
+    if (auto it = l.index.find(normalizePath(name)); it != l.index.end()) return it->second.first->read(*it->second.second);
+    return std::nullopt;
+}
+
+std::optional<std::vector<uint8_t>> MegVfs::readUpTo(size_t layer, std::string_view name) {
+    for (size_t i = std::min(layer + 1, layers_.size()); i-- > 0;)
+        if (auto d = readInLayer(i, name)) return d;
+    return std::nullopt;
+}
+
+std::vector<MegVfs::Version> MegVfs::readAllLayers(std::string_view name) {
+    std::vector<Version> out;
+    for (size_t i = 0; i < layers_.size(); ++i)
+        if (auto d = readInLayer(i, name)) out.push_back({layers_[i].name, std::move(*d)});
+    return out;
 }
 
 } // namespace alamo

@@ -5,6 +5,7 @@
 //   objdump <game-root> weapons <ObjectName> [VictimName...]  weapons, dps, armor modifiers
 //   objdump <game-root> warnings
 // <game-root> is the folder containing Data/MegaFiles.xml.
+#include "common.hpp"
 #include "alamo/combat.hpp"
 #include "alamo/gamedata.hpp"
 
@@ -35,11 +36,12 @@ static std::string num(std::optional<double> v) {
 }
 
 int main(int argc, char** argv) {
+    const tools::ModChoice modArg = tools::takeModOptions(argc, argv);
     if (argc < 3) return usage();
     const std::string cmd = argv[2];
     try {
         MegVfs vfs;
-        auto missing = mountGame(vfs, argv[1]);
+        auto missing = tools::mountWithMods(vfs, argv[1], modArg);
         GameDatabase db;
         db.load(vfs);
 

@@ -78,18 +78,20 @@ float DamageTable::modifier(const std::string& damage, const std::string& armor)
 DamageTable loadDamageTable(MegVfs& vfs) {
     DamageTable table;
     const char* path = "Data\\XML\\DamageToArmor.xml";
-    if (!vfs.exists(path)) return table;
-    XmlDocument doc = parseXml(readText(vfs, path));
-    std::vector<const XmlNode*> stack;
-    for (const auto& c : doc.root.children) stack.push_back(c.get());
-    while (!stack.empty()) {
-        const XmlNode* n = stack.back();
-        stack.pop_back();
-        if (iequals(n->tag, "Damage_To_Armor_Mod")) {
-            const auto parts = splitList(n->text);
-            if (parts.size() == 3) table.set(parts[0], parts[1], float(std::atof(parts[2].c_str())));
+    // Each layer's table on top of the one below: a mod's entry replaces the base one.
+    for (const auto& v : vfs.readAllLayers(path)) {
+        XmlDocument doc = parseXml(std::string(v.data.begin(), v.data.end()));
+        std::vector<const XmlNode*> stack;
+        for (const auto& c : doc.root.children) stack.push_back(c.get());
+        while (!stack.empty()) {
+            const XmlNode* n = stack.back();
+            stack.pop_back();
+            if (iequals(n->tag, "Damage_To_Armor_Mod")) {
+                const auto parts = splitList(n->text);
+                if (parts.size() == 3) table.set(parts[0], parts[1], float(std::atof(parts[2].c_str())));
+            }
+            for (const auto& c : n->children) stack.push_back(c.get());
         }
-        for (const auto& c : n->children) stack.push_back(c.get());
     }
     return table;
 }

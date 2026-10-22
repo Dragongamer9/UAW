@@ -17,6 +17,8 @@
 #include "alamo/ted.hpp"
 
 #include <cstdint>
+#include <map>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -206,14 +208,31 @@ private:
     uint64_t rng_;
 };
 
+// Buildings: MovementClass Building or a *Structure* category.
+bool isStructureType(const GameObjectType& t);
+
 float angleDiff(float from, float to); // shortest signed difference, radians
 
-// Skirmish start, as DefaultLandScript.lua sets it up: each faction gets its
-// command structure and one builder at its Marker_Player_N_Start position
-//   Alien:  Alien_Arrival_Site    + Alien_Glyph_Carver
-//   Novus:  Novus_Remote_Terminal + Novus_Constructor
-//   Masari: Masari_Foundation     + Masari_Architect
-// plus the faction's Multiplayer_Starting_Credits and pop cap. Returns the player id.
-int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start);
+// Skirmish starting forces per faction (upper-case faction name -> object types;
+// the first is the command structure placed on the start marker).
+using StartingForces = std::map<std::string, std::vector<std::string>>;
+
+// The original game's table from DefaultLandScript.lua:
+//   ALIEN:  Alien_Arrival_Site    + Alien_Glyph_Carver
+//   NOVUS:  Novus_Remote_Terminal + Novus_Constructor
+//   MASARI: Masari_Foundation     + Masari_Architect
+StartingForces defaultStartingForces();
+
+// Reads the StartingForces table from Lua source text; returns empty when absent.
+StartingForces parseStartingForces(std::string_view lua);
+
+// Defaults, overridden by Data\Scripts\Story\DefaultLandScript.lua when it is plain
+// source (mods such as Human Resurgence ship it uncompiled; the base game's is bytecode).
+StartingForces loadStartingForces(MegVfs& vfs);
+
+// Adds a player with the faction's Multiplayer_Starting_Credits and pop cap and spawns
+// its starting forces at `start`. Returns the player id.
+int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start,
+                      const StartingForces* forces = nullptr);
 
 } // namespace alamo

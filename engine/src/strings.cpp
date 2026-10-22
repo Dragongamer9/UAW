@@ -30,7 +30,6 @@ std::string upper(std::string_view s) {
 } // namespace
 
 void StringTable::parse(std::span<const uint8_t> d) {
-    strings_.clear();
     const uint32_t n = u32(d, 0);
     if (uint64_t(n) * 12 + 4 > d.size()) throw MegError("string table header larger than file");
     std::vector<std::pair<uint32_t, uint32_t>> lens(n);
@@ -85,11 +84,11 @@ std::string StringTable::displayName(const GameObjectType& type) const {
 StringTable loadStrings(MegVfs& vfs, const std::string& language) {
     StringTable t;
     const std::string path = "Data\\Text\\MasterTextFile_" + language + ".dat";
-    if (vfs.exists(path)) {
+    // Base game first, then each mod's table on top (a mod's string replaces the base one).
+    for (const auto& v : vfs.readAllLayers(path)) {
         try {
-            t.parse(vfs.read(path));
+            t.parse(v.data);
         } catch (const std::exception&) {
-            return StringTable{};
         }
     }
     return t;

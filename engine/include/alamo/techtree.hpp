@@ -28,6 +28,8 @@ struct BuildOption {
 class TechTree {
 public:
     void add(const std::string& object, BuildOption option);
+    // Replaces every way of building `object` (a mod redefining it).
+    void replace(const std::string& object, std::vector<BuildOption> options);
 
     // Options for an object (empty if it can't be built in a tactical battle).
     const std::vector<BuildOption>& options(const std::string& object) const;

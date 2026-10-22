@@ -11,7 +11,7 @@ redistributed.
 |---|---|---|
 | 1 | MEG v1 archives (+ virtual file system, loose-file overrides) | done, verified on retail Config/Maps/Shaders/Cinematics/Retailers.meg (1,668 files, all CRCs match) |
 | 1 | XML game data (`Data/XML`), `MegaFiles.xml` load order | done: all 168 object files, 3,128 objects (1,099 variants), 0 warnings on retail data |
-| 1 | String tables (`MasterTextFile_*.dat`) | planned |
+| 1 | String tables (`MasterTextFile_*.dat`) | done: 7,945 English strings |
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
 | 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
@@ -22,12 +22,37 @@ redistributed.
 | 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
 | 3 | Economy: tech tree (`ProductionDependencies.xml`), players with credits and pop cap, structures that block ground, construction by builders, production queues, upgrades, skirmish start forces | done (first version) |
 | 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points | done |
-| 3 | Resource collection (scrap, collectors), enemy AI | next |
+| 1 | Mods: every mod in `Game\Mods` is layered on top of the base game by default and merged entry by entry (objects, tech tree, factions, damage table, strings, skirmish starts) | done: Community Patch 4 + Human Resurgence 1.02 + Universe at Remix 2.8 load together (3,746 objects, 235 buildable entries) |
+| 3 | Military (human) faction in skirmish via the mods: Bunker + Build Bot start, base building | done |
+| 3 | Resource collection (scrap, collectors, Military supply), enemy AI | next |
 | 3 | Abilities, melee, hardpoint destruction, shields, veterancy | planned |
 | 2 | Particle systems (`0x1500` .ALO), terrain texture splatting, animated units in the viewer | planned |
 | 3 | Lua scripting host (AI, missions); scripts ship as precompiled Lua 5.1 bytecode with a custom header (format byte 0x70, 4-byte float numbers) | planned |
 | 3 | Deterministic RTS simulation (units, pathing, combat) | planned |
 | 4 | UI, audio, LAN multiplayer | planned |
+
+## Mods
+
+The original game loads one mod at a time (`MODPATH`). This engine stacks them: the base game is
+the bottom layer and each folder in `Game\Mods` (found next to the game folder or inside it) is a
+layer on top, in name order, so the last one wins where two mods change the same thing.
+
+* Loose files and archives are looked up top layer first. A mod's own archives (listed in its
+  `Data\MegaFiles.xml` and found in its folder, e.g. `Mod.meg`, `GFWL_Patch.meg`) belong to its layer.
+* List files are **merged** instead of replaced: every layer's `GameObjectFiles.xml` contributes its
+  files; each object file is loaded layer by layer, so a mod's definition of an object replaces the one
+  below it while everything it doesn't touch survives. `ProductionDependencies.xml` is merged per built
+  object, `Factions.xml` per faction, `DamageToArmor.xml` per damage/armor pair, string tables per key,
+  and the `StartingForces` table of a plain-text `DefaultLandScript.lua` per faction.
+* Objects a mod defines twice in its *own* files are reported as warnings (the original keeps the later one too).
+
+All tools and the viewer take `--no-mods` (original game only) or `--mods A,B` (just these, bottom to top;
+names or name prefixes under `Game\Mods`, or folders).
+
+With the three mods in the user's install (Community Patch 4, Human Resurgence 1.02, Universe at Remix 2.8)
+all four factions are playable: Remix already contains Human Resurgence's Military plus its own additions,
+and Community Patch's new units (e.g. `Rosie_Shade`) sit alongside them. Where Community Patch and Remix both
+rebalance the same unit, Remix (loaded later) wins.
 
 ## Build
 

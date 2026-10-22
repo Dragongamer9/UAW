@@ -1,5 +1,7 @@
 // Tests for ALO, ALA, TED, DDS and glTF using small hand-built files.
 #include "alamo/ala.hpp"
+#include "alamo/gamedata.hpp"
+#include "alamo/techtree.hpp"
 #include "alamo/alo.hpp"
 #include "alamo/dds.hpp"
 #include "alamo/gltf.hpp"
@@ -11,6 +13,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace alamo;
@@ -353,7 +357,82 @@ static void testStrings() {
     CHECK(threw);
 }
 
+static void writeFile(const std::filesystem::path& p, const std::string& text) {
+    std::filesystem::create_directories(p.parent_path());
+    std::ofstream(p, std::ios::binary) << text;
+}
+
+// Base game plus two mods: later mods replace objects and tech-tree entries by name,
+// everything else from lower layers survives.
+static void testModLayers() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "uaw_native_test_mods";
+    fs::remove_all(root);
+    const fs::path game = root / "Game", modA = root / "Mods" / "A_First", modB = root / "Mods" / "B_Second";
+    const std::string megaFiles = "<Mega_Files></Mega_Files>";
+    writeFile(game / "Data/MegaFiles.xml", megaFiles);
+    writeFile(game / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
+    writeFile(game / "Data/XML/Units.xml",
+              "<Units><Unit Name=\"Tank\"><Tactical_Health>100</Tactical_Health></Unit>"
+              "<Unit Name=\"Jeep\"><Tactical_Health>50</Tactical_Health></Unit></Units>");
+    writeFile(game / "Data/XML/Factions.xml", "<Factions><Faction Name=\"Novus\"><Is_Human_Playable>Yes</Is_Human_Playable></Faction>"
+                                               "<Faction Name=\"Military\"><Is_Human_Playable>No</Is_Human_Playable></Faction></Factions>");
+    writeFile(game / "Data/XML/ProductionDependencies.xml",
+              "<ProductionDependencies><Dependency><Built_Object>Tank</Built_Object><Tactical_Builder>Factory</Tactical_Builder></Dependency>"
+              "<Dependency><Built_Object>Jeep</Built_Object><Tactical_Builder>Factory</Tactical_Builder></Dependency></ProductionDependencies>");
+    // Mod A: rebalances the tank, adds its own file and unit, makes the Military playable.
+    writeFile(modA / "Data/MegaFiles.xml", megaFiles);
+    writeFile(modA / "Data/XML/GameObjectFiles.xml",
+              "<Game_Object_Files><File>Units.xml</File><File>ModA.xml</File></Game_Object_Files>");
+    writeFile(modA / "Data/XML/Units.xml", "<Units><Unit Name=\"Tank\"><Tactical_Health>150</Tactical_Health></Unit></Units>");
+    writeFile(modA / "Data/XML/ModA.xml", "<Units><Unit Name=\"Sniper\"><Tactical_Health>40</Tactical_Health></Unit></Units>");
+    writeFile(modA / "Data/XML/Factions.xml", "<Factions><Faction Name=\"Military\"><Is_Human_Playable>Yes</Is_Human_Playable></Faction></Factions>");
+    writeFile(modA / "Data/XML/ProductionDependencies.xml",
+              "<ProductionDependencies><Dependency><Built_Object>Sniper</Built_Object><Tactical_Builder>Barracks</Tactical_Builder></Dependency></ProductionDependencies>");
+    // Mod B: different tank stats again (top layer wins) and a new unit in its own file.
+    writeFile(modB / "Data/MegaFiles.xml", megaFiles);
+    writeFile(modB / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File><File>ModB.xml</File></Game_Object_Files>");
+    writeFile(modB / "Data/XML/Units.xml", "<Units><Unit Name=\"Tank\"><Tactical_Health>200</Tactical_Health></Unit></Units>");
+    writeFile(modB / "Data/XML/ModB.xml", "<Units><Unit Name=\"Mech\"><Tactical_Health>300</Tactical_Health></Unit></Units>");
+    writeFile(modB / "Data/XML/ProductionDependencies.xml",
+              "<ProductionDependencies><Dependency><Built_Object>Tank</Built_Object><Tactical_Builder>Motor_Pool</Tactical_Builder></Dependency></ProductionDependencies>");
+
+    const auto mods = alamo::installedMods(game);
+    CHECK(mods.size() == 2 && mods[0].filename() == "A_First" && mods[1].filename() == "B_Second");
+    alamo::MegVfs vfs;
+    alamo::mountGame(vfs, game, mods);
+    CHECK(vfs.layerCount() == 3);
+    CHECK(vfs.readAllLayers("Data\\XML\\Units.xml").size() == 3);
+    alamo::GameDatabase db;
+    db.load(vfs);
+    auto health = [&](const char* name) {
+        const alamo::GameObjectType* t = db.find(name);
+        return t ? t->number("Tactical_Health").value_or(-1) : -2;
+    };
+    CHECK(health("Tank") == 200);  // top mod wins
+    CHECK(health("Jeep") == 50);   // untouched base object survives
+    CHECK(health("Sniper") == 40); // mod A's addition survives mod B
+    CHECK(health("Mech") == 300);
+    CHECK(db.overriddenCount() == 2);
+    const alamo::Faction* mil = db.faction("Military");
+    CHECK(mil && mil->humanPlayable);
+    CHECK(db.faction("Novus") && db.faction("Novus")->humanPlayable);
+    const alamo::TechTree tech = alamo::loadTechTree(vfs);
+    CHECK(tech.options("Tank").size() == 1 && tech.options("Tank")[0].builders[0] == "Motor_Pool");
+    CHECK(tech.options("Jeep").size() == 1 && tech.options("Sniper").size() == 1);
+
+    // --no-mods equivalent: base only.
+    alamo::MegVfs plain;
+    alamo::mountGame(plain, game, std::vector<fs::path>{});
+    alamo::GameDatabase base;
+    base.load(plain);
+    CHECK(base.find("Tank") && base.find("Tank")->number("Tactical_Health").value_or(0) == 100);
+    CHECK(!base.find("Sniper"));
+    fs::remove_all(root);
+}
+
 int main() {
+    testModLayers();
     testStrings();
     testTed();
     testAlo();

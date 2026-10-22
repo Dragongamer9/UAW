@@ -18,7 +18,7 @@ namespace alamo {
 
 class StringTable {
 public:
-    void parse(std::span<const uint8_t> data); // throws MegError on malformed input
+    void parse(std::span<const uint8_t> data); // adds/replaces strings; throws MegError on malformed input
     const std::string* get(std::string_view key) const; // UTF-8, nullptr if missing
     size_t size() const { return strings_.size(); }
 

@@ -94,13 +94,27 @@ bool World::owns(int owner, const std::string& typeName) const {
     return false;
 }
 
+bool isStructureType(const GameObjectType& t) {
+    const std::string* mc = t.find("MovementClass");
+    return (mc && iequals(trim(*mc), "Building")) || t.category.find("Structure") != std::string::npos;
+}
+
 std::vector<std::string> World::producible(uint32_t id) const {
     const Unit* s = nullptr;
     for (const Unit& u : units_)
         if (u.id == id) s = &u;
     if (!s || !tech_ || s->underConstruction) return {};
     const int owner = s->owner;
-    return tech_->producibleBy(s->type->name, [&](const std::string& t) { return owns(owner, t); });
+    auto out = tech_->producibleBy(s->type->name, [&](const std::string& t) { return owns(owner, t); });
+    if (!s->structure) {
+        // A mobile builder listed as Tactical_Builder of a structure constructs it on site
+        // (mods such as Human Resurgence write it that way); that's constructible(), not production.
+        std::erase_if(out, [&](const std::string& n) {
+            const GameObjectType* t = db_.find(n);
+            return t && isStructureType(*t);
+        });
+    }
+    return out;
 }
 
 std::vector<std::string> World::constructible(uint32_t id) const {
@@ -109,7 +123,13 @@ std::vector<std::string> World::constructible(uint32_t id) const {
         if (u.id == id) b = &u;
     if (!b || !tech_ || b->structure) return {}; // structures only appear as prerequisites
     const int owner = b->owner;
-    return tech_->constructibleBy(b->type->name, [&](const std::string& t) { return owns(owner, t); });
+    const auto has = [&](const std::string& t) { return owns(owner, t); };
+    auto out = tech_->constructibleBy(b->type->name, has);
+    for (const std::string& n : tech_->producibleBy(b->type->name, has)) {
+        const GameObjectType* t = db_.find(n);
+        if (t && isStructureType(*t) && std::find(out.begin(), out.end(), n) == out.end()) out.push_back(n);
+    }
+    return out;
 }
 
 OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
@@ -301,8 +321,7 @@ uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, flo
     u.maxHealth = u.health = float(t->number("Tactical_Health").value_or(100.0));
     if (const std::string* a = t->find("Armor_Type")) u.armorType = trim(*a);
     u.pop = int(t->number("Unit_Pop_Cap").value_or(0));
-    const std::string* mc = t->find("MovementClass");
-    u.structure = (mc && iequals(trim(*mc), "Building")) || t->category.find("Structure") != std::string::npos;
+    u.structure = isStructureType(*t);
     if (u.structure) {
         u.footprintX = float(t->number("Custom_Hard_XExtent").value_or(20));
         u.footprintY = float(t->number("Custom_Hard_YExtent").value_or(u.footprintX));
@@ -437,20 +456,101 @@ void World::updateTargeting(Unit& u) {
     }
 }
 
-int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start) {
+StartingForces defaultStartingForces() {
+    return {{"ALIEN", {"Alien_Arrival_Site", "Alien_Glyph_Carver"}},
+            {"NOVUS", {"Novus_Remote_Terminal", "Novus_Constructor"}},
+            {"MASARI", {"Masari_Foundation", "Masari_Architect"}},
+            {"MILITARY", {"Military_Hummer"}}};
+}
+
+StartingForces parseStartingForces(std::string_view lua) {
+    StartingForces out;
+    size_t i = lua.find("StartingForces");
+    if (i == std::string_view::npos) return out;
+    i = lua.find('{', i);
+    if (i == std::string_view::npos) return out;
+    // Walk the nested table: depth 1 holds ["FACTION"] = { "TYPE", ... } entries.
+    int depth = 0;
+    std::string key, current;
+    auto readString = [&](size_t& p) {
+        const char q = lua[p++];
+        std::string s;
+        while (p < lua.size() && lua[p] != q) s += lua[p++];
+        ++p;
+        return s;
+    };
+    for (size_t p = i; p < lua.size();) {
+        const char c = lua[p];
+        if (c == '-' && p + 1 < lua.size() && lua[p + 1] == '-') { // comment to end of line
+            while (p < lua.size() && lua[p] != '\n') ++p;
+            continue;
+        }
+        if (c == '{') {
+            ++depth;
+            if (depth == 2) current = key;
+            ++p;
+        } else if (c == '}') {
+            if (--depth == 0) break;
+            ++p;
+        } else if (c == '"' || c == '\'') {
+            std::string s = readString(p);
+            if (depth == 1) key = s;
+            else if (depth == 2 && !current.empty()) {
+                for (char& ch : current) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                out[current].push_back(s);
+            }
+        } else {
+            ++p;
+        }
+    }
+    return out;
+}
+
+StartingForces loadStartingForces(MegVfs& vfs) {
+    StartingForces forces = defaultStartingForces();
+    const char* path = "Data\\Scripts\\Story\\DefaultLandScript.lua";
+    try {
+        // Every layer's script, bottom to top: each faction's list from the topmost
+        // layer that has one (so all mods' factions are available together).
+        for (const auto& v : vfs.readAllLayers(path)) {
+            const auto& bytes = v.data;
+            if (!bytes.empty() && bytes[0] == 0x1B) continue; // compiled Lua
+            for (auto& [faction, list] : parseStartingForces(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())))
+                forces[faction] = list;
+        }
+    } catch (const std::exception&) {
+    }
+    return forces;
+}
+
+int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& faction, Vec3 start,
+                      const StartingForces* forces) {
     const Faction* f = db.faction(faction);
     const int id = world.addPlayer(f ? f->name : faction, f ? f->multiplayerCredits : 10000.f, f ? f->multiplayerPopCap : 90);
-    struct Start { const char* faction; const char* structure; const char* builder; };
-    static const Start starts[] = {{"Alien", "Alien_Arrival_Site", "Alien_Glyph_Carver"},
-                                   {"Novus", "Novus_Remote_Terminal", "Novus_Constructor"},
-                                   {"Masari", "Masari_Foundation", "Masari_Architect"},
-                                   {"Military", nullptr, "Military_Hummer"}};
-    for (const Start& s : starts) {
-        if (!iequals(s.faction, faction)) continue;
-        const float toCentre = std::atan2(world.map().sizeY() / 2 - start[1], world.map().sizeX() / 2 - start[0]);
-        if (s.structure) world.spawn(s.structure, id, start, 0);
-        const float out = 110;
-        world.spawn(s.builder, id, {start[0] + std::cos(toCentre) * out, start[1] + std::sin(toCentre) * out, 0}, toCentre);
+    static const StartingForces defaults = defaultStartingForces();
+    const StartingForces& table = forces ? *forces : defaults;
+    std::string upper = faction;
+    for (char& ch : upper) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+    const auto it = table.find(upper);
+    if (it == table.end()) return id;
+    const float toCentre = std::atan2(world.map().sizeY() / 2 - start[1], world.map().sizeX() / 2 - start[0]);
+    float clear = 60; // distance from the start marker that is outside the command structure
+    int extra = 0;
+    for (size_t k = 0; k < it->second.size(); ++k) {
+        const GameObjectType* t = db.find(it->second[k]);
+        if (!t) continue;
+        if (k == 0) { // the script spawns the first entry exactly on the marker
+            const uint32_t hq = world.spawn(t->name, id, start, 0);
+            if (const Unit* u = world.unit(hq))
+                clear = std::max(clear, std::hypot(u->footprintX, u->footprintY) + 10);
+            continue;
+        }
+        // Everything else fans out toward the map centre, in front of the base.
+        const float a = toCentre + 0.35f * float((extra + 1) / 2) * (extra % 2 ? 1.f : -1.f);
+        const float out = clear + 40 + 20 * float(extra / 2);
+        const Vec3 p = world.nav().nearestPassable({start[0] + std::cos(a) * out, start[1] + std::sin(a) * out, 0});
+        world.spawn(t->name, id, p, toCentre);
+        ++extra;
     }
     return id;
 }

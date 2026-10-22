@@ -82,21 +82,35 @@ std::vector<std::string> TechTree::constructibleBy(const std::string& builder, c
     return out;
 }
 
+void TechTree::replace(const std::string& object, std::vector<BuildOption> options) {
+    const std::string key = upper(object);
+    if (!byObject_.count(key)) order_.push_back(object);
+    byObject_[key] = std::move(options);
+}
+
 TechTree loadTechTree(MegVfs& vfs) {
+    // Each layer's ProductionDependencies.xml, bottom to top. A layer that mentions an
+    // object replaces every way of building it from the layers below; objects it doesn't
+    // mention keep their lower-layer entries (so mods' additions add up).
     TechTree tree;
-    const char* path = "Data\\XML\\ProductionDependencies.xml";
-    if (!vfs.exists(path)) return tree;
-    XmlDocument doc = parseXml(readText(vfs, path));
-    const XmlNode* root = doc.root.child("ProductionDependencies");
-    if (!root) return tree;
-    for (const XmlNode* d : root->childrenNamed("Dependency")) {
-        const auto obj = names(d->child("Built_Object"));
-        if (obj.empty()) continue;
-        BuildOption o;
-        o.builders = names(d->child("Tactical_Builder"));
-        o.required = names(d->child("Tactical_Required_Objects"));
-        if (o.builders.empty() && o.required.empty()) continue; // strategic-only entry
-        tree.add(obj.front(), std::move(o));
+    for (const auto& v : vfs.readAllLayers("Data\\XML\\ProductionDependencies.xml")) {
+        XmlDocument doc = parseXml(std::string(v.data.begin(), v.data.end()));
+        const XmlNode* root = doc.root.child("ProductionDependencies");
+        if (!root) continue;
+        std::vector<std::string> order;
+        std::unordered_map<std::string, std::vector<BuildOption>> layer;
+        for (const XmlNode* d : root->childrenNamed("Dependency")) {
+            const auto obj = names(d->child("Built_Object"));
+            if (obj.empty()) continue;
+            BuildOption o;
+            o.builders = names(d->child("Tactical_Builder"));
+            o.required = names(d->child("Tactical_Required_Objects"));
+            if (o.builders.empty() && o.required.empty()) continue; // strategic-only entry
+            const std::string key = upper(obj.front());
+            if (!layer.count(key)) order.push_back(obj.front());
+            layer[key].push_back(std::move(o));
+        }
+        for (const auto& name : order) tree.replace(name, std::move(layer[upper(name)]));
     }
     return tree;
 }
