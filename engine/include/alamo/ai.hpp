@@ -76,6 +76,8 @@ private:
     float scoutSince_ = 0;
     float wealth() const;
     float typeStrength(const GameObjectType& t) const; // sqrt(health x dps), cached
+    bool hitsAir(const GameObjectType& t) const;        // some weapon may target aircraft, cached
+    mutable std::unordered_map<const GameObjectType*, bool> hitsAir_;
 
     World& w_;
     const GameDatabase& db_;

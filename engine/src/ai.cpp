@@ -20,6 +20,8 @@ constexpr int kMaxArmy = 160; // combat units alive
 
 } // namespace
 
+float unitStrength(const Unit& u); // below
+
 bool defeated(const World& w, int player) {
     for (const Unit& u : w.units()) {
         if (u.owner != player) continue;
@@ -427,6 +429,18 @@ bool SkirmishAI::isUtilityUnit(const GameObjectType& t) const {
     return !e.collector && !e.reaper && e.drones == 0;
 }
 
+bool SkirmishAI::hitsAir(const GameObjectType& t) const {
+    if (auto it = hitsAir_.find(&t); it != hitsAir_.end()) return it->second;
+    static const std::vector<std::string> aircraft{"FLYING", "MEDIUM"};
+    bool air = false;
+    auto check = [&](const GameObjectType& u) {
+        for (const WeaponSpec& w : weaponsFor(u, db_)) air = air || !w.restrictions || !hasAnyCategory(aircraft, *w.restrictions);
+    };
+    check(t);
+    for (const GameObjectType* m : squadMembers(t, db_)) check(*m);
+    return hitsAir_[&t] = air;
+}
+
 std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& options, float credits) {
     // Whole roster in rotation: each type's turn comes round in proportion to its combat value
     // per credit (never below a quarter of the best), so every unit gets built and the efficient
@@ -434,8 +448,17 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
     // is saved for (one structure at a time, for up to a minute) instead of skipped forever.
     const float rich = wealth();
     std::unordered_map<std::string, int> alive;
-    for (const Unit& u : w_.units())
+    float enemyAir = 0, enemyAll = 0; // the enemy's air power as far as we know it: counter it
+    for (const Unit& u : w_.units()) {
         if (u.owner == player_) ++alive[u.type->name];
+        else if (w_.enemies(player_, u.owner) && u.owner >= 0 && !u.structure &&
+                 (!w_.fogOfWar() || knownUnits_.count(u.id))) {
+            const float v = unitStrength(u);
+            enemyAll += v;
+            if (u.flying()) enemyAir += v;
+        }
+    }
+    const float airShare = enemyAll > 0 ? enemyAir / enemyAll : 0;
     struct Cand { std::string name; float cost, perCredit; bool utility; };
     std::vector<Cand> cands;
     float bestPerCredit = 0;
@@ -452,7 +475,11 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
     }
     if (cands.empty()) return {};
     auto key = [&](const Cand& c) {
-        const float weight = c.utility ? 0.5f : std::clamp(c.perCredit / std::max(1e-6f, bestPerCredit), 0.25f, 1.f);
+        float weight = c.utility ? 0.5f : std::clamp(c.perCredit / std::max(1e-6f, bestPerCredit), 0.25f, 1.f);
+        if (!c.utility && airShare > 0.2f) { // aircraft about: favour what can shoot them down
+            const GameObjectType* t = db_.find(c.name);
+            weight *= t && hitsAir(*t) ? 1.f + 2.f * airShare : 1.f - 0.6f * airShare;
+        }
         const auto it = made_.find(c.name);
         return float((it == made_.end() ? 0 : it->second) + 1) / weight;
     };
