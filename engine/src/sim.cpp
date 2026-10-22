@@ -888,9 +888,15 @@ void World::fireWeapons(Unit& u) {
         const float rate = std::max(u.stoppedTurnRate, u.turnRate * 0.5f);
         u.facing += std::clamp(diff, -rate, rate);
     }
+    // Deploying units (the Dragoon) set up while standing and pack up to move; only set up, they fire.
+    if (u.deployNeed > 0) {
+        if (u.moving()) u.deployed = 0;
+        else if (u.deployed < u.deployNeed) ++u.deployed;
+    }
+    const bool packed = u.deployNeed > 0 && u.deployed < u.deployNeed;
     for (Unit::WeaponState& w : u.weapons) {
         if (w.cooldown > 0) --w.cooldown;
-        if (u.disarmed) { w.pulsesLeft = 0; continue; }
+        if (u.disarmed || packed) { w.pulsesLeft = 0; continue; }
         const float d = t ? dist2d(u.position, t->position) - t->radius : 1e30f;
         const bool inRange = t && d <= u.weaponRange(w) && d + t->radius >= w.spec.minRange;
         if (w.pulsesLeft == 0) {

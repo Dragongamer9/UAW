@@ -152,6 +152,7 @@ struct Unit {
     float rangeScale = 1, rangeAdd = 0;
     float abilityRate = 1;             // ability recharge speed multiplier
     std::vector<std::pair<std::string, float>> armorMods; // ModifyArmor: damage type -> added modifier
+    int deployNeed = 0, deployed = 0;  // DEPLOY units: ticks of standing still before the weapon fires
     bool immobile = false, disarmed = false, silenced = false; // DisableBehavior / DisableAbility
     bool damagedThisTick = false, firedThisTick = false;
     bool cloaked = false;              // a Cloak/Mirage effect hides it from enemies

@@ -138,6 +138,12 @@ static Data testData(const fs::path& root) {
     <Abilities SubObjectList="Yes"><Teleport_Move_Ability Name="Blink"><Activation_Style>USER_INPUT</Activation_Style>
       <Teleport_Pre_Delay_Time>1.0</Teleport_Pre_Delay_Time><Maximum_Teleport_Range>500</Maximum_Teleport_Range>
       <Minimum_Teleport_Range>100</Minimum_Teleport_Range></Teleport_Move_Ability></Abilities></X_Units>
+  <X_Units Name="Setter"><MovementClass>Infantry</MovementClass><Tactical_Health>100</Tactical_Health>
+    <Fire_Weapon_When_Deployed>Yes</Fire_Weapon_When_Deployed><Fire_Weapon_When_Undeployed>No</Fire_Weapon_When_Undeployed>
+    <BehaviorType Name="DeployBehaviorType"><Deployment_Anim_Rate>1.5</Deployment_Anim_Rate></BehaviorType>
+    <BehaviorType Name="WeaponBehaviorType"><Projectile_Types>Proj_Short</Projectile_Types>
+      <Targeting_Max_Attack_Distance>100</Targeting_Max_Attack_Distance></BehaviorType>
+    <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Setup"><Type>DEPLOY</Type></Unit_Ability></Unit_Abilities_Data></X_Units>
   <X_Units Name="Mirror"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
     <Tactical_Health>100</Tactical_Health>
     <BehaviorType Name="ShieldBehaviorType"><Shield_Points>100</Shield_Points><Shield_Refresh_Rate>30</Shield_Refresh_Rate></BehaviorType>
@@ -272,6 +278,20 @@ static void testTeleport(const Data& d) {
     CHECK(w.unit(b)->position[0] < 210); // still charging up
     for (int i = 0; i < 20; ++i) w.tick();
     CHECK(std::fabs(w.unit(b)->position[0] - 500) < 15 && std::fabs(w.unit(b)->position[1] - 300) < 15);
+}
+
+static void testDeploy(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t gun = w.spawn("Setter", a, {200, 200, 0});
+    const uint32_t victim = w.spawn("Dummy", b, {260, 200, 0});
+    CHECK(w.unit(gun)->deployNeed == 30);
+    for (int i = 0; i < 20; ++i) w.tick();
+    CHECK(w.unit(victim)->health == w.unit(victim)->maxHealth); // still setting up
+    for (int i = 0; i < 40; ++i) w.tick();
+    CHECK(w.unit(victim)->health < w.unit(victim)->maxHealth);
 }
 
 static void testRedirect(const Data& d) {
@@ -553,6 +573,7 @@ int main() {
     testCloak(d);
     testTeleport(d);
     testRedirect(d);
+    testDeploy(d);
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);

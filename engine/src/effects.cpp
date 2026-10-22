@@ -487,6 +487,12 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
             (s.abilityType == "TACTICAL_BUILD_STRUCTURE" || s.abilityType == "RETREAT_TAKE_OFF" || iequals(s.abilityType, "Hostile_Territory_Ability") ||
              up(s.name).find("RETREAT_FROM_TACTICAL") != std::string::npos))
             s.kind = AbilitySpec::Kind::Elsewhere;
+        if (s.abilityType == "DEPLOY") { // passive: sets up when standing, packs up to move
+            s.kind = AbilitySpec::Kind::Deploy;
+            s.autonomous = true;
+            s.needsTarget = false;
+            s.deployTicks = int(std::lround(45.f / std::max(0.2f, float(num(type.find("Deployment_Anim_Rate"), 1)))));
+        }
         out.push_back(std::move(s));
     }
     for (const std::string& key : rawOrder) {

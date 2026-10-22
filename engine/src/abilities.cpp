@@ -130,9 +130,15 @@ void World::initAbilities(Unit& u) {
         u.generators.push_back(g);
     }
     u.abilities.clear();
+    u.deployNeed = 0;
     for (size_t i = 0; i < ta.abilities.size(); ++i) {
         const AbilitySpec& s = ta.abilities[i];
         if (s.kind == AbilitySpec::Kind::Unsupported) continue;
+        if (s.kind == AbilitySpec::Kind::Deploy) {
+            const std::string* v = u.type->find("Fire_Weapon_When_Undeployed");
+            const std::string f = v ? trim(*v) : std::string();
+            if (!(iequals(f, "yes") || iequals(f, "true") || f == "1")) u.deployNeed = s.deployTicks;
+        }
         u.abilities.push_back({uint16_t(i), 0.f});
     }
 }
@@ -902,7 +908,7 @@ OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point
     if (!u || i >= u->abilities.size()) return OrderResult::InvalidUnit;
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
     const AbilitySpec& s = abilitiesOf(*u->type).abilities[u->abilities[i].index];
-    if (s.kind == AbilitySpec::Kind::Unsupported || abilityLocked(*u, s)) return OrderResult::NotAllowed;
+    if (s.kind == AbilitySpec::Kind::Unsupported || s.kind == AbilitySpec::Kind::Deploy || abilityLocked(*u, s)) return OrderResult::NotAllowed;
     if (s.kind == AbilitySpec::Kind::Teleport) {
         const float d = distXY(u->position, point);
         if (d > s.maxRange || d < s.minRange) return OrderResult::NotAllowed;
@@ -929,6 +935,7 @@ void World::autonomousAbilities(Unit& u) {
         if (a.cooldown > 0 || u.silenced || u.underConstruction || u.inside || !ta.abilities[a.index].autonomous) continue;
         if (abilityLocked(u, ta.abilities[a.index])) continue;
         const AbilitySpec& spec = ta.abilities[a.index];
+        if (spec.kind == AbilitySpec::Kind::Deploy || spec.kind == AbilitySpec::Kind::Elsewhere) continue; // not used, just there
         if (spec.kind == AbilitySpec::Kind::Generator) { // still channelling the last one
             bool running = false;
             for (const auto& g : u.generators)
