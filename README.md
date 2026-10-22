@@ -141,6 +141,7 @@ squad, or another with `--player N`.
 | Queue a move after the current one | Shift + right click | |
 | Next idle builder (camera follows) / your whole army | . / , | |
 | Sound on / off | M | |
+| Camera to your base | H | |
 | Orders on the minimap (move, attack-move with A/G, Shift to queue) | right click the minimap | |
 | Attack-move | G then right click, or hold A + right click | D-pad up |
 | Fire superweapon (enabler selected, ready) | V then right click | |

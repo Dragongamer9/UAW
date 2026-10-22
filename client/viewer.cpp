@@ -42,7 +42,7 @@
 //
 // Controls
 //   keyboard  WASD / arrows pan, Q/E rotate, R/F tilt, wheel or +/- zoom,
-//             Tab select all yours, . next idle builder, , your army, M sound on/off, Space jump to selection, X stop, G (or hold A) + right click attack-move,
+//             Tab select all yours, . next idle builder, , your army, H your base, M sound on/off, Space jump to selection, X stop, G (or hold A) + right click attack-move,
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera (right click: orders there),
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
@@ -939,6 +939,10 @@ int main(int argc, char** argv) {
                             else control.say("No idle builders", world.seconds());
                         }
                         else if (e.key.key == SDLK_COMMA) control.selectArmy(world);
+                        else if (e.key.key == SDLK_H) { // camera to your base (the oldest structure you have)
+                            for (const Unit& u : world.units())
+                                if (u.owner == control.player() && u.structure) { cam.x = u.position[0]; cam.y = u.position[1]; break; }
+                        }
                         else if (e.key.key == SDLK_M && audio) { // sound on / off
                             audio->volume = audio->volume > 0 ? 0.f : 0.8f;
                             control.say(audio->volume > 0 ? "Sound on" : "Sound off", world.seconds());
