@@ -300,10 +300,10 @@ std::vector<AbilityButton> UnitControl::abilities(alamo::World& w) const {
                 b.name = s.name;
                 // "Novus_Hacker_Download_Ability" -> "Hacker Download"
                 std::string l = s.name;
-                for (const char* drop : {"_Ability", "_ability", "_Unit_Ability"})
+                for (const char* drop : {"_Unit_Ability", "_Special_Ability", "_Ability", "_ability", "_Toggle"})
                     if (const size_t p = l.rfind(drop); p != std::string::npos && p + std::strlen(drop) == l.size()) l.resize(p);
-                for (const char* fac : {"Novus_", "Alien_", "Masari_", "Military_"})
-                    if (l.rfind(fac, 0) == 0) l = l.substr(std::strlen(fac));
+                for (const char* lead : {"Unit_Ability_", "Special_Ability_", "Ability_", "Novus_", "Alien_", "Masari_", "Military_"})
+                    if (l.rfind(lead, 0) == 0) l = l.substr(std::strlen(lead));
                 for (char& c : l) if (c == '_') c = ' ';
                 b.label = l;
                 b.wantsObject = s.needsTarget && !s.substitute; // fire modes just switch
