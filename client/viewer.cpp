@@ -878,7 +878,8 @@ int main(int argc, char** argv) {
             double simAccumulator = 0;
             int frames = 0;
             // Mouse drag state for box selection / right-click orders.
-            bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false, superweaponArmed = false;
+            bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false, superweaponArmed = false,
+                 patrolArmed = false;
             int lastGroupKey = -1;
             uint64_t lastDeleteTime = 0;
             uint64_t lastGroupTime = 0;
@@ -974,7 +975,11 @@ int main(int argc, char** argv) {
                             const size_t i = size_t(e.key.key - SDLK_1);
                             if (i < items.size()) control.activate(world, items[i]);
                         } else if (e.key.key == SDLK_BACKSPACE) control.cancelQueue(world);
-                        else if (e.key.key == SDLK_P) placeholders = !placeholders;
+                        else if (e.key.key == SDLK_F11) placeholders = !placeholders;
+                        else if (e.key.key == SDLK_P && !control.selection().empty()) {
+                            patrolArmed = true; // next right click: patrol between here and there
+                            control.say("Patrol: right click the far end", world.seconds());
+                        }
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_PERIOD) { // next idle builder, camera to it
                             Vec3 at;
@@ -1065,15 +1070,17 @@ int main(int argc, char** argv) {
                             if (!rightDragged && hud.minimapAt(e.button.x, e.button.y, mm)) {
                                 // Right click on the minimap: the same orders, at that spot of the map.
                                 mm[2] = map.heightAt(mm[0], mm[1]);
-                                if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, mm);
+                                if (patrolArmed) control.patrol(world, mm);
+                                else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, mm);
                                 else control.command(world, mm, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
-                                attackMoveArmed = false;
+                                attackMoveArmed = patrolArmed = false;
                             } else if (!rightDragged && view.groundAt(map, e.button.x, e.button.y, g)) {
                                 if (control.abilityArmed()) control.targetAbility(world, g);
                                 else if (superweaponArmed) control.fireSuperweapon(world, g);
+                                else if (patrolArmed) control.patrol(world, g);
                                 else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
                                 else control.command(world, g, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
-                                attackMoveArmed = superweaponArmed = false;
+                                attackMoveArmed = superweaponArmed = patrolArmed = false;
                             }
                         }
                         break;

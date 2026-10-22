@@ -14,12 +14,12 @@ namespace {
 
 const char* kindName(alamo::Command::Kind k) {
     static const char* names[] = {"move", "stop", "attackmove", "attack", "queue", "cancelqueue", "rally",
-                                  "construct", "superweapon", "research", "ability", "board", "unload", "sell"};
+                                  "construct", "superweapon", "research", "ability", "board", "unload", "sell", "patrol"};
     return names[int(k)];
 }
 
 bool kindFrom(const std::string& s, alamo::Command::Kind& k) {
-    for (int i = 0; i <= int(alamo::Command::Kind::Sell); ++i)
+    for (int i = 0; i <= int(alamo::Command::Kind::Patrol); ++i)
         if (s == kindName(alamo::Command::Kind(i))) {
             k = alamo::Command::Kind(i);
             return true;

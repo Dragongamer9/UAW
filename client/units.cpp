@@ -412,6 +412,14 @@ void UnitControl::attackMove(alamo::World& w, const Vec3& ground) {
     attackOrder_ = true;
 }
 
+void UnitControl::patrol(alamo::World& w, const Vec3& ground) {
+    if (selected_.empty()) return;
+    w.commandPatrol(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground);
+    lastOrder_ = ground;
+    lastOrderTime_ = w.seconds();
+    attackOrder_ = true;
+}
+
 void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(selected_.begin(), selected_.end())); }
 
 // ------------------------------------------------------------------ drawing

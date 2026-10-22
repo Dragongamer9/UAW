@@ -104,6 +104,7 @@ public:
     // Right click: attack, board, rally or move; with queued (Shift) a move goes after the ones already given.
     void command(alamo::World& w, const alamo::Vec3& ground, bool queued = false);
     void attackMove(alamo::World& w, const alamo::Vec3& ground);
+    void patrol(alamo::World& w, const alamo::Vec3& ground); // between where they are and there
     // Fires the first ready superweapon among the selection at `ground`; false if none was ready.
     bool fireSuperweapon(alamo::World& w, const alamo::Vec3& ground);
     void stop(alamo::World& w);

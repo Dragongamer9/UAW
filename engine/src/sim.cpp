@@ -669,6 +669,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queu
         u->queuedMoves.clear();
         u->attackOrder = 0;
         u->attackMove = false;
+        u->patrol = false;
         u->goal = slots[best];
         u->harvest = Unit::Harvest::None;
         if (u->flowTicks > 0) { u->flowGoal = slots[best]; continue; } // flowing: carries on there afterwards
@@ -702,7 +703,22 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
             u->queuedMoves.clear();
             u->attackOrder = 0;
             u->attackMove = false;
+            u->patrol = false;
             u->harvest = Unit::Harvest::None;
+        }
+}
+
+void World::commandPatrol(const std::vector<uint32_t>& ids, Vec3 target) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Patrol, ids, 0, -1, 0, target});
+    if (rec_.captured) return; // sent over the network; it runs when its turn comes
+    std::vector<Vec3> from;
+    for (uint32_t id : ids) from.push_back(unit(id) ? unit(id)->position : Vec3{});
+    commandAttackMove(ids, target); // nested: not recorded on its own
+    for (size_t i = 0; i < ids.size(); ++i)
+        if (Unit* u = unit(ids[i]); u && u->attackMove && !u->structure) {
+            u->patrol = true;
+            u->patrolFrom = from[i];
+            u->patrolTo = u->goal; // its own place in the formation
         }
 }
 
@@ -726,6 +742,7 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
         u->queuedMoves.clear();
         u->attackOrder = target;
         u->attackMove = false;
+        u->patrol = false;
         u->target = target;
         u->repathTicks = 0;
     }
@@ -824,6 +841,11 @@ void World::updateTargeting(Unit& u) {
         } else if (u.path.empty() && dist2d(u.position, u.goal) > std::max(u.radius * 2, 20.f)) {
             u.path = planPath(u, u.goal); // area clear: carry on
             if (u.path.empty()) u.attackMove = false; // can't get there: stop trying (every tick)
+        } else if (u.path.empty() && u.patrol) {
+            std::swap(u.patrolFrom, u.patrolTo); // patrol: arrived, now back the other way
+            u.goal = u.patrolTo;
+            u.path = planPath(u, u.goal);
+            if (u.path.empty()) u.attackMove = u.patrol = false;
         } else if (u.path.empty()) {
             u.attackMove = false; // arrived
         }
@@ -1402,6 +1424,7 @@ void World::apply(const Command& c) {
     case Command::Kind::Move: commandMove(c.ids, c.point, c.index == 1); break;
     case Command::Kind::Stop: commandStop(c.ids); break;
     case Command::Kind::AttackMove: commandAttackMove(c.ids, c.point); break;
+    case Command::Kind::Patrol: commandPatrol(c.ids, c.point); break;
     case Command::Kind::Attack: commandAttack(c.ids, c.target); break;
     case Command::Kind::Queue: queueProduction(first, c.name); break;
     case Command::Kind::CancelQueue: cancelProduction(first); break;

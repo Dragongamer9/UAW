@@ -365,6 +365,24 @@ static void testCombat(const GameDatabase& db) {
     for (int i = 0; i < 60 * 30 && chase.unit(prey); ++i) chase.tick();
     CHECK(!chase.unit(prey));
 
+    // Patrol: there and back again, until told otherwise.
+    {
+        World pw(m, db, &table, 3);
+        const uint32_t guard = pw.spawn("Gunner", 0, {100, 500, 0});
+        pw.commandPatrol({guard}, {400, 500, 0});
+        CHECK(pw.unit(guard)->patrol && pw.unit(guard)->attackMove);
+        bool there = false, back = false;
+        for (int i = 0; i < 30 * 30 && !back; ++i) {
+            pw.tick();
+            const Unit* g = pw.unit(guard);
+            there |= std::hypot(g->position[0] - 400, g->position[1] - 500) < 15;
+            back |= there && std::hypot(g->position[0] - 100, g->position[1] - 500) < 15;
+        }
+        CHECK(there && back && pw.unit(guard)->patrol);
+        pw.commandStop({guard});
+        CHECK(!pw.unit(guard)->patrol);
+    }
+
     // Same seed, same battle.
     auto battle = [&](uint64_t seed) {
         World b(m, db, &table, seed);

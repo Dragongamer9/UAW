@@ -156,7 +156,8 @@ squad, or another with `--player N`.
 | Place structure / cancel | left click / right click | A / B |
 | Cancel last queued item | Backspace | left stick click |
 | Rally point (structure selected) | right click | RB |
-| Toggle stand-in boxes | P | Y |
+| Patrol (attack-move back and forth) | P then right click | |
+| Toggle stand-in boxes | F11 | Y |
 | Game speed / pause | `[` `]` / Pause | |
 | Quick save / load | F5 / F9 (also in the Esc menu) | |
 | All the keys on one panel | F10 (or ?) | |
