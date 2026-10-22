@@ -237,7 +237,7 @@ std::string describeSave(const std::string& path) {
         char buf[64];
         if (std::strftime(buf, sizeof buf, "%b %d %H:%M", std::localtime(&t))) when = std::string(" - saved ") + buf;
     }
-    return sg.setup.map + ", " + clock + when;
+    return prettyMapName(sg.setup.map) + ", " + clock + when;
 }
 
 std::string newestSave() {

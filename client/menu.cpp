@@ -30,24 +30,6 @@ std::string upper(std::string s) {
     return s;
 }
 
-// "M25_GRAND_CANYON" -> "Grand Canyon"
-std::string prettyMapName(const std::string& stem) {
-    std::string s = stem;
-    if (s.size() > 1 && (s[0] == 'M' || s[0] == 'm') && std::isdigit(static_cast<unsigned char>(s[1]))) {
-        const size_t u = s.find('_');
-        if (u != std::string::npos) s = s.substr(u + 1);
-    }
-    std::string out;
-    bool start = true;
-    for (char c : s) {
-        if (c == '_') { out += ' '; start = true; continue; }
-        out += start ? char(std::toupper(static_cast<unsigned char>(c))) : char(std::tolower(static_cast<unsigned char>(c)));
-        start = false;
-    }
-    if (out == "Washingtondc") out = "Washington D.C.";
-    if (out == "Brazillian Highlands") out = "Brazilian Highlands";
-    return out;
-}
 
 std::string factionTitle(const std::string& f) {
     const std::string u = upper(f);
@@ -612,6 +594,25 @@ void PauseMenu::draw(Renderer& r) {
         if (paint_.button(r, i, label, x0, y, x0 + bw, y + bh, i == highlight_, mouseX_, mouseY_)) highlight_ = i;
     }
     paint_.flush(r);
+}
+
+// "M25_GRAND_CANYON" -> "Grand Canyon"
+std::string prettyMapName(const std::string& stem) {
+    std::string s = stem;
+    if (s.size() > 1 && (s[0] == 'M' || s[0] == 'm') && std::isdigit(static_cast<unsigned char>(s[1]))) {
+        const size_t u = s.find('_');
+        if (u != std::string::npos) s = s.substr(u + 1);
+    }
+    std::string out;
+    bool start = true;
+    for (char c : s) {
+        if (c == '_') { out += ' '; start = true; continue; }
+        out += start ? char(std::toupper(static_cast<unsigned char>(c))) : char(std::tolower(static_cast<unsigned char>(c)));
+        start = false;
+    }
+    if (out == "Washingtondc") out = "Washington D.C.";
+    if (out == "Brazillian Highlands") out = "Brazilian Highlands";
+    return out;
 }
 
 } // namespace uaw

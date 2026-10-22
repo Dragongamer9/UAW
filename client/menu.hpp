@@ -122,6 +122,9 @@ private:
 };
 
 // The Esc menu during a game.
+// "M25_GRAND_CANYON" -> "Grand Canyon"
+std::string prettyMapName(const std::string& stem);
+
 class PauseMenu {
 public:
     explicit PauseMenu(alamo::MegVfs& vfs, float scale) : paint_(vfs, scale) {}
