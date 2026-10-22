@@ -21,7 +21,9 @@ lost wave; 72 games on M25_Grand_Canyon, M16_Sahara and M22_Appalachia, 2 seeds)
 Hierarchy 16, Military 15 wins of 36; 7 draws. Matchups are lopsided (Novus 12-0 over the Military, Masari
 9-2 over Novus); the
 Military's result swings most with its multiplier (1.1 gave 15 wins, 1.2 about 20, 1.3 gave 26). Results
-swing a lot between seeds and maps, so use 2+ of each.
+swing a lot between seeds and maps, so use 2+ of each. On three other maps (M31_Amazon_Basin, M24_Midwest, M09_Tibetan_Plateau, 1 seed) the
+same multipliers gave Military 11, Masari 8, Novus 5, Hierarchy 5 of 18 (7 draws): map layouts (how much scrap
+lies near the starts) move the balance about as much as the multipliers.
 
 ## Check the sound against the real game files
 
