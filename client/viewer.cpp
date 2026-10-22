@@ -320,6 +320,8 @@ int main(int argc, char** argv) {
         Map map = loadTed(vfs.read(mapPath(opt.map)));
         renderer.setTerrain(map);
         Scene scene(renderer, db, map, opt.allGroups);
+        scene.useEnvironmentSky(renderer, db);
+        renderer.setEnvironment(map.environment); // the map's sun, ambient and haze
         const SceneStats& st = scene.stats();
         std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
                     opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);

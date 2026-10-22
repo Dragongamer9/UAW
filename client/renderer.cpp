@@ -52,6 +52,8 @@ uniform sampler2D uTex;
 uniform int uHasTex;
 uniform vec4 uTint;
 uniform vec3 uLightDir;
+uniform vec3 uSun;       // sun colour x intensity
+uniform vec3 uAmbient;   // ambient + fill
 uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange; // x = start, y = end
@@ -71,7 +73,7 @@ void main() {
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
-    vec3 lit = base.rgb * (0.38 + 0.72 * diffuse + fill);
+    vec3 lit = base.rgb * (uAmbient + uSun * diffuse + fill);
     if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
     float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
@@ -110,6 +112,8 @@ uniform sampler2DArray uLayers;
 uniform vec4 uLayer[64];     // x = texture slot, y = 1 / tiling, z = rotation (radians)
 uniform vec4 uLayerTint[64];
 uniform vec3 uLightDir;
+uniform vec3 uSun;
+uniform vec3 uAmbient;
 uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange;
@@ -129,7 +133,7 @@ void main() {
     vec3 base = w.x * layerColor(vLayers.x) + w.y * layerColor(vLayers.y) + w.z * layerColor(vLayers.z);
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
-    vec3 lit = base * (0.42 + 0.7 * diffuse);
+    vec3 lit = base * (uAmbient + 0.04 + uSun * 0.97 * diffuse);
     if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
     float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
@@ -530,7 +534,7 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     viewProj_ = Mat4::perspective(cam.fovY, float(width) / float(std::max(height, 1)), 5.f, farPlane) *
                 Mat4::lookAt(cam.eye, cam.target, {0, 0, 1});
     glViewport(0, 0, width, height);
-    const alamo::Vec3 fog{0.62f, 0.68f, 0.75f};
+    const alamo::Vec3 fog = hazeColor_;
     glClearColor(fog[0], fog[1], fog[2], 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
@@ -540,9 +544,11 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glDepthMask(GL_TRUE_);
     glUseProgram(program_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
-    const alamo::Vec3 light = Mat4::normalize({0.45f, 0.35f, -0.82f});
+    const alamo::Vec3 light = Mat4::normalize(sunDirection_);
     lightDir_ = light;
     fogColor_ = fog;
+    glUniform3fv(glGetUniformLocation(program_, "uSun"), 1, sunColor_.data());
+    glUniform3fv(glGetUniformLocation(program_, "uAmbient"), 1, ambientColor_.data());
     glUniform3fv(uLightDir_, 1, light.data());
     glUniform3fv(uCamPos_, 1, cam.eye.data());
     glUniform3fv(uFogColor_, 1, fog.data());
@@ -595,6 +601,8 @@ void Renderer::drawTerrain() {
     auto loc = [&](const char* n) { return glGetUniformLocation(terrainProgram_, n); };
     glUniformMatrix4fv(loc("uViewProj"), 1, GL_FALSE_, viewProj_.data());
     glUniform3fv(loc("uLightDir"), 1, lightDir_.data());
+    glUniform3fv(loc("uSun"), 1, sunColor_.data());
+    glUniform3fv(loc("uAmbient"), 1, ambientColor_.data());
     glUniform3fv(loc("uCamPos"), 1, camPos_.data());
     glUniform3fv(loc("uFogColor"), 1, fogColor_.data());
     const GLfloat fogRange[4] = {farPlane_ * 0.45f, farPlane_, 0, 0};
@@ -743,6 +751,26 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
     glEnable(GL_DEPTH_TEST);
     glUniform1i(uUnlit_, 0);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+}
+
+void Renderer::setEnvironment(const alamo::MapEnvironment& e) {
+    if (!e.valid) {
+        sunColor_ = {0.72f, 0.72f, 0.72f};
+        ambientColor_ = {0.38f, 0.38f, 0.38f};
+        sunDirection_ = {0.45f, 0.35f, -0.82f};
+        hazeColor_ = {0.62f, 0.68f, 0.75f};
+        return;
+    }
+    // The map's sun and ambient, kept near the neutral look's overall brightness (the original also
+    // has bump, specular and fill lights this renderer doesn't): a third of the colour comes from the map.
+    for (int k = 0; k < 3; ++k) {
+        const float sun = std::clamp(e.sun[k] * e.sunIntensity, 0.f, 1.5f);
+        sunColor_[k] = 0.72f * (0.65f + 0.35f * sun / 0.85f);
+        const float amb = e.ambient[k] + 0.5f * (e.fill1[k] + e.fill2[k]) * 0.25f;
+        ambientColor_[k] = 0.38f * (0.7f + 0.3f * amb / 0.22f);
+        hazeColor_[k] = 0.5f * 0.62f + 0.5f * std::clamp(e.fogColor[k] * 1.1f, 0.f, 1.f);
+    }
+    sunDirection_ = e.sunDirection;
 }
 
 void Renderer::drawSky(const GpuModel& m) {

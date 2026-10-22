@@ -78,6 +78,13 @@ Scene::Scene(Renderer& r, const alamo::GameDatabase& db, const alamo::Map& map, 
     }
 }
 
+void Scene::useEnvironmentSky(Renderer& r, const alamo::GameDatabase& db) {
+    // No sky dome placed on the map: the one its lighting preset names.
+    if (sky_ || map_.environment.skyDome.empty()) return;
+    if (const alamo::GameObjectType* t = db.find(map_.environment.skyDome))
+        if (const std::string* m = t->find("Land_Model_Name"); m && !alamo::trim(*m).empty()) sky_ = r.model(alamo::trim(*m));
+}
+
 void Scene::draw(Renderer& r, bool showPlaceholders) const {
     r.drawTerrain();
     for (const SceneObject& o : objects_) {

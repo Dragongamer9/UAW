@@ -197,6 +197,45 @@ Map loadTed(std::span<const uint8_t> data) {
     // Retail maps all use 20 units per vertex; the header extent is width * spacing.
     if (extentX > 0) m.spacing = extentX / float(m.width);
 
+    // Lighting: the first preset of the environment chunk.
+    if (const Chunk* env = child(cs, 0x100)) {
+        const auto envParts = children(env->body);
+        if (const Chunk* presets = child(envParts, 0x04)) {
+            const auto ps = children(presets->body);
+            if (const Chunk* p = child(ps, 0x06)) {
+                MapEnvironment& e = m.environment;
+                Vec3 dir{0, 0, 0};
+                auto text = [](std::span<const uint8_t> b) {
+                    std::string s(reinterpret_cast<const char*>(b.data()), b.size());
+                    if (const size_t z = s.find('\0'); z != std::string::npos) s.resize(z);
+                    return s;
+                };
+                for (const auto& mc : minis(p->body)) {
+                    const size_t n = mc.body.size();
+                    switch (mc.id) {
+                    case 0x00: if (n == 12) e.sun = rdVec3(mc.body); break;
+                    case 0x01: if (n == 12) e.fill1 = rdVec3(mc.body); break;
+                    case 0x02: if (n == 12) e.fill2 = rdVec3(mc.body); break;
+                    case 0x04: if (n == 12) e.ambient = rdVec3(mc.body); break;
+                    case 0x05: if (n == 4) e.sunIntensity = rd<float>(mc.body); break;
+                    case 0x0B: if (n == 4) dir[0] = rd<float>(mc.body); break;
+                    case 0x0C: if (n == 4) dir[1] = rd<float>(mc.body); break;
+                    case 0x0D: if (n == 4) dir[2] = rd<float>(mc.body); break;
+                    case 0x0F: if (n == 12) e.fogColor = rdVec3(mc.body); break;
+                    case 0x10: if (n >= 1) e.fog = mc.body[0] != 0; break;
+                    case 0x11: if (n == 4) e.fogStart = rd<float>(mc.body); break;
+                    case 0x12: if (n == 4) e.fogEnd = rd<float>(mc.body); break;
+                    case 0x14: if (n > 4) e.name = text(mc.body); break;
+                    case 0x19: e.skyDome = text(mc.body); break;
+                    default: break;
+                    }
+                }
+                if (dir[2] < -0.05f) e.sunDirection = dir; // pointing down: a real direction
+                e.valid = true;
+            }
+        }
+    }
+
     for (const auto& c : cs) {
         if (c.id == 0x102) readObjects(c.body, m);
         else if (c.id == 0x103) {

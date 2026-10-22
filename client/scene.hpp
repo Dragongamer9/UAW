@@ -31,6 +31,7 @@ public:
 
     void draw(Renderer& r, bool showPlaceholders) const;
     void drawSky(Renderer& r) const { if (sky_) r.drawSky(*sky_); }
+    void useEnvironmentSky(Renderer& r, const alamo::GameDatabase& db);
 
     const alamo::Map& map() const { return map_; }
     const std::vector<SceneObject>& objects() const { return objects_; }

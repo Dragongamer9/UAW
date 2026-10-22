@@ -88,6 +88,8 @@ public:
     // The map's sky dome (LandPrimarySkydome): around the camera, behind everything, unlit and unfogged.
     // Call first, right after beginFrame.
     void drawSky(const GpuModel& m);
+    // The map's lighting (sun colour and direction, ambient, haze); invalid = the neutral defaults.
+    void setEnvironment(const alamo::MapEnvironment& e);
     // Models drawn after this are cut off above height z (1e9 = no cut): buildings rising as they are built.
     void setClipHeight(float z);
     // World-space triangles (camera-facing particle quads), unlit, blended, no depth writes.
@@ -136,6 +138,8 @@ private:
     std::vector<float> layerParams_, layerTints_; // 64 x vec4 each
     alamo::Vec3 lightDir_{0, 0, -1}, fogColor_{0.6f, 0.6f, 0.6f};
     std::unordered_map<GLuint, alamo::Vec4> texAverage_;
+    alamo::Vec3 sunColor_{0.72f, 0.72f, 0.72f}, ambientColor_{0.38f, 0.38f, 0.38f};
+    alamo::Vec3 sunDirection_{0.45f, 0.35f, -0.82f}, hazeColor_{0.62f, 0.68f, 0.75f};
     GpuMesh terrain_;
     GpuMesh box_;
     std::unordered_map<std::string, std::unique_ptr<GpuModel>> models_;

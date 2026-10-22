@@ -55,6 +55,21 @@ struct MapGroup {
     std::vector<uint32_t> objectIds;
 };
 
+// The map's lighting and atmosphere (chunk 0x0100 -> 0x04 -> the first 0x06 preset). Worked out
+// from the retail maps: 0x00 sun colour, 0x01/0x02 fill light colours, 0x04 ambient, 0x05 sun
+// intensity, 0x0B-0x0D sun direction (pointing down into the map), 0x0F fog colour, 0x10 fog on,
+// 0x11/0x12 fog start/end, 0x14 preset name, 0x19 sky dome object type.
+struct MapEnvironment {
+    bool valid = false;
+    std::string name, skyDome;
+    Vec3 sun{1, 1, 1}, fill1{0.6f, 0.6f, 0.7f}, fill2{0.6f, 0.6f, 0.6f}, ambient{0.1f, 0.1f, 0.1f};
+    float sunIntensity = 1;
+    Vec3 sunDirection{0.45f, 0.35f, -0.82f};
+    Vec3 fogColor{0.62f, 0.68f, 0.75f};
+    bool fog = false;
+    float fogStart = 500, fogEnd = 3000;
+};
+
 struct Map {
     std::string nameTextId;   // e.g. TEXT_REGION_16
     uint32_t width = 0, height = 0;   // vertices
@@ -67,6 +82,7 @@ struct Map {
     std::vector<std::string> assetBanks;
     std::vector<MapObject> objects;
     std::vector<MapGroup> groups;
+    MapEnvironment environment;
     std::vector<std::string> warnings;
 
     float sizeX() const { return float(width - 1) * spacing; }
