@@ -192,6 +192,21 @@ static void testMovement(const GameDatabase& db) {
     CHECK(ticks > 800 && ticks < 1200);
     std::printf("trooper arrived after %d ticks (%.1f s)\n", ticks, ticks / float(kTicksPerSecond));
 
+    // Shift-queued moves: first to (900, 300), then on to (600, 300).
+    w.commandMove({id}, {900, 300, 0});
+    w.commandMove({id}, {600, 300, 0}, true);
+    CHECK(w.unit(id)->queuedMoves.size() == 1);
+    bool reachedFirst = false;
+    for (int i = 0; i < 1000; ++i) {
+        w.tick();
+        const Unit* q = w.unit(id);
+        reachedFirst |= std::hypot(q->position[0] - 900, q->position[1] - 300) < 10;
+    }
+    CHECK(reachedFirst);
+    CHECK(std::hypot(w.unit(id)->position[0] - 600, w.unit(id)->position[1] - 300) < 10);
+    w.commandMove({id}, {900, 300, 0}, true); // nothing under way: goes at once
+    CHECK(w.unit(id)->moving() && w.unit(id)->queuedMoves.empty());
+
     // A tracked vehicle reversing direction turns in place first.
     const uint32_t tank = w.spawn("Tank", 1, {200, 600, 0}, 0.f);
     w.commandMove({tank}, {100, 600, 0});

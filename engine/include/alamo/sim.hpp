@@ -54,6 +54,7 @@ struct Unit {
 
     // Orders.
     std::vector<Vec3> path;    // remaining waypoints
+    std::vector<Vec3> queuedMoves; // Shift-queued move orders still to come, in order
     Vec3 goal{};
     int stuckTicks = 0;
     uint32_t attackOrder = 0;  // explicit attack target (chase it), 0 = none
@@ -386,7 +387,8 @@ public:
     const std::vector<Unit>& units() const { return units_; }
 
     // Move a group: they spread into a formation around `target` and each path-finds there.
-    void commandMove(const std::vector<uint32_t>& ids, Vec3 target);
+    // queued (Shift): after the moves already given, instead of replacing them.
+    void commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queued = false);
     void commandStop(const std::vector<uint32_t>& ids);
     // Move toward a point, halting to fight enemies that come into range, then carrying on.
     void commandAttackMove(const std::vector<uint32_t>& ids, Vec3 target);

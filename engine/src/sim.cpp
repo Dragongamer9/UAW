@@ -621,8 +621,8 @@ Unit* World::unit(uint32_t id) {
     return nullptr;
 }
 
-void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
-    RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, 0, target});
+void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queued) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Move, ids, 0, -1, queued ? 1 : 0, target});
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     std::vector<Unit*> group;
     for (uint32_t id : ids)
@@ -660,6 +660,11 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target) {
             if (d < bestD) { bestD = d; best = s; }
         }
         taken[best] = true;
+        if (queued && (u->moving() || !u->queuedMoves.empty())) { // after what it is already doing
+            u->queuedMoves.push_back(slots[best]);
+            continue;
+        }
+        u->queuedMoves.clear();
         u->attackOrder = 0;
         u->attackMove = false;
         u->goal = slots[best];
@@ -690,6 +695,7 @@ void World::commandStop(const std::vector<uint32_t>& ids) {
     for (uint32_t id : ids)
         if (Unit* u = unit(id)) {
             u->path.clear();
+            u->queuedMoves.clear();
             u->attackOrder = 0;
             u->attackMove = false;
             u->harvest = Unit::Harvest::None;
@@ -713,6 +719,7 @@ void World::commandAttack(const std::vector<uint32_t>& ids, uint32_t target) {
         Unit* u = unit(id);
         if (!u || u->inside || u->weapons.empty() || !enemies(u->owner, t->owner)) continue;
         u->boarding = 0;
+        u->queuedMoves.clear();
         u->attackOrder = target;
         u->attackMove = false;
         u->target = target;
@@ -1314,7 +1321,15 @@ void World::tick() {
     updateSuperweapons();
     for (Unit& u : units_) updateTargeting(u);
     mark();
-    for (Unit& u : units_) moveUnit(u);
+    for (Unit& u : units_) {
+        // Arrived with Shift-queued moves left: on to the next.
+        if (!u.queuedMoves.empty() && !u.moving() && !u.attackMove && !u.attackOrder && !u.inside) {
+            u.goal = u.queuedMoves.front();
+            u.queuedMoves.erase(u.queuedMoves.begin());
+            u.path = planPath(u, u.goal);
+        }
+        moveUnit(u);
+    }
     mark();
     updateGarrisons();
     separate();
@@ -1340,7 +1355,7 @@ void World::tick() {
 void World::apply(const Command& c) {
     const uint32_t first = c.ids.empty() ? 0 : c.ids[0];
     switch (c.kind) {
-    case Command::Kind::Move: commandMove(c.ids, c.point); break;
+    case Command::Kind::Move: commandMove(c.ids, c.point, c.index == 1); break;
     case Command::Kind::Stop: commandStop(c.ids); break;
     case Command::Kind::AttackMove: commandAttackMove(c.ids, c.point); break;
     case Command::Kind::Attack: commandAttack(c.ids, c.target); break;

@@ -48,7 +48,7 @@
 //             Home jumps to the last attack alert, U unloads selected transports (right click your transport to get in), Delete twice sells,
 //             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
 //             selects every unit of that type on screen
-//   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
+//   mouse     left click/drag select (Shift adds), right click move (Shift: queue after the current move), middle or right drag rotate/tilt
 //   build     select a structure or builder: 1-9 / click the menu (D-pad left/right + down on a gamepad);
 //             builders then place the structure with a click / A (right click / B cancels);
 //             Backspace (left stick click) cancels the last queued item; right click with a structure sets its rally point
@@ -885,7 +885,7 @@ int main(int argc, char** argv) {
                                 if (control.abilityArmed()) control.targetAbility(world, g);
                                 else if (superweaponArmed) control.fireSuperweapon(world, g);
                                 else if (k[SDL_SCANCODE_A] || attackMoveArmed) control.attackMove(world, g);
-                                else control.command(world, g);
+                                else control.command(world, g, k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
                                 attackMoveArmed = superweaponArmed = false;
                             }
                         }

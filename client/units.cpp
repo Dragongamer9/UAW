@@ -171,9 +171,9 @@ void UnitControl::selectAll(alamo::World& w) {
         if (u.owner == player_) selected_.insert(u.id);
 }
 
-void UnitControl::moveTo(alamo::World& w, const Vec3& ground) {
+void UnitControl::moveTo(alamo::World& w, const Vec3& ground, bool queued) {
     if (selected_.empty()) return;
-    w.commandMove(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground);
+    w.commandMove(std::vector<uint32_t>(selected_.begin(), selected_.end()), ground, queued);
     lastOrder_ = ground;
     lastOrderTime_ = w.seconds();
 }
@@ -245,7 +245,7 @@ void UnitControl::place(alamo::World& w) {
     if (r == alamo::OrderResult::Ok) placingType_.clear();
 }
 
-void UnitControl::command(alamo::World& w, const Vec3& ground) {
+void UnitControl::command(alamo::World& w, const Vec3& ground, bool queued) {
     if (selected_.empty()) return;
     // Selected structures take the click as their rally point.
     bool anyMobile = false;
@@ -281,7 +281,7 @@ void UnitControl::command(alamo::World& w, const Vec3& ground) {
         }
     }
     attackOrder_ = false;
-    moveTo(w, ground);
+    moveTo(w, ground, queued);
 }
 
 std::vector<AbilityButton> UnitControl::abilities(alamo::World& w) const {
@@ -661,6 +661,20 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             const float z = w.map().heightAt(u.rally[0], u.rally[1]);
             r.drawBox(Mat4::translate(u.rally[0], u.rally[1], z) * Mat4::scale3(2, 2, 40), {1, 1, 1, 1});
             r.drawBox(Mat4::translate(u.rally[0] + 7, u.rally[1], z + 30) * Mat4::scale3(12, 1.5f, 10), {0.3f, 1.f, 0.4f, 1});
+        }
+        // Shift-queued moves of selected units: small markers, joined by thin lines.
+        if (!u.queuedMoves.empty() && selected_.count(u.id)) {
+            alamo::Vec3 from = u.goal;
+            for (const alamo::Vec3& q : u.queuedMoves) {
+                const float z = w.map().heightAt(q[0], q[1]);
+                r.drawBox(Mat4::translate(q[0], q[1], z + 1) * Mat4::scale3(5, 5, 2), {0.3f, 1.f, 0.4f, 1});
+                const float dx = q[0] - from[0], dy = q[1] - from[1], len = std::hypot(dx, dy);
+                if (len > 1)
+                    r.drawBox(Mat4::translate((q[0] + from[0]) / 2, (q[1] + from[1]) / 2, z + 1.5f) * Mat4::rotateZ(std::atan2(dy, dx)) *
+                                  Mat4::scale3(len, 0.8f, 0.8f),
+                              {0.3f, 0.8f, 0.4f, 1});
+                from = q;
+            }
         }
     }
     // Placement ghost: green where the site is clear, red where it's blocked.
