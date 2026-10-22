@@ -19,7 +19,7 @@ redistributed.
 | 3 | Navigation: walkable areas from terrain flags, A* with wall clearance and path smoothing | done: start-to-start paths found on every skirmish map checked |
 | 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
-| 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting, attack and attack-move orders, death | done (first version) |
+| 3 | Combat: weapons from units and hardpoints, bursts/spread/recharge, projectiles with blast areas, `DamageToArmor.xml` (4,664 modifiers), auto-targeting by the game's targeting priority sets, weapon target restrictions (anti-air, ground-only), attack, attack-move and Shift-queued move orders, death | done (first version) |
 | 3 | Economy: tech tree (`ProductionDependencies.xml`), players with credits and pop cap, structures that block ground, construction by builders, production queues, upgrades, skirmish start forces | done (first version) |
 | 3 | HUD: game fonts and English strings (`MasterTextFile_ENGLISH.dat`), credits/population/clock, selection info, build menus, production queue, placement ghost, rally points, minimap (click to jump), research panel, ability keys, superweapon countdown, victory/defeat | done |
 | 1 | Mods: every mod in `Game\Mods` is layered on top of the base game by default and merged entry by entry (objects, tech tree, factions, damage table, strings, skirmish starts) | done: Community Patch 4 + Human Resurgence 1.02 + Universe at Remix 2.8 load together (3,746 objects, 235 buildable entries) |
@@ -37,7 +37,7 @@ redistributed.
 | 2 | Particle systems (`0x1500` .ALO): emitters with rates, lifetimes, spawn shapes, acceleration, size/colour tables, atlas rectangles, additive/alpha/flat/stretched quads; explosions on impacts and deaths, projectile trails, effects attached to model bones (engine glows, flames) | done (first version): all 1,253 files parse; property meanings inferred from the data, heat-haze emitters skipped |
 | 2 | Foliage: alpha-tested grass, leaves and bushes | done |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
-| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
+| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war, computer difficulty, starting credits), pause menu, game speed, saved games (orders replayed deterministically) | done (first version) |
 | 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI plays by it too: it knows the enemy start bases and what it has seen, and sweeps the map when it has lost track |
 | 4 | Audio | planned: the staged game folder has no audio archives yet |
 | 4 | LAN multiplayer: deterministic lockstep over TCP (orders only; 0.1 s turns, 0.2 s delay), host/join lobby on the setup screen, checksums to catch desyncs | done (first version): tested with two games on one machine |
