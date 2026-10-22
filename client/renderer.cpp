@@ -56,6 +56,8 @@ uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange; // x = start, y = end
 uniform int uUnlit;
+uniform sampler2D uFow;
+uniform vec4 uFowParams; // xy = 1 / map size, z = 1 when fog of war is on
 out vec4 fragColor;
 void main() {
     vec4 base = vColor * uTint;
@@ -66,6 +68,7 @@ void main() {
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
     vec3 lit = base.rgb * (0.38 + 0.72 * diffuse + fill);
+    if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
     float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
     fragColor = vec4(mix(lit, uFogColor, fog), base.a);
@@ -106,6 +109,8 @@ uniform vec3 uLightDir;
 uniform vec3 uCamPos;
 uniform vec3 uFogColor;
 uniform vec4 uFogRange;
+uniform sampler2D uFow;
+uniform vec4 uFowParams;
 out vec4 fragColor;
 vec3 layerColor(float index) {
     int i = int(index + 0.5);
@@ -121,6 +126,7 @@ void main() {
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
     vec3 lit = base * (0.42 + 0.7 * diffuse);
+    if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
     float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1.0), 0.0, 0.85);
     fragColor = vec4(mix(lit, uFogColor, fog), 1.0);
@@ -516,7 +522,33 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform4fv(uFogRange_, 1, fogRange);
     glUniform1i(uTex_, 0);
     glUniform1i(uUnlit_, 0);
+    glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
+    glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, fowTex_);
+    glActiveTexture(GL_TEXTURE0);
     transparent_.clear();
+}
+
+void Renderer::setFogOfWar(const std::vector<uint8_t>* grid, int w, int h, float cell, uint64_t version) {
+    if (!grid || w <= 0 || h <= 0 || grid->size() < size_t(w) * size_t(h)) {
+        fowParams_[2] = 0;
+        return;
+    }
+    fowParams_[0] = 1.f / (float(w) * cell);
+    fowParams_[1] = 1.f / (float(h) * cell);
+    fowParams_[2] = 1;
+    if (fowTex_ && version == fowVersion_) return;
+    fowVersion_ = version;
+    // Unexplored ground nearly black, explored but unseen dimmed, seen at full light.
+    std::vector<uint8_t> px(size_t(w) * size_t(h) * 4);
+    for (size_t i = 0; i < size_t(w) * size_t(h); ++i) {
+        const uint8_t v = (*grid)[i] == 2 ? 255 : (*grid)[i] == 1 ? 120 : 28;
+        px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = v;
+        px[i * 4 + 3] = 255;
+    }
+    if (fowTex_) glDeleteTextures(1, &fowTex_);
+    fowTex_ = uploadTexture(px, w, h);
 }
 
 void Renderer::setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex) {
@@ -540,6 +572,10 @@ void Renderer::drawTerrain() {
     glUniform4fv(loc("uLayer"), 64, layerParams_.data());
     glUniform4fv(loc("uLayerTint"), 64, layerTints_.data());
     glUniform1i(loc("uLayers"), 1);
+    glUniform1i(loc("uFow"), 2);
+    glUniform4fv(loc("uFowParams"), 1, fowParams_);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, fowTex_);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D_ARRAY, terrainLayers_);
     terrain_.draw();

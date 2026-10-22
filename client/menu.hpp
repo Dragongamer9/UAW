@@ -26,6 +26,7 @@ struct PlayerSlot {
 struct SkirmishSetup {
     std::string map;                // e.g. "M25_GRAND_CANYON"
     std::vector<PlayerSlot> slots;  // one per start position, in slot order
+    bool fog = true;                // fog of war
     int human() const {             // slot you play, or -1 (spectating)
         for (size_t i = 0; i < slots.size(); ++i)
             if (slots[i].kind == PlayerSlot::Kind::Human) return int(i);

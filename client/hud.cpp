@@ -91,6 +91,21 @@ void Hud::drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, 
                     c{m.x1, m.y1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1}, d{m.x0, m.y1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1};
     (void)white;
     r.drawOverlayTriangles({a, b, c, a, c, d}, minimapTex_);
+    // Fog of war: unexplored nearly black, explored but unseen dimmed (row 0 of the grid is the south edge).
+    if (const std::vector<uint8_t>* fog = control.fog ? w.fogGrid(control.player()) : nullptr) {
+        const uint64_t version = w.tickCount() / 15;
+        if (!fogTex_ || version != fogVersion_) {
+            fogVersion_ = version;
+            const int fw = w.fogWidth(), fh = w.fogHeight();
+            std::vector<uint8_t> px(size_t(fw) * size_t(fh) * 4, 0);
+            for (size_t i = 0; i < size_t(fw) * size_t(fh) && i < fog->size(); ++i) px[i * 4 + 3] = (*fog)[i] == 2 ? 0 : (*fog)[i] == 1 ? 120 : 225;
+            if (fogTex_) glDeleteTextures(1, &fogTex_);
+            fogTex_ = r.uploadTexture(px, fw, fh);
+        }
+        const GpuVertex fa{m.x0, m.y0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1}, fb{m.x1, m.y0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1},
+                        fc{m.x1, m.y1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1}, fd{m.x0, m.y1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1};
+        r.drawOverlayTriangles({fa, fb, fc, fa, fc, fd}, fogTex_);
+    }
     auto toMap = [&](float wx, float wy, float& x, float& y) {
         x = m.x0 + std::clamp(wx / map_->sizeX(), 0.f, 1.f) * (m.x1 - m.x0);
         y = m.y1 - std::clamp(wy / map_->sizeY(), 0.f, 1.f) * (m.y1 - m.y0);
@@ -103,11 +118,14 @@ void Hud::drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, 
         dots.insert(dots.end(), {p0, p1, p2, p0, p2, p3});
     };
     for (const alamo::Unit& u : w.units()) {
+        if (!control.shown(w, u)) continue;
         float x, y;
         toMap(u.position[0], u.position[1], x, y);
+        const bool player = u.owner >= 0 && w.player(u.owner) && w.player(u.owner)->faction != "Neutral";
         const Vec4 col = u.owner == control.player() ? Vec4{0.3f, 0.65f, 1.f, 1}
-                         : w.enemies(control.player(), u.owner) && u.owner >= 0 ? Vec4{1.f, 0.3f, 0.25f, 1}
-                                                                                 : Vec4{0.75f, 0.75f, 0.75f, 1};
+                         : w.enemies(control.player(), u.owner) && player ? Vec4{1.f, 0.3f, 0.25f, 1}
+                         : player ? Vec4{0.4f, 0.95f, 0.45f, 1} // allies
+                                  : Vec4{0.75f, 0.75f, 0.75f, 1};
         const float h = (u.structure ? 3.f : 1.6f) * s;
         quad(x - h, y - h, x + h, y + h, col);
     }

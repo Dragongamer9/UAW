@@ -89,6 +89,10 @@ public:
     // A texture from RGBA rows (top row first), linear filtered, clamped; the caller owns it.
     GLuint uploadTexture(const std::vector<uint8_t>& rgba, int width, int height);
 
+    // Fog of war (World::fogGrid): darkens terrain and models by what the player has seen.
+    // nullptr switches it off. The texture is rebuilt only when `version` changes.
+    void setFogOfWar(const std::vector<uint8_t>* grid, int w, int h, float cell, uint64_t version);
+
     // Reads the current back buffer as RGBA rows, top row first.
     std::vector<uint8_t> readPixels(int width, int height);
 
@@ -111,6 +115,9 @@ private:
     float farPlane_ = 10000;
 
     GLuint overlayVao_ = 0, overlayVbo_ = 0;
+    GLuint fowTex_ = 0;
+    float fowParams_[4] = {0, 0, 0, 0};
+    uint64_t fowVersion_ = ~0ull;
     GLuint terrainProgram_ = 0, terrainLayers_ = 0;
     std::vector<float> layerParams_, layerTints_; // 64 x vec4 each
     alamo::Vec3 lightDir_{0, 0, -1}, fogColor_{0.6f, 0.6f, 0.6f};

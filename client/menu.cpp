@@ -121,7 +121,7 @@ void MenuPainter::flush(Renderer& r) {
 // ---------------------------------------------------------------- skirmish setup
 
 namespace {
-enum : int { kStart = 1, kQuit = 2, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
+enum : int { kStart = 1, kQuit = 2, kFog = 3, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
 }
 
 SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale)
@@ -241,6 +241,7 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
         const int id = paint_.buttonAt(e.button.x, e.button.y);
         if (id == kStart && canStart()) return Result::Start;
         if (id == kQuit) return Result::Quit;
+        if (id == kFog) setup_.fog = !setup_.fog;
         if (id >= kMapBase && id < kSlotBase) {
             const size_t i = size_t(id - kMapBase);
             if (i == selected_ && e.button.clicks >= 2 && canStart()) return Result::Start;
@@ -396,6 +397,8 @@ void SkirmishMenu::draw(Renderer& r) {
     const float bw = 200 * s, bh = lh + 16 * s, by = H - pad - bh;
     int players = 0;
     for (const PlayerSlot& p : setup_.slots) players += p.kind != PlayerSlot::Kind::Open;
+    paint_.button(r, kFog, setup_.fog ? "Fog of war: on" : "Fog of war: off", W - pad - bw * 3 - 32 * s, by, W - pad - bw * 2 - 32 * s,
+                  by + bh, setup_.fog, mouseX_, mouseY_);
     paint_.button(r, kQuit, "Quit", W - pad - bw * 2 - 16 * s, by, W - pad - bw - 16 * s, by + bh, false, mouseX_, mouseY_);
     paint_.button(r, kStart, players >= 2 ? "Start game" : "Need 2 players", W - pad - bw, by, W - pad, by + bh, players >= 2, mouseX_,
                   mouseY_);

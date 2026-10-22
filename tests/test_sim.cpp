@@ -649,6 +649,30 @@ static void testBurst() {
     fs::remove_all(root);
 }
 
+static void testFog(const GameDatabase& db) {
+    Map m = openMap();
+    World w(m, db, nullptr, 1, nullptr);
+    const int a = w.addPlayer("Novus", 0, 100), b = w.addPlayer("Alien", 0, 100), c = w.addPlayer("Masari", 0, 100);
+    w.setTeam(a, 0);
+    w.setTeam(c, 0);
+    CHECK(!w.enemies(a, c) && w.enemies(a, b) && w.enemies(b, c));
+    w.setFogOfWar(true);
+    const uint32_t mine = w.spawn("Trooper", a, {300, 300, 0});
+    w.spawn("Trooper", b, {1500, 1500, 0});
+    w.tick();
+    CHECK(w.unit(mine));
+    CHECK(w.visibility(a, 300, 300) == World::kVisible);
+    CHECK(w.visibility(a, 1500, 1500) == World::kUnexplored);
+    CHECK(w.visibility(c, 300, 300) == World::kVisible); // shared with the ally
+    CHECK(w.visibility(b, 300, 300) == World::kUnexplored);
+    // Walk away: the old spot stays explored.
+    w.commandMove({mine}, {900, 300, 0});
+    for (int i = 0; i < 60 * 30 && w.unit(mine)->moving(); ++i) w.tick();
+    for (int i = 0; i < 30; ++i) w.tick();
+    CHECK(w.visibility(a, 300, 300) == World::kExplored);
+    CHECK(w.visibility(a, 900, 300) == World::kVisible);
+}
+
 int main() {
     testStartingForces();
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
@@ -662,6 +686,7 @@ int main() {
     testWalkers();
     testSuperweapon();
     testBurst();
+    testFog(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

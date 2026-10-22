@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
             rules.configure(w);
+            if (const char* f = std::getenv("UAW_FOG"); f && *f && *f != '0') w.setFogOfWar(true);
             std::vector<std::string> factions;
             for (const Faction& f : db.factions())
                 if (f.humanPlayable && forces.count(upper(f.name))) factions.push_back(f.name);
@@ -104,6 +105,7 @@ int main(int argc, char** argv) {
             const std::string faction = argv[4];
             World w(map, db, &dmg, 1, &tech);
             rules.configure(w);
+            if (const char* f = std::getenv("UAW_FOG"); f && *f && *f != '0') w.setFogOfWar(true);
             const int me = addSkirmishPlayer(w, db, faction, st[0], &forces);
             uint32_t builder = 0, hq = 0;
             for (const Unit& u : w.units()) (u.structure ? hq : builder) = u.id;
@@ -190,6 +192,7 @@ int main(int argc, char** argv) {
             const uint64_t seed = argc > 7 ? std::strtoull(argv[7], nullptr, 10) : 1;
             World w(map, db, &dmg, seed, &tech);
             rules.configure(w);
+            if (const char* f = std::getenv("UAW_FOG"); f && *f && *f != '0') w.setFogOfWar(true);
             const int a = addSkirmishPlayer(w, db, argv[4], st[0], &forces);
             const int b = addSkirmishPlayer(w, db, argv[5], st[1], &forces);
             std::vector<SkirmishAI> ais{SkirmishAI(w, a, seed), SkirmishAI(w, b, seed + 7)};
@@ -231,6 +234,7 @@ int main(int argc, char** argv) {
             const uint64_t seed = argc > 6 ? std::strtoull(argv[6], nullptr, 10) : 1;
             World w(map, db, &dmg, seed, &tech);
             rules.configure(w);
+            if (const char* f = std::getenv("UAW_FOG"); f && *f && *f != '0') w.setFogOfWar(true);
             std::vector<SkirmishAI> ais;
             std::vector<int> ids;
             std::string list = argv[4];
@@ -312,6 +316,7 @@ int main(int argc, char** argv) {
                         for (int seed = 1; seed <= seeds; ++seed) {
                             World w(m, db, &dmg, uint64_t(seed), &tech);
                             rules.configure(w);
+            if (const char* f = std::getenv("UAW_FOG"); f && *f && *f != '0') w.setFogOfWar(true);
                             const int a = addSkirmishPlayer(w, db, factions[i], ms[0], &forces);
                             const int b = addSkirmishPlayer(w, db, factions[j], ms[1], &forces);
                             SkirmishAI A(w, a, uint64_t(seed)), B(w, b, uint64_t(seed) + 7);

@@ -354,6 +354,22 @@ public:
         const int ta = players_[size_t(ownerA)].team;
         return ta < 0 || ta != players_[size_t(ownerB)].team;
     }
+    // Fog of war (off unless switched on): each player sees what its units and its allies' units
+    // reveal (Land_FOW_Reveal_Range); what they once saw stays explored. Units only pick targets
+    // their player can see. The skirmish AI still knows where everything is.
+    void setFogOfWar(bool on) { fog_ = on; fogTick_ = -1; }
+    bool fogOfWar() const { return fog_; }
+    enum : uint8_t { kUnexplored = 0, kExplored = 1, kVisible = 2 };
+    uint8_t visibility(int player, float x, float y) const;
+    bool visibleTo(int player, const Vec3& p) const { return !fog_ || player < 0 || visibility(player, p[0], p[1]) == kVisible; }
+    // The player's grid (fogWidth x fogHeight cells of fogCell units, row 0 at y = 0), or nullptr.
+    const std::vector<uint8_t>* fogGrid(int player) const {
+        return fog_ && player >= 0 && size_t(player) < fogGrids_.size() ? &fogGrids_[size_t(player)] : nullptr;
+    }
+    int fogWidth() const { return fogW_; }
+    int fogHeight() const { return fogH_; }
+    float fogCell() const { return fogCell_; }
+    float revealRange(const GameObjectType& t) const;
     void setTeam(int owner, int team) {
         if (owner >= 0 && owner < int(players_.size())) players_[size_t(owner)].team = team;
     }
@@ -490,6 +506,13 @@ private:
     uint32_t createObject(const GameObjectType& t, int owner, Vec3 position, float facing, int lifeTicks);
 
     const Map& map_;
+    bool fog_ = false;
+    int64_t fogTick_ = -1;
+    float fogCell_ = 32;
+    int fogW_ = 0, fogH_ = 0;
+    std::vector<std::vector<uint8_t>> fogGrids_;
+    mutable std::unordered_map<const GameObjectType*, float> revealRanges_;
+    void updateFog();
     const GameDatabase& db_;
     NavGrid nav_;
     const DamageTable* damage_;

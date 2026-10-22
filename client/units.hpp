@@ -63,6 +63,9 @@ public:
     int player() const { return player_; }
     bool showResources = true; // scrap piles (off in the model gallery)
     bool animate = true;       // play the units' .ALA animations
+    bool fog = true;           // hide enemies your side can't see (when the world has fog of war)
+    // Drawn for this player: own and allied units, enemies in sight, enemy structures seen before.
+    bool shown(const alamo::World& w, const alamo::Unit& u) const;
     const std::set<uint32_t>& selection() const { return selected_; }
 
     void clear() { selected_.clear(); }
@@ -113,6 +116,7 @@ public:
 private:
     int player_;
     std::set<uint32_t> selected_;
+    mutable std::set<uint32_t> seenStructures_; // enemy structures once seen stay drawn under the fog
     alamo::Vec3 lastOrder_{};
     float lastOrderTime_ = -100;
     bool attackOrder_ = false;

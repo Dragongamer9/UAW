@@ -708,6 +708,12 @@ void World::updateTargeting(Unit& u) {
             if (!o.alive() || !enemies(u.owner, o.owner)) continue;
             const float d = edgeDistance(o);
             if (d <= range && d < best) {
+                if (fog_ && !visibleTo(u.owner, o.position)) {
+                    // Big targets: seen when the side facing the attacker is.
+                    const float dx = u.position[0] - o.position[0], dy = u.position[1] - o.position[1];
+                    const float len = std::max(std::hypot(dx, dy), 1e-3f), k = std::min(o.radius, len) / len;
+                    if (!visibleTo(u.owner, {o.position[0] + dx * k, o.position[1] + dy * k, 0})) continue;
+                }
                 best = d;
                 u.target = o.id;
             }
@@ -1101,8 +1107,67 @@ void World::separate() {
     }
 }
 
+float World::revealRange(const GameObjectType& t) const {
+    if (auto it = revealRanges_.find(&t); it != revealRanges_.end()) return it->second;
+    const float r = float(t.number("Land_FOW_Reveal_Range").value_or(150));
+    revealRanges_[&t] = r;
+    return r;
+}
+
+uint8_t World::visibility(int player, float x, float y) const {
+    if (!fog_) return kVisible;
+    if (player < 0 || size_t(player) >= fogGrids_.size() || fogW_ <= 0) return kUnexplored;
+    const int cx = std::clamp(int(x / fogCell_), 0, fogW_ - 1), cy = std::clamp(int(y / fogCell_), 0, fogH_ - 1);
+    return fogGrids_[size_t(player)][size_t(cy) * size_t(fogW_) + size_t(cx)];
+}
+
+void World::updateFog() {
+    if (!fog_) return;
+    // Twice a second; units move about 1-4 cells in that time.
+    if (fogTick_ >= 0 && int64_t(ticks_) - fogTick_ < kTicksPerSecond / 2 && fogGrids_.size() == players_.size()) return;
+    fogTick_ = int64_t(ticks_);
+    fogW_ = std::max(1, int(std::ceil(map_.sizeX() / fogCell_)));
+    fogH_ = std::max(1, int(std::ceil(map_.sizeY() / fogCell_)));
+    const size_t cells = size_t(fogW_) * size_t(fogH_);
+    fogGrids_.resize(players_.size());
+    // Each player's own sight this update.
+    std::vector<std::vector<uint8_t>> sight(players_.size(), std::vector<uint8_t>(cells, 0));
+    for (const Unit& u : units_) {
+        if (u.owner < 0 || size_t(u.owner) >= players_.size() || !u.alive()) continue;
+        float r = revealRange(*u.type);
+        if (u.underConstruction) r = std::min(r, std::max(u.radius * 2, 80.f));
+        const int cx = int(u.position[0] / fogCell_), cy = int(u.position[1] / fogCell_);
+        const int rc = int(std::ceil(r / fogCell_));
+        const float r2 = (r / fogCell_) * (r / fogCell_);
+        std::vector<uint8_t>& g = sight[size_t(u.owner)];
+        for (int dy = -rc; dy <= rc; ++dy) {
+            const int y = cy + dy;
+            if (y < 0 || y >= fogH_) continue;
+            for (int dx = -rc; dx <= rc; ++dx) {
+                const int x = cx + dx;
+                if (x < 0 || x >= fogW_ || float(dx * dx + dy * dy) > r2) continue;
+                g[size_t(y) * size_t(fogW_) + size_t(x)] = 1;
+            }
+        }
+    }
+    // Allies share what they see; seen cells stay explored.
+    for (size_t p = 0; p < players_.size(); ++p) {
+        std::vector<uint8_t>& g = fogGrids_[p];
+        g.resize(cells, kUnexplored);
+        for (uint8_t& c : g)
+            if (c == kVisible) c = kExplored;
+        for (size_t q = 0; q < players_.size(); ++q) {
+            if (q != p && enemies(int(p), int(q))) continue;
+            const std::vector<uint8_t>& s = sight[q];
+            for (size_t i = 0; i < cells; ++i)
+                if (s[i]) g[i] = kVisible;
+        }
+    }
+}
+
 void World::tick() {
     if (navDirty_) rebuildNav();
+    updateFog();
     for (size_t i = 0; i < units_.size(); ++i) updateConstruction(units_[i]);
     for (size_t i = 0; i < units_.size(); ++i) updateProduction(units_[i]); // may spawn (index loop on purpose)
     updateEconomy();

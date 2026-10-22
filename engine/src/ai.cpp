@@ -578,19 +578,19 @@ void SkirmishAI::manageArmy() {
     centroid[0] /= float(army.size());
     centroid[1] /= float(army.size());
 
-    // Defend: enemies near any of our structures take priority.
-    for (const Unit& s : w_.units()) {
-        if (s.owner != player_ || !s.structure) continue;
-        for (uint32_t id : w_.unitsNear(s.position, 650)) {
-            const Unit* e = w_.unit(id);
-            if (!e || !w_.enemies(player_, e->owner) || e->owner < 0) continue;
-            if (!attacking_) {
+    // Defend: enemies near any of our structures take priority (a wave already under way carries on;
+    // the base's own defences and new units deal with stragglers).
+    if (!attacking_)
+        for (const Unit& s : w_.units()) {
+            if (s.owner != player_ || !s.structure) continue;
+            for (uint32_t id : w_.unitsNear(s.position, 650)) {
+                const Unit* e = w_.unit(id);
+                if (!e || !w_.enemies(player_, e->owner) || e->owner < 0) continue;
                 w_.commandAttackMove(army, e->position);
                 lastAction_ = "defend";
+                return;
             }
-            return;
         }
-    }
 
     const float minutes = w_.seconds() / 60;
     const Player* me = w_.player(player_);

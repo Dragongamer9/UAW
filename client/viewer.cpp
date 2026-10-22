@@ -29,6 +29,7 @@
 //     --select NAME       (with --screenshot) select your units whose type name contains NAME
 //     --research          open the research panel
 //     --menu              (with --screenshot) picture of the setup screen for MAP
+//     --no-fog            no fog of war
 //     --slots LIST        every start position in order: you|ai|open[:FACTION[:TEAM]], e.g.
 //                         you:Novus:1,ai:Masari:1,ai:Alien:2,ai:Military:2 (2 v 2)
 //
@@ -95,6 +96,7 @@ struct Options {
     float cam[5] = {0, 0, 0, 0, 0};
     float order[2] = {0, 0};
     float runSeconds = 0;
+    bool fog = true;       // fog of war (--no-fog)
     std::string slots;     // --slots you:Novus:1,ai:Alien:2,open,...
     bool menu = false;     // start at the skirmish setup screen (no map on the command line)
     float speed = 1;       // game speed multiplier
@@ -157,6 +159,7 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--select") o.select = next();
         else if (a == "--menu") o.menu = true;
         else if (a == "--slots") o.slots = next();
+        else if (a == "--no-fog") o.fog = false;
         else return false;
     }
     o.width = std::max(o.width, 64);
@@ -277,6 +280,7 @@ int main(int argc, char** argv) {
         std::printf("map %s: %ux%u, %zu objects (%zu with models, %zu placeholders), %zu start positions\n",
                     opt.map.c_str(), map.width, map.height, st.objects, st.withModel, st.placeholders, st.starts);
         World world(map, db, &damageTable, 1, &techTree);
+        world.setFogOfWar(setup.fog && !opt.battle && opt.lineup.empty() && !opt.squads && opt.units);
         bool lineupMode = false; // model gallery: no map props
         Vec3 lineupFloor{};      // its floor: centre x, y and size
         rules.configure(world);
@@ -438,6 +442,7 @@ int main(int argc, char** argv) {
         std::printf("strings: %zu, tech tree: %zu entries\n", text.size(), techTree.size());
         UnitControl control(opt.player - 1);
         control.showResources = !lineupMode;
+        control.fog = !opt.spectate; // spectators see everything
         std::printf("spawned %zu units; models loaded %zu, missing %zu; textures missing %zu\n", world.units().size(),
                     renderer.modelsLoaded(), renderer.modelsMissing(), renderer.texturesMissing());
 
@@ -465,6 +470,8 @@ int main(int argc, char** argv) {
         bool padConnected = false;
         auto drawFrame = [&](int w, int h) {
             Renderer::Camera rc{cam.eye(map), cam.target(map)};
+            renderer.setFogOfWar(control.fog ? world.fogGrid(control.player()) : nullptr, world.fogWidth(), world.fogHeight(),
+                                 world.fogCell(), world.tickCount() / 15);
             renderer.beginFrame(w, h, rc, std::max(6000.f, cam.distance * 4.f));
             view = View{rc.eye, rc.target, rc.fovY, w, h, renderer.viewProj()};
             if (lineupMode)
@@ -804,6 +811,7 @@ int main(int argc, char** argv) {
         if (!opt.map.empty()) {
             // Command line: you in slot --player, the opponent in the next slot.
             setup.map = opt.map;
+            setup.fog = opt.fog;
             const Map probe = loadTed(vfs.read(mapPath(opt.map)));
             int nStarts = 0;
             for (const auto& o : probe.objects)

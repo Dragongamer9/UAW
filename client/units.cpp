@@ -328,6 +328,15 @@ void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(se
 
 // ------------------------------------------------------------------ drawing
 
+bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
+    if (!fog || !w.fogOfWar() || !w.enemies(player_, u.owner) || player_ < 0) return true;
+    if (w.visibleTo(player_, u.position)) {
+        if (u.structure) seenStructures_.insert(u.id);
+        return true;
+    }
+    return u.structure && seenStructures_.count(u.id);
+}
+
 void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     // Scrap piles: the model when available, else a gold heap that shrinks as it is mined.
     for (const alamo::ResourceNode& n : w.resources()) {
@@ -347,10 +356,12 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
         }
     }
     for (const alamo::Unit& u : w.units()) {
+        if (!shown(w, u)) continue;
         const bool sel = selected_.count(u.id) != 0;
         const Vec4 col = [&] {
-            static const Vec4 c[] = {{0.25f, 0.55f, 1.f, 1}, {0.95f, 0.25f, 0.2f, 1}, {0.35f, 0.85f, 0.35f, 1}, {0.95f, 0.8f, 0.2f, 1}};
-            return c[std::clamp(u.owner, 0, 3)];
+            static const Vec4 c[] = {{0.25f, 0.55f, 1.f, 1}, {0.95f, 0.25f, 0.2f, 1}, {0.35f, 0.85f, 0.35f, 1}, {0.95f, 0.8f, 0.2f, 1},
+                                     {0.75f, 0.4f, 1, 1},     {0.3f, 0.9f, 0.9f, 1},    {1, 0.6f, 0.2f, 1},        {0.85f, 0.85f, 0.85f, 1}};
+            return c[std::clamp(u.owner, 0, 7)];
         }();
         const float rad = u.radius;
         const Mat4 base = Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::rotateZ(u.facing);
@@ -410,6 +421,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     }
     // Construction sites: a translucent-looking frame rising with progress; rally flags of selected structures.
     for (const alamo::Unit& u : w.units()) {
+        if (!shown(w, u)) continue;
         if (u.structure && u.underConstruction) {
             const float h = 8 + 40 * u.buildProgress;
             r.drawBox(Mat4::translate(u.position[0], u.position[1], u.position[2]) * Mat4::scale3(u.footprintX * 2, u.footprintY * 2, h),
@@ -436,6 +448,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     // Shots in flight: small glowing blocks in the shooter's colour.
     static const Vec4 shot[] = {{0.5f, 0.85f, 1.f, 1}, {1.f, 0.55f, 0.25f, 1}, {0.6f, 1.f, 0.5f, 1}, {1.f, 0.9f, 0.4f, 1}};
     for (const alamo::Projectile& p : w.projectiles()) {
+        if (fog && w.fogOfWar() && player_ >= 0 && !w.visibleTo(player_, p.position)) continue;
         const float sz = p.blastDamage > 0 ? 6.f : 3.5f;
         r.drawBox(Mat4::translate(p.position[0], p.position[1], p.position[2] - sz / 2) * Mat4::scale(sz), shot[std::clamp(p.owner, 0, 3)]);
     }
@@ -443,7 +456,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
     const uint64_t now = w.tickCount();
     for (const alamo::DeathEvent& d : w.deaths()) {
         const float age = float(now - d.tick) / float(alamo::kTicksPerSecond);
-        if (age > 20) continue;
+        if (age > 20 || (fog && w.fogOfWar() && player_ >= 0 && w.visibility(player_, d.position[0], d.position[1]) == 0)) continue;
         const float k = 1 - age / 20;
         const float s = 12 + 10 * std::min(age * 3, 1.f);
         r.drawBox(Mat4::translate(d.position[0], d.position[1], d.position[2] + 0.4f) * Mat4::scale3(s, s, 1.5f * k + 0.3f),

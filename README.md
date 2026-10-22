@@ -36,7 +36,8 @@ redistributed.
 | 2 | Terrain texture splatting: the map's layer textures (tiling, rotation, tint) in a texture array, blended per vertex across each triangle | done |
 | 2 | Particle systems (`0x1500` .ALO) | planned |
 | 3 | Lua scripting host for behaviours, AI and missions (engine API bindings) | planned |
-| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams), pause menu, game speed | done (first version) |
+| 4 | Front end: skirmish setup screen (map, up to 8 players, factions, teams, fog of war), pause menu, game speed | done (first version) |
+| 3 | Fog of war: per-player sight from `Land_FOW_Reveal_Range`, shared by allies, explored ground remembered; units only target what their side sees; the viewer darkens unseen ground and hides enemies there (structures once seen stay) | done (first version); the AI still sees everything |
 | 4 | Audio | planned: the staged game folder has no audio archives yet |
 | 4 | LAN multiplayer | planned |
 
@@ -95,7 +96,9 @@ setup screen: every map with two or more start positions (22 with the base game 
 preview with the numbered starts, and one row per start position: open, you or computer, the faction, and
 a team (players on the same team are allies; no team means everyone is an enemy). Click to change a
 setting, right click to step back; Enter or *Start game* plays it. In a game, Esc (with nothing to cancel)
-opens the pause menu: resume, restart, back to the setup screen, or exit. `[` and `]` change the game
+opens the pause menu: resume, restart, back to the setup screen, or exit. Fog of war is on unless switched
+off on the setup screen (or `--no-fog`): unexplored ground is dark, explored ground you can't see right now is
+dimmed, and enemies there are hidden (structures you have seen stay on the map). `[` and `]` change the game
 speed (x0.5 to x4), Pause stops the clock.
 
 The opponent is played by the skirmish AI (`--no-ai` to switch it off, `--spectate` to let an AI play your
@@ -222,7 +225,8 @@ simtool "<game>" M25_Grand_Canyon game Novus:1,Masari:1,Alien:2,Military:2 30   
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 ```
 
-A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decision.
+A 25-minute match takes 30-50 seconds to simulate. `UAW_AI_LOG=1` prints every AI decision; `UAW_FOG=1` plays
+with fog of war (units only shoot what their side can see).
 
 ### Balance
 
