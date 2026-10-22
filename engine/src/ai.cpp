@@ -328,7 +328,14 @@ void SkirmishAI::manageConstruction() {
                 const float cost = buildInfo(*t, db_).cost;
                 if (cost > me->credits && !planning) continue;
                 // Spread across types; among equals take the cheaper (usually the basic unit factory).
-                if (n < bestHave || (n == bestHave && cost < bestCost)) { bestHave = n; bestCost = cost; best = o; }
+                // Tech structures that something else requires (the way to new units) go first.
+                bool opens = false;
+                if (role == Role::Tech) {
+                    const std::string* into = t->find("Tactical_Buildable_Constructed");
+                    opens = unlocksUnit(into ? trim(*into) : o);
+                }
+                const float rankCost = opens ? cost - 1e6f : cost;
+                if (n < bestHave || (n == bestHave && rankCost < bestCost)) { bestHave = n; bestCost = rankCost; best = o; }
             }
             return best;
         };

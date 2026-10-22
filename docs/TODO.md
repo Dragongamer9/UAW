@@ -16,10 +16,10 @@ copy the final numbers into `Balance::defaults()` and the README's balance table
 AI uses every unit and building of each faction, so the games exercise the whole roster.
 
 Last run (2026-10-22 evening, fog of war on with the AI playing by it, targeting priority sets, the AI
-building quick-payback income in numbers, countering the armor it has seen and growing careful after a
-lost wave; 72 games on M25_Grand_Canyon, M16_Sahara and M22_Appalachia, 2 seeds): Masari 18, Novus 16,
-Hierarchy 16, Military 15 wins of 36; 7 draws. Matchups are lopsided (Novus 12-0 over the Military, Masari
-9-2 over Novus); the
+building quick-payback income in numbers, countering the armor it has seen, growing careful after a
+lost wave and raising unit-unlocking tech structures first; 72 games on M25_Grand_Canyon, M16_Sahara and
+M22_Appalachia, 2 seeds): Masari 20, Novus 16, Military 16, Hierarchy 15 wins of 36; 5 draws. Matchups are lopsided (Novus 12-0 over the Military, Masari
+10-2 over Novus); the
 Military's result swings most with its multiplier (1.1 gave 15 wins, 1.2 about 20, 1.3 gave 26). Results
 swing a lot between seeds and maps, so use 2+ of each. On three other maps (M31_Amazon_Basin, M24_Midwest, M09_Tibetan_Plateau, 1 seed) the
 same multipliers gave Military 11, Masari 8, Novus 5, Hierarchy 5 of 18 (7 draws): map layouts (how much scrap
@@ -71,9 +71,8 @@ and every texture its model names.
 The AI now builds nearly everything (README, AI section). Left over: research-locked heroes that its
 research order doesn't reach, Novus' top tier (Providence 30,000, Flying Fortress) and some Novus patches,
 superweapons are built and fired (README, Superweapons). `UAW_ROSTER=1 simtool ... match` lists what a side
-could have built and never did. In a 22-minute Novus game the Remix Material Center (Hailfire, Armored
-Assault Tank, Providence) only went up at minute 12, so its units rarely appear; tech structures that
-unlock units could come before the others.
+could have built and never did. Tech structures that unlock units are now raised before the other tech, but Novus games often end
+before the Remix Material Center's units (Hailfire, Armored Assault Tank, Providence) are reached.
 
 ## Bigger pieces still to do
 

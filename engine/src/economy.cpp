@@ -79,7 +79,8 @@ Balance Balance::defaults() {
     // used the targeting priority sets: 72 games on three maps, Novus 17 / Hierarchy 19 / Masari 17 /
     // Military 13 wins of 36; and once the AI built quick-payback income (Supply depots, Matter Engines)
     // in numbers, countered the armor it saw and grew careful after lost waves: Novus 16 / Hierarchy 16 /
-    // Masari 18 / Military 15.
+    // Masari 18 / Military 15; with unit-unlocking tech raised first: Novus 16 / Hierarchy 15 /
+    // Masari 20 / Military 16.
     b.factions["NOVUS"].income = 0.75f;
     b.factions["MASARI"].income = 2.4f;
     b.factions["MILITARY"].income = 1.1f;

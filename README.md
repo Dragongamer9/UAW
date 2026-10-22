@@ -317,9 +317,9 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 
 Checked with a 72-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
 2 seeds, fog of war on, the AI playing by it, building passive income in numbers and countering the armor it
-has seen, more careful after a lost wave): Masari 18 wins of 36, Novus 16, Hierarchy 16, Military 15,
-7 draws. The matchups themselves are lopsided (Novus beats the Military 12-0, the Masari beat Novus 9-2,
-the Military beat the Hierarchy 9-2),
+has seen, more careful after a lost wave, raising unit-unlocking tech first): Masari 20 wins of 36, Novus 16,
+Military 16, Hierarchy 15, 5 draws. The matchups themselves are lopsided (Novus beats the Military 12-0, the
+Masari beat Novus 10-2, the Military beat the Hierarchy 8-4),
 so the totals hide a rock-paper-scissors. The mods set most units' population cost to 0, so armies are
 limited by money and factory speed. The Military's multiplier is the most sensitive knob: its Supply depots
 pay for themselves in under a minute, so it decides how many the AI builds (1.3 gave the Military 26 wins).
