@@ -216,7 +216,7 @@ bool Hud::researchAt(float x, float y, std::string& path, int& index) const {
 void Hud::drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVertex>& small) {
     if (!font_ || !small_) return;
     static const char* kKeys[][2] = {
-        {"Pan / rotate / tilt", "WASD or arrows / Q E / R F, right-drag"},
+        {"Pan / rotate / tilt", "WASD, arrows or screen edge / Q E / R F, right-drag"},
         {"Zoom", "mouse wheel, + -"},
         {"Select", "left click or drag; Shift adds; double click: that type"},
         {"All your units / army", "Tab / ,"},

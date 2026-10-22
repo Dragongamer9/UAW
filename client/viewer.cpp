@@ -1157,6 +1157,22 @@ int main(int argc, char** argv) {
                     tilt -= axis(pad, SDL_GAMEPAD_AXIS_RIGHTY);
                     zoomIn += (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) - SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)) / 32767.f;
                 }
+                // Edge scrolling: the mouse at the window's edge pans (not while dragging or in a menu).
+                if (!headless && !pause.open && !leftDown && !rightDown && SDL_GetMouseFocus() == window) {
+                    float mx = 0, my = 0;
+                    SDL_GetMouseState(&mx, &my);
+                    int ww = 0, wh = 0;
+                    SDL_GetWindowSize(window, &ww, &wh);
+                    const float edge = 3;
+                    if (ww > 0 && wh > 0) {
+                        if (mx <= edge) right -= 1;
+                        if (mx >= float(ww) - 1 - edge) right += 1;
+                        if (my <= edge) fwd += 1;
+                        if (my >= float(wh) - 1 - edge) fwd -= 1;
+                        fwd = std::clamp(fwd, -1.f, 1.f);
+                        right = std::clamp(right, -1.f, 1.f);
+                    }
+                }
                 cam.pan(fwd, right, dt);
                 cam.rotate(turn * 90.f * dt, tilt * 45.f * dt);
                 if (zoomIn != 0) cam.zoom(std::pow(0.3f, zoomIn * dt));

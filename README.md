@@ -132,7 +132,7 @@ squad, or another with `--player N`.
 
 | | Keyboard / mouse | Gamepad (reticle at screen centre) |
 |---|---|---|
-| Pan | WASD / arrows | left stick |
+| Pan | WASD / arrows / mouse at the screen edge | left stick |
 | Rotate / tilt | Q/E, R/F, right- or middle-drag | right stick |
 | Zoom | mouse wheel, +/- | triggers |
 | Select | left click, left-drag box, Shift adds, Tab = all yours, double click = that type on screen | A (hold LB to add), X = all on screen, B = clear |
