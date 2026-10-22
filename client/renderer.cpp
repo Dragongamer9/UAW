@@ -443,9 +443,20 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         alamo::Model m = alamo::loadAlo(vfs_.read(path));
         if (m.kind != alamo::Model::Kind::Mesh) throw std::runtime_error("particle system");
         float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+        // Levels of detail ("..._LOD0", "_LOD1"...): only the most detailed is drawn.
+        auto lodOf = [](const alamo::Mesh& mesh) {
+            std::string up = mesh.name;
+            for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+            const size_t at = up.rfind("_LOD");
+            if (at == std::string::npos || at + 4 >= up.size() || !std::isdigit(static_cast<unsigned char>(up[at + 4]))) return -1;
+            return std::atoi(up.c_str() + at + 4);
+        };
+        bool hasLod0 = false;
+        for (const alamo::Mesh& mesh : m.meshes) hasLod0 = hasLod0 || (lodOf(mesh) == 0 && !mesh.hidden);
         for (uint32_t mi = 0; mi < m.meshes.size(); ++mi) {
             const alamo::Mesh& mesh = m.meshes[mi];
             if (mesh.hidden || mesh.collision) continue;
+            if (hasLod0 && lodOf(mesh) > 0) continue;
             // Meshes on hidden bones (effect shells like a walker's arrival fireball) are shown only
             // by animations; drawn in rest they would be permanent.
             if (const uint32_t b = m.meshBone(mi); b < m.bones.size() && !m.bones[b].visible) continue;
@@ -557,7 +568,15 @@ const GpuModel* Renderer::model(const std::string& aloName) {
         if (gm->meshes.empty() && m.proxies.empty()) throw std::runtime_error("no visible meshes"); // particle-only models (foo fighters) are fine
         for (const alamo::Proxy& px : m.proxies) {
             const alamo::Mat34 bw = px.bone < m.bones.size() ? m.boneWorld(px.bone) : alamo::Mat34{};
-            gm->proxies.push_back({px.name, alamo::transformPoint(bw, {0, 0, 0}), px.hidden || (px.bone < m.bones.size() && !m.bones[px.bone].visible)});
+            std::string up = px.name;
+            for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+            // "..._flash" proxies are one-shot flashes (a Masari unit changing mode), not a lasting glow.
+            const bool oneShot = up.find("FLASH") != std::string::npos;
+            int alt = -1;
+            if (const size_t at = up.rfind("_ALT"); at != std::string::npos && at + 4 < up.size() && std::isdigit(static_cast<unsigned char>(up[at + 4])))
+                alt = std::atoi(up.c_str() + at + 4);
+            gm->proxies.push_back({px.name, alamo::transformPoint(bw, {0, 0, 0}),
+                                   oneShot || px.hidden || (px.bone < m.bones.size() && !m.bones[px.bone].visible), alt});
         }
         gm->skeleton.bones = m.bones;
         gm->restInverse.reserve(m.bones.size());

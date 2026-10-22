@@ -774,7 +774,8 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             }
             if (u.underConstruction) // rising out of the ground as it is built
                 r.setClipHeight(u.position[2] + std::max(2.f, model->boundsMax[2] * scale * std::clamp(u.buildProgress, 0.f, 1.f)));
-            r.drawModel(*model, xf, {1, 1, 1, 1}, pose, damageAlternate(*u.type, u.maxHealth > 0 ? u.health / u.maxHealth : 1.f));
+            const int alt = damageAlternate(*u.type, u.maxHealth > 0 ? u.health / u.maxHealth : 1.f);
+            r.drawModel(*model, xf, {1, 1, 1, 1}, pose, alt);
             if (u.underConstruction) r.setClipHeight(1e9f);
             world_ = &w;
             turretTime_ = time;
@@ -787,7 +788,7 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
                 if (dx * dx + dy * dy < 2200.f * 2200.f)
                     for (size_t k = 0; k < model->proxies.size() && k < 32; ++k) {
                         const GpuModel::Proxy& px = model->proxies[k];
-                        if (px.hidden) continue;
+                        if (px.hidden || (px.alt >= 0 && px.alt != alt)) continue; // fires of a damage state only then
                         const alamo::Vec3& p = px.position;
                         const alamo::Vec3 wp{xf.at(0, 0) * p[0] + xf.at(0, 1) * p[1] + xf.at(0, 2) * p[2] + xf.at(0, 3),
                                              xf.at(1, 0) * p[0] + xf.at(1, 1) * p[1] + xf.at(1, 2) * p[2] + xf.at(1, 3),
