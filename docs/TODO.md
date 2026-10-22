@@ -15,8 +15,9 @@ Try candidate multipliers with `Data\XML\UAW_Balance.xml` in the game folder (no
 copy the final numbers into `Balance::defaults()` and the README's balance table. Ideally by then the
 AI uses every unit and building of each faction, so the games exercise the whole roster.
 
-Last run (2026-10-22, after the AI learned the whole roster; 24 games, 2 seeds): Masari 7,
-Hierarchy 6, Military 5, Novus 3 wins of 12; 3 draws. Results swing a lot between seeds, so use 2+.
+Last run (2026-10-22, fog of war on, after DEPLOY, target restrictions and the Foo Core saucers; 36 games
+on M25_Grand_Canyon, M16_Sahara and M22_Appalachia, 2 seeds): Hierarchy 20, Novus 17, Masari 16,
+Military 16 wins of 36; 6 draws. Results swing a lot between seeds and maps, so use 2+ of each.
 
 ## 🚩 Missing art (not shipped by the game or any mod)
 

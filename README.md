@@ -264,20 +264,21 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 
 | Faction   | Income | Resource value |
 |-----------|-------:|---------------:|
-| Novus     | 0.7    | 1              |
-| Masari    | 2.2    | 1              |
+| Novus     | 0.84   | 1              |
+| Masari    | 2.3    | 1              |
 | Military  | 1.5    | 1              |
-| Hierarchy | 2.6    | 10             |
+| Hierarchy | 2.2    | 10             |
 
-Checked with a 24-game round robin on Grand Canyon (every matchup from both sides, 2 seeds) after the
-AI learned to use the whole roster: Masari 7 wins, Hierarchy 6, Military 5, Novus 3, 3 draws. The mods set most units' population cost to 0, so armies
+Checked with a 36-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
+2 seeds, fog of war on) once weapons honoured their target restrictions and the saucers fought: Hierarchy 20
+wins, Novus 17, Masari 16, Military 16, 6 draws. The mods set most units' population cost to 0, so armies
 are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
 Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
 Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
 
 ```xml
 <UAW_Balance>
-  <Faction Name="Alien"><Income_Multiplier>2.6</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
+  <Faction Name="Alien"><Income_Multiplier>2.2</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
 </UAW_Balance>
 ```
 
@@ -321,56 +322,6 @@ simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Milit
 ```
 
 A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decision.
-
-### Balance
-
-> ⚑ **Provisional.** These numbers get re-tuned when the gameplay is close to finished; see
-> [docs/TODO.md](docs/TODO.md).
-
-The original numbers are not balanced for this engine's AI: in an untouched 8-map round robin (all mods,
-20 minutes, both seats, 2 seeds) Novus won 86 of 96 games and the Masari none. Each faction now has an income
-multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but
-a pile lasts ten times longer, so it doesn't strip the map and starve):
-
-| Faction   | Income | Resource value |
-|-----------|-------:|---------------:|
-| Novus     | 0.7    | 1              |
-| Masari    | 2.2    | 1              |
-| Military  | 1.5    | 1              |
-| Hierarchy | 2.6    | 10             |
-
-Checked with a 24-game round robin on Grand Canyon (every matchup from both sides, 2 seeds) after the
-AI learned to use the whole roster: Masari 7 wins, Hierarchy 6, Military 5, Novus 3, 3 draws. The mods set most units' population cost to 0, so armies
-are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
-Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
-Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
-
-```xml
-<UAW_Balance>
-  <Faction Name="Alien"><Income_Multiplier>2.6</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
-</UAW_Balance>
-```
-
-### AI
-
-`SkirmishAI` (engine/src/ai.cpp) knows nothing faction-specific. It classifies everything by data: economy
-(depots, Matter Engines, refineries, Reapers), power (Novus generators/transmitters), production (anything,
-structure or walker, that is a `Tactical_Builder` of a unit with weapons), defence (structures with weapons)
-and tech. Builders get economy first, power when a receiver is unpowered, one of each production building,
-then defences, tech and extra production when credits pile up. Production keeps queues full of affordable
-combat units (deeper when rich) plus up to two builders. The army gathers at a rally point, defends structures
-under attack, and attacks the nearest enemy structure when its strength (sqrt of health x damage per second,
-summed) is 1.3x the enemy's after minute 4 with six units, 3x after minute 3, at the population cap, or after
-minute 12 with ten units; it regroups when a wave drops below a third. Spending scales with how rich it is
-relative to its starting credits (the Masari's prices are a tenth of the others'), and when rich it buys the
-pricier half of its units and more factories. Only units with
-`Is_Tactical_Base_Builder` construct.
-
-
-```sh
-simtool "<game>" M25_Grand_Canyon start            # skirmish start for each faction and what it can build
-simtool "<game>" M25_Grand_Canyon opening Novus    # scripted build order with a timeline
-```
 
 ## Superweapons
 
