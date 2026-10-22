@@ -721,6 +721,32 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         }
     }
 
+    // --- the unit under the mouse: its name and health beside the pointer
+    if (view && small_ && !helpOpen && !researchOpen && mouseX_ >= 0) {
+        const float panelTop = sel.empty() ? H : H - std::min(H * 0.42f, 12 * lhs + 3 * lh);
+        const bool overMinimap = mouseX_ >= minimap_.x0 && mouseX_ <= minimap_.x1 && mouseY_ >= minimap_.y0 && mouseY_ <= minimap_.y1;
+        if (mouseY_ > lh + pad && mouseY_ < panelTop && !overMinimap) {
+            const alamo::Unit* best = nullptr;
+            float bestD = 1e30f;
+            for (const alamo::Unit& u : w.units()) {
+                if (!control.shown(w, u) || u.inside) continue;
+                float sx, sy;
+                const alamo::Vec3 mid{u.position[0], u.position[1], u.position[2] + std::max(4.f, u.radius * 0.6f)};
+                if (!view->toScreen(mid, sx, sy)) continue;
+                const float d = (sx - mouseX_) * (sx - mouseX_) + (sy - mouseY_) * (sy - mouseY_);
+                const float reach = std::max(14.f * s, u.radius * 0.6f * float(view->height) / 900.f * 2.f);
+                if (d < reach * reach && d < bestD) { bestD = d; best = &u; }
+            }
+            if (best) {
+                const std::string line = text.displayName(*best->type) + "   " + fmt("%.0f", best->health) + " / " + fmt("%.0f", best->maxHealth);
+                const float tw = small_->width(line) + 12 * s, tx = std::min(mouseX_ + 18 * s, W - tw - 4 * s), ty = mouseY_ + 14 * s;
+                r.drawOverlayRect(tx, ty, tx + tw, ty + lhs + 4 * s, {0.03f, 0.05f, 0.07f, 0.85f});
+                r.drawOverlayRect(tx, ty, tx + 3 * s, ty + lhs + 4 * s, playerColor(best->owner));
+                textSmall(line, tx + 7 * s, ty + 2 * s, kText);
+            }
+        }
+    }
+
     // --- message line
     const float age = w.seconds() - control.messageTime();
     if (!control.message().empty() && age < 4 && font_) {
