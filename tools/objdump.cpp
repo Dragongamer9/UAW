@@ -2,6 +2,7 @@
 //   objdump <game-root> summary
 //   objdump <game-root> units [faction]     buildable units/structures with health, cost, speed
 //   objdump <game-root> show <ObjectName>   every field of one object (variants resolved)
+//   objdump <game-root> field <Name>        every object that has the field, with its value
 //   objdump <game-root> weapons <ObjectName> [VictimName...]  weapons, dps, armor modifiers
 //   objdump <game-root> abilities [ObjectName]  abilities and effect generators (all units: a tally)
 //   objdump <game-root> research [faction]    research trees (run from the compiled tree scripts)
@@ -22,7 +23,7 @@
 using namespace alamo;
 
 static int usage() {
-    std::cerr << "usage: objdump <game-root> summary | units [faction] | show <name> | effect <name> | weapons <name> | abilities [name] | research [faction] | warnings\n";
+    std::cerr << "usage: objdump <game-root> summary | units [faction] | field <Name> | show <name> | effect <name> | weapons <name> | abilities [name] | research [faction] | warnings\n";
     return 2;
 }
 
@@ -71,6 +72,16 @@ int main(int argc, char** argv) {
             for (const auto& f : db.factions())
                 std::printf("  %-28s human:%s ai:%s\n", f.name.c_str(), f.humanPlayable ? "yes" : "no",
                             f.aiPlayable ? "yes" : "no");
+            return 0;
+        }
+        if (cmd == "field" && argc > 3) { // every object with this field (leaf name), and its value
+            size_t n = 0;
+            for (const auto& o : db.objects())
+                if (const std::string* v = o.find(argv[3])) {
+                    std::printf("  %-44s %s\n", o.name.c_str(), trim(*v).substr(0, 80).c_str());
+                    ++n;
+                }
+            std::printf("%zu objects\n", n);
             return 0;
         }
         if (cmd == "units") {

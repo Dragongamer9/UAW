@@ -200,6 +200,7 @@ objdump "<game>" show Alien_Grunt     # every field of one object, variants reso
 objdump "<game>" weapons Alien_Grunt  # weapons, ranges, damage per second
 objdump "<game>" effect HexEffect     # one effect from the effect library
 objdump "<game>" abilities            # tally: abilities per type, how many are simulated
+objdump "<game>" field Max_Garrison_Capacity   # every object with that field, and its value
 objdump "<game>" abilities Alien_Defiler   # its abilities, generators, effects and components
 objdump "<game>" research Alien       # the research tree: suites, costs, times, what they unlock
 objdump "<game>" warnings
