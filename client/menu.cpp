@@ -122,7 +122,7 @@ void MenuPainter::flush(Renderer& r) {
 // ---------------------------------------------------------------- skirmish setup
 
 namespace {
-enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kHost = 5, kJoin = 6, kAiLevel = 7, kCredits = 8, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
+enum : int { kStart = 1, kQuit = 2, kFog = 3, kLoad = 4, kHost = 5, kJoin = 6, kAiLevel = 7, kCredits = 8, kReplay = 9, kMapBase = 100, kSlotBase = 1000 }; // slot buttons: kSlotBase + slot * 4 + field
 }
 
 SkirmishMenu::SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale)
@@ -276,6 +276,7 @@ SkirmishMenu::Result SkirmishMenu::handle(const SDL_Event& e) {
         if (id == kAiLevel) setup_.aiLevel = (setup_.aiLevel + (e.button.button == SDL_BUTTON_RIGHT ? 2 : 1)) % 3;
         if (id == kCredits) setup_.credits = (setup_.credits + (e.button.button == SDL_BUTTON_RIGHT ? 3 : 1)) % 4;
         if (id == kLoad) return Result::Load;
+        if (id == kReplay) return Result::Replay;
         if (id == kHost && lobby == Lobby::None) return Result::Host;
         if (id == kJoin && lobby == Lobby::None) {
             typing_ = true;
@@ -462,8 +463,12 @@ void SkirmishMenu::draw(Renderer& r) {
         r.drawOverlayRect(W / 2 - tw / 2 + 16 * s, H / 2 - lh / 2 - 4 * s, W / 2 + tw / 2 - 16 * s, H / 2 + lh / 2 + 4 * s, {0, 0, 0, 0.8f});
         paint_.text(typed_ + "_", W / 2 - tw / 2 + 24 * s, H / 2 - lh / 2, kText);
     }
-    if (lobby == Lobby::None && !quickSave.empty() && std::ifstream(quickSave).good())
-        paint_.button(r, kLoad, "Load saved game", W - pad - bw * 4 - 48 * s, by, W - pad - bw * 3 - 48 * s, by + bh, false, mouseX_, mouseY_);
+    if (lobby == Lobby::None && !quickSave.empty() && std::ifstream(quickSave).good()) {
+        // In the info column, under the game options.
+        const float x2 = W - pad - bw * 1.2f, y2 = 300 * s + 2 * (bh + 8 * s) + 16 * s;
+        paint_.button(r, kLoad, "Load saved game", x2, y2, W - pad, y2 + bh, false, mouseX_, mouseY_);
+        paint_.button(r, kReplay, "Watch it as a replay", x2, y2 + bh + 8 * s, W - pad, y2 + bh * 2 + 8 * s, false, mouseX_, mouseY_);
+    }
     {
         static const char* ai[] = {"Computer: easy", "Computer: normal", "Computer: hard"};
         static const char* cr[] = {"Credits: low", "Credits: normal", "Credits: high", "Credits: very high"};

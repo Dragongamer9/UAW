@@ -68,7 +68,7 @@ class SkirmishMenu {
 public:
     SkirmishMenu(alamo::MegVfs& vfs, const alamo::GameDatabase& db, std::vector<std::string> modNames, float scale);
 
-    enum class Result { None, Start, Quit, Load, Host, Join };
+    enum class Result { None, Start, Quit, Load, Host, Join, Replay };
     std::string quickSave; // shown as a "Load saved game" button when this file exists
     Result handle(const SDL_Event& e);
     void draw(Renderer& r);

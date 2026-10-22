@@ -770,6 +770,7 @@ int main(int argc, char** argv) {
                             break;
                         case PauseMenu::Result::Load:
                             loadPath = saveFolder() + "quicksave.uawsave";
+                            opt.replay = false;
                             end = End::Load;
                             running = false;
                             break;
@@ -793,6 +794,7 @@ int main(int argc, char** argv) {
                             std::printf("saved %s\n", path.c_str());
                         } else if (e.key.key == SDLK_F9) {
                             loadPath = saveFolder() + "quicksave.uawsave";
+                            opt.replay = false;
                             end = End::Load;
                             running = false;
                         } else if (e.key.key == SDLK_PAUSE) {
@@ -1211,7 +1213,8 @@ int main(int argc, char** argv) {
                             if (lockstep && !lockstep->isHost() && e.type != SDL_EVENT_QUIT) leaveLobby(); // back to the setup screen
                             else done = quit = true;
                         }
-                        if (r == SkirmishMenu::Result::Load) done = loadGame = true;
+                        if (r == SkirmishMenu::Result::Load) { done = loadGame = true; opt.replay = false; }
+                        if (r == SkirmishMenu::Result::Replay) { done = loadGame = true; opt.replay = true; }
                         if (r == SkirmishMenu::Result::Host) startHost();
                         if (r == SkirmishMenu::Result::Join) startJoin(menu->joinAddress);
                     }
