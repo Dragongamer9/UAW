@@ -529,6 +529,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
         }
         if (s.kind == AbilitySpec::Kind::Unsupported && iequals(s.abilityType, "Hostile_Territory_Ability"))
             s.kind = AbilitySpec::Kind::Elsewhere; // global conquest only
+        // Other kinds (Latch_On_Target_Ability...) that run one of the unit's own generators.
+        if (s.kind == AbilitySpec::Kind::Unsupported && !s.generator.empty() && ownGenerator(s.generator)) {
+            s.kind = AbilitySpec::Kind::Generator;
+            bool target = false, ally = false;
+            generatorTargets(s.generator, target, ally);
+            s.needsTarget = target;
+            s.targetsAllies = s.targetsAllies || ally;
+        }
         if (type.find("Foo_Core_Fighter_Type_Name") && iequals(s.abilityType, "FooCore_Activation_Ability"))
             s.kind = AbilitySpec::Kind::Weapon; // the fighters' attack: the core's weapon (combat.cpp)
         out.push_back(std::move(s));
