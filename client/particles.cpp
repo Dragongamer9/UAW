@@ -119,6 +119,12 @@ void ParticleEffects::follow(uint64_t key, const std::string& name, Vec3 at, flo
     in.key = key;
     in.maxAge = -1;
     in.emitted.assign(def->emitters.size(), 0.f);
+    // An attached effect starts whenever its unit comes near the camera: its short opening bursts
+    // (a building's arrival flash) would go off every time, so they are counted as already fired.
+    for (size_t ei = 0; ei < def->emitters.size(); ++ei) {
+        const alamo::ParticleEmitterDef& e = def->emitters[ei];
+        if (e.duration > 0 && e.duration <= 1.f && e.interval > 0) in.emitted[ei] = (std::floor(e.duration / e.interval) + 1) * e.burst;
+    }
     followed_[key] = instances_.size();
     instances_.push_back(std::move(in));
 }
