@@ -135,6 +135,7 @@ private:
     GLuint terrainProgram_ = 0, terrainLayers_ = 0;
     std::vector<float> layerParams_, layerTints_; // 64 x vec4 each
     alamo::Vec3 lightDir_{0, 0, -1}, fogColor_{0.6f, 0.6f, 0.6f};
+    std::unordered_map<GLuint, alamo::Vec4> texAverage_;
     GpuMesh terrain_;
     GpuMesh box_;
     std::unordered_map<std::string, std::unique_ptr<GpuModel>> models_;

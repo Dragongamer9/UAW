@@ -317,6 +317,13 @@ GLuint Renderer::texture(const std::string& name) {
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GLsizei(img->width), GLsizei(img->height), 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, img->rgba.data());
+        { // average colour (sky domes tint the distance haze with it)
+            double sum[3] = {0, 0, 0};
+            size_t n = 0;
+            for (size_t i = 0; i + 3 < img->rgba.size(); i += 4 * 7, ++n)
+                for (int k = 0; k < 3; ++k) sum[k] += img->rgba[i + size_t(k)];
+            if (n) texAverage_[tex] = {float(sum[0] / n / 255), float(sum[1] / n / 255), float(sum[2] / n / 255), 1};
+        }
         glGenerateMipmap(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -740,6 +747,20 @@ void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint text
 
 void Renderer::drawSky(const GpuModel& m) {
     glUseProgram(program_);
+    // The haze in the distance takes the sky's colour (the dome's textures, averaged), so far terrain
+    // fades into this map's sky rather than a fixed grey-blue.
+    {
+        float sum[3] = {0, 0, 0}, n = 0;
+        for (const GpuMesh& mesh : m.meshes)
+            if (auto it = texAverage_.find(mesh.texture); it != texAverage_.end() && mesh.blend != GpuMesh::Blend::Additive) {
+                for (int k = 0; k < 3; ++k) sum[k] += it->second[k] * mesh.tint[k];
+                n += 1;
+            }
+        if (n > 0) {
+            for (int k = 0; k < 3; ++k) fogColor_[k] = 0.3f * fogColor_[k] + 0.7f * std::clamp(sum[k] / n, 0.f, 1.f);
+            glUniform3fv(uFogColor_, 1, fogColor_.data());
+        }
+    }
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE_);
     glEnable(GL_BLEND);
