@@ -1002,6 +1002,10 @@ int main(int argc, char** argv) {
                             pause.musicOn = audio && audio->musicVolume > 0;
                             keepSettings();
                             break;
+                        case PauseMenu::Result::Keys:
+                            pause.open = false;
+                            hud.helpOpen = true;
+                            break;
                         case PauseMenu::Result::Graphics:
                             renderer.setDetail(!renderer.detail());
                             pause.fullGraphics = renderer.detail();

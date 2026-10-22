@@ -124,7 +124,7 @@ private:
 class PauseMenu {
 public:
     explicit PauseMenu(alamo::MegVfs& vfs, float scale) : paint_(vfs, scale) {}
-    enum class Result { None, Resume, Save, Load, Restart, ToMenu, Quit, Sound, Music, Graphics };
+    enum class Result { None, Resume, Save, Load, Restart, ToMenu, Quit, Sound, Music, Graphics, Keys };
     bool open = false;
     bool soundOn = true, musicOn = true; // shown on the Sound / Music items
     bool fullGraphics = true;            // shadows and normal maps (off: faster on slow graphics cards)

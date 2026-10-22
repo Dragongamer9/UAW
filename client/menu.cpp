@@ -514,8 +514,8 @@ void SkirmishMenu::draw(Renderer& r) {
 // ---------------------------------------------------------------- pause menu
 
 namespace {
-const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Sound", "Music", "Graphics", "Restart", "Quit to setup", "Exit game"};
-constexpr int kPauseCount = 9;
+const char* kPauseItems[] = {"Resume", "Save game (F5)", "Load game (F9)", "Sound", "Music", "Graphics", "Keys (F10)", "Restart", "Quit to setup", "Exit game"};
+constexpr int kPauseCount = 10;
 }
 
 PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
@@ -527,8 +527,9 @@ PauseMenu::Result PauseMenu::handle(const SDL_Event& e) {
         case 3: return Result::Sound;
         case 4: return Result::Music;
         case 5: return Result::Graphics;
-        case 6: return Result::Restart;
-        case 7: return Result::ToMenu;
+        case 6: return Result::Keys;
+        case 7: return Result::Restart;
+        case 8: return Result::ToMenu;
         default: return Result::Quit;
         }
     };
