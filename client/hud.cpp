@@ -29,7 +29,11 @@ std::string fmt(const char* f, double a) {
 
 } // namespace
 
-Hud::Hud(alamo::MegVfs& vfs, float uiScale) : scale_(uiScale) {
+Hud::Hud(alamo::MegVfs& vfs, float uiScale) : scale_(uiScale) { loadFonts(vfs); }
+
+void Hud::loadFonts(alamo::MegVfs& vfs) {
+    font_.reset();
+    small_.reset();
     for (const char* path : {"Data\\Resources\\Fonts\\ARIAL.TTF", "Data\\Resources\\Fonts\\IMPACT.TTF"}) {
         if (!vfs.exists(path)) continue;
         try {
@@ -42,6 +46,12 @@ Hud::Hud(alamo::MegVfs& vfs, float uiScale) : scale_(uiScale) {
             small_.reset();
         }
     }
+}
+
+void Hud::rescale(alamo::MegVfs& vfs, float uiScale) {
+    if (std::fabs(uiScale - scale_) < 0.08f * scale_) return; // only for a real change (full screen, a resize)
+    scale_ = uiScale;
+    loadFonts(vfs);
 }
 
 std::vector<uint8_t> minimapPixels(const alamo::Map& map, alamo::MegVfs& vfs, int N) {

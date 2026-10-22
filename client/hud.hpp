@@ -27,6 +27,8 @@ public:
     // Pixel rectangle of menu item i from the last draw (for mouse clicks), or false.
     bool menuItemAt(float x, float y, int& index) const;
     bool hasFont() const { return font_ != nullptr; }
+    // A new UI scale (the window changed size): the fonts are made again.
+    void rescale(alamo::MegVfs& vfs, float uiScale);
     // Where the mouse is (pixels), for tooltips on the build menu.
     void setMouse(float x, float y) { mouseX_ = x, mouseY_ = y; }
     // The last place you were attacked (false if never).
@@ -68,6 +70,7 @@ private:
                       std::vector<GpuVertex>& big, std::vector<GpuVertex>& small);
     void drawMinimap(Renderer& r, alamo::World& w, const UnitControl& control, const View* view, float top);
     void drawHelp(Renderer& r, std::vector<GpuVertex>& big, std::vector<GpuVertex>& small);
+    void loadFonts(alamo::MegVfs& vfs);
 };
 
 } // namespace uaw
