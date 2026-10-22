@@ -763,6 +763,24 @@ static void testReplay(const GameDatabase& db) {
     CHECK(w.stateHash() == first);
 }
 
+static void testSell(const GameDatabase& db) {
+    Map m = openMap();
+    World w(m, db, nullptr, 1, nullptr);
+    const int a = w.addPlayer("Novus", 0, 100);
+    const uint32_t b = w.spawn("Barracks", a, {400, 400, 0});
+    w.tick();
+    CHECK(w.unit(b) && w.canSell(*w.unit(b)));
+    const float refund = w.sellRefund(*w.unit(b));
+    CHECK(w.sell(b) == OrderResult::Ok);
+    CHECK(w.sell(b) == OrderResult::NotAllowed); // already going
+    for (int i = 0; i < 4 * 30; ++i) w.tick();
+    CHECK(w.unit(b)); // takes Tactical_Sell_Time_Seconds (5 by default)
+    for (int i = 0; i < 2 * 30; ++i) w.tick();
+    CHECK(!w.unit(b));
+    CHECK(std::fabs(w.player(a)->credits - refund) < 0.5f);
+    CHECK(!w.deaths().empty() && w.deaths().back().sold);
+}
+
 static void testFog(const GameDatabase& db) {
     Map m = openMap();
     World w(m, db, nullptr, 1, nullptr);
@@ -803,6 +821,7 @@ int main() {
     testFog(db);
     testGarrison();
     testReplay(db);
+    testSell(db);
     fs::remove_all(fs::temp_directory_path() / "uaw_native_test_sim");
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

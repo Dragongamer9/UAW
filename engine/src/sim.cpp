@@ -311,6 +311,7 @@ std::vector<std::string> World::constructible(uint32_t id) const {
 OrderResult World::queueProduction(uint32_t id, const std::string& typeName) {
     RecordScope rec_(*this, Command{0, Command::Kind::Queue, {id}, 0, -1, 0, {}, typeName});
     if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
+    if (const Unit* q = unit(id); q && q->sellTicks >= 0) return OrderResult::NotAllowed; // being sold
     Unit* s = unit(id);
     if (!s) return OrderResult::InvalidUnit;
     const GameObjectType* t = db_.find(typeName);
@@ -878,7 +879,7 @@ int addSkirmishPlayer(World& world, const GameDatabase& db, const std::string& f
 }
 
 void World::fireWeapons(Unit& u) {
-    if (u.underConstruction || u.leaping || u.inside) return;
+    if (u.underConstruction || u.leaping || u.inside || u.sellTicks >= 0) return;
     const Unit* t = u.target ? unit(u.target) : nullptr;
     if (t && !u.moving()) {
         // Face the target while standing (turrets handle aim while moving).
@@ -1067,9 +1068,9 @@ void World::removeDead() {
             if (Unit* t = unit(u.inside)) t->passengers.erase(std::remove(t->passengers.begin(), t->passengers.end(), u.id), t->passengers.end());
     for (const Unit& u : units_)
         if (!u.alive()) {
-            deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_});
+            deaths_.push_back({u.id, u.type, u.owner, u.position, ticks_, u.sold});
             if (u.structure) navDirty_ = true;
-            deathSpawn(u);
+            if (!u.sold) deathSpawn(u);
         }
     units_.erase(std::remove_if(units_.begin(), units_.end(), [](const Unit& u) { return !u.alive(); }), units_.end());
 }
@@ -1320,6 +1321,7 @@ void World::apply(const Command& c) {
     case Command::Kind::Ability: useAbility(first, size_t(c.index), c.target, c.point); break;
     case Command::Kind::Board: commandBoard(c.ids, c.target); break;
     case Command::Kind::Unload: unload(first); break;
+    case Command::Kind::Sell: sell(first); break;
     }
 }
 

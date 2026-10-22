@@ -45,7 +45,7 @@
 //             P stand-in boxes, T research, F1-F8 abilities of the selection (then right click a target),
 //             V + right click fires a selected superweapon, minimap click moves the camera,
 //             [ ] game speed, Pause pauses, Esc (with nothing to cancel) opens the menu,
-//             U unloads selected transports (right click your transport to get in),
+//             U unloads selected transports (right click your transport to get in), Delete twice sells,
 //             Ctrl+0-9 stores a control group, 0-9 recalls it (twice: camera to it), double click
 //             selects every unit of that type on screen
 //   mouse     left click/drag select (Shift adds), right click move, middle or right drag rotate/tilt
@@ -727,6 +727,7 @@ int main(int argc, char** argv) {
             // Mouse drag state for box selection / right-click orders.
             bool leftDown = false, rightDown = false, rightDragged = false, attackMoveArmed = false, superweaponArmed = false;
             int lastGroupKey = -1;
+            uint64_t lastDeleteTime = 0;
             uint64_t lastGroupTime = 0;
             float downX = 0, downY = 0, mouseX = 0, mouseY = 0;
             while (running) {
@@ -806,6 +807,13 @@ int main(int argc, char** argv) {
                         else if (e.key.key == SDLK_TAB) control.selectAll(world);
                         else if (e.key.key == SDLK_X) control.stop(world);
                         else if (e.key.key == SDLK_U) control.unload(world);
+                        else if (e.key.key == SDLK_DELETE) {
+                            // Twice within two seconds, so a stray key press doesn't sell the base.
+                            const uint64_t nowMs = SDL_GetTicks();
+                            if (nowMs - lastDeleteTime < 2000) control.sell(world);
+                            else control.say("Press Delete again to sell", world.seconds());
+                            lastDeleteTime = nowMs;
+                        }
                         else if (e.key.key == SDLK_G) attackMoveArmed = true; // next right click is an attack-move
                         else if (e.key.key == SDLK_V) superweaponArmed = true; // next right click fires the selected superweapon
                         else if (e.key.key == SDLK_T) hud.researchOpen = !hud.researchOpen;

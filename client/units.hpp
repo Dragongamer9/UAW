@@ -92,6 +92,7 @@ public:
     bool fireSuperweapon(alamo::World& w, const alamo::Vec3& ground);
     void stop(alamo::World& w);
     void unload(alamo::World& w); // selected transports drop their riders
+    void sell(alamo::World& w);   // selected structures are sold (Delete twice)
 
     // Ordered abilities of the selection; use() fires those that need no target at once, and
     // arms the others: the next right click picks the target (unit under the cursor or ground).

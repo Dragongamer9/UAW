@@ -142,6 +142,7 @@ squad, or another with `--player N`.
 | Jump the camera | click the minimap | |
 | Stop / jump to selection | X / Space | |
 | Load into / unload a transport | right click your transport / U | |
+| Sell selected structures | Delete twice | |
 | Build menu (structure or builder selected) | 1-9 or click | D-pad left/right, D-pad down |
 | Place structure / cancel | left click / right click | A / B |
 | Cancel last queued item | Backspace | left stick click |
@@ -463,6 +464,9 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
 * **Redirecting shields** (`Redirect_Projectile_Ability`, Novus field inverters in shield mode): a shot that
   hits the unit is sent back at its shooter with `Block_Chance` (while the shield holds, when
   `Redirect_If_Shield_Hit_Only`).
+* **Selling** (`TacticalSellBehaviorType`): a structure is taken down over `Tactical_Sell_Time_Seconds`
+  (doing nothing meanwhile) and returns its price times `1 + Tactical_Sell_Percent_Modifier` (half by
+  default), scaled by its remaining health.
 * **Charges** (`Tackle_Ability`, the Brute): a low dash of up to `Tackle_Charge_Distance` at the target,
   which takes `Damage_Amount` when the Brute arrives.
 

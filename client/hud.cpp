@@ -321,6 +321,10 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
             std::string hp = "Health " + fmt("%.0f", first->health) + " / " + fmt("%.0f", first->maxHealth);
             textSmall(hp, pad, y, kDim);
             y += lhs;
+            if (first->sellTicks >= 0) {
+                textSmall("Selling: " + fmt("%.0f", float(first->sellTicks) / alamo::kTicksPerSecond) + " s", pad, y, kWarn);
+                y += lhs;
+            }
             if (first->underConstruction) {
                 textSmall("Under construction " + fmt("%.0f%%", first->buildProgress * 100), pad, y, kWarn);
                 y += lhs;

@@ -84,6 +84,19 @@ Balance Balance::defaults() {
 
 Balance loadBalance(MegVfs& vfs) {
     Balance b = Balance::defaults();
+    // UAW_BALANCE="NOVUS=1.0,ALIEN=1.6,...": income multipliers for tuning runs (simtool tournament).
+    if (const char* env = std::getenv("UAW_BALANCE")) {
+        std::string list = env;
+        size_t pos = 0;
+        while (pos < list.size()) {
+            size_t e = list.find(',', pos);
+            if (e == std::string::npos) e = list.size();
+            const std::string item = list.substr(pos, e - pos);
+            pos = e + 1;
+            if (const size_t eq = item.find('='); eq != std::string::npos)
+                b.factions[upperStr(trim(item.substr(0, eq)))].income = float(std::atof(item.c_str() + eq + 1));
+        }
+    }
     for (const auto& v : vfs.readAllLayers("Data\\XML\\UAW_Balance.xml")) {
         XmlDocument doc = parseXml(std::string(v.data.begin(), v.data.end()));
         const XmlNode* root = doc.root.child("UAW_Balance");

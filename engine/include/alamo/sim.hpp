@@ -159,6 +159,8 @@ struct Unit {
     uint32_t inside = 0;               // the transport carrying this unit
     uint32_t boarding = 0;             // walking to this transport to get in
     std::vector<uint32_t> passengers;  // a transport's riders
+    int sellTicks = -1;                // being sold (TacticalSellBehaviorType): ticks left, -1 = no
+    bool sold = false;                 // gone by selling (no wreck, no death explosion)
     int originalOwner = -1;
     int lifeTicks = -1;                // effect objects: removed at 0
     int64_t superweaponReadyTick = -1; // superweapon enablers: tick it can fire (-1: not armed yet)
@@ -291,6 +293,7 @@ struct Projectile {
 struct Command {
     enum class Kind : uint8_t {
         Move, Stop, AttackMove, Attack, Queue, CancelQueue, Rally, Construct, Superweapon, Research, Ability, Board, Unload,
+        Sell,
     };
     uint64_t tick = 0;              // given before this tick ran
     Kind kind = Kind::Move;
@@ -341,6 +344,7 @@ struct DeathEvent {
     int owner;
     Vec3 position;
     uint64_t tick;
+    bool sold = false; // sold, not destroyed
 };
 
 class World {
@@ -425,6 +429,11 @@ public:
     OrderResult commandBoard(const std::vector<uint32_t>& ids, uint32_t transport);
     // Everyone out, around the transport.
     OrderResult unload(uint32_t transport);
+    // Structures (and other TACTICAL_SELL objects): taken down over Tactical_Sell_Time_Seconds, then
+    // part of the price comes back (1 + Tactical_Sell_Percent_Modifier, 50% by default).
+    OrderResult sell(uint32_t id);
+    bool canSell(const Unit& u) const;
+    float sellRefund(const Unit& u) const;
     // Order recording: while on, every order method appends a Command (orders given from inside
     // another order are not recorded twice). apply() gives a recorded order again.
     void setRecording(bool on) { recording_ = on; }

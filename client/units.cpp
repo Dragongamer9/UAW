@@ -454,6 +454,18 @@ void UnitControl::drawHardpoints(Renderer& r, const alamo::Unit& u, const alamo:
     }
 }
 
+void UnitControl::sell(alamo::World& w) {
+    float refund = 0;
+    int n = 0;
+    for (uint32_t id : selected_)
+        if (const alamo::Unit* u = w.unit(id); u && u->owner == player_ && w.canSell(*u)) {
+            refund += w.sellRefund(*u);
+            if (w.sell(id) == alamo::OrderResult::Ok) ++n;
+        }
+    if (n) say("Selling " + std::to_string(n) + (n == 1 ? " structure" : " structures") + " for about " + std::to_string(int(refund)), w.seconds());
+    else say("Nothing selected can be sold", w.seconds());
+}
+
 bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
     if (u.inside) return false;
     if (player_ < 0 || !w.enemies(player_, u.owner)) return true;

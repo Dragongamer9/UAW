@@ -176,7 +176,7 @@ void ParticleEffects::watch(const alamo::World& w, const UnitControl& control) {
     const auto& deaths = w.deaths();
     for (size_t i = deathsSeen_; i < deaths.size(); ++i) {
         const alamo::DeathEvent& d = deaths[i];
-        if (!d.type || hidden(d.position)) continue;
+        if (!d.type || d.sold || hidden(d.position)) continue;
         if (const std::string* ex = d.type->find("Death_Explosions")) {
             std::string first = alamo::trim(*ex);
             if (const size_t c = first.find_first_of(", "); c != std::string::npos) first.resize(c);

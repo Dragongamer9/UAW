@@ -2,6 +2,7 @@
 // Novus Flying Fortress) until they are unloaded. While inside they are off the map: not drawn,
 // not targetable, not moving or shooting; they follow the transport.
 #include "alamo/sim.hpp"
+#include "alamo/combat.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -134,7 +135,40 @@ float World::redirectChance(const Unit& u) const {
     return it->second.first;
 }
 
+bool World::canSell(const Unit& u) const {
+    if (!u.alive() || u.sellTicks >= 0 || u.underConstruction) return false;
+    if (u.structure) return true;
+    const std::string* lb = u.type->find("LandBehavior");
+    return lb && lb->find("TACTICAL_SELL") != std::string::npos && u.maxSpeed <= 0;
+}
+
+float World::sellRefund(const Unit& u) const {
+    const float cost = buildInfo(*u.type, db_).cost;
+    const float mod = float(u.type->number("Tactical_Sell_Percent_Modifier").value_or(-0.5));
+    return std::max(0.f, cost * std::clamp(1 + mod, 0.f, 1.f) * std::clamp(u.health / std::max(u.maxHealth, 1.f), 0.f, 1.f));
+}
+
+OrderResult World::sell(uint32_t id) {
+    RecordScope rec_(*this, Command{0, Command::Kind::Sell, {id}});
+    if (rec_.captured) return OrderResult::Ok; // sent over the network; it runs when its turn comes
+    Unit* u = unit(id);
+    if (!u) return OrderResult::InvalidUnit;
+    if (!canSell(*u)) return OrderResult::NotAllowed;
+    u->sellTicks = std::max(1, int(u->type->number("Tactical_Sell_Time_Seconds").value_or(5.0) * kTicksPerSecond));
+    u->queue.clear();
+    return OrderResult::Ok;
+}
+
 void World::updateGarrisons() {
+    // Sales: count down, then refund and remove.
+    for (Unit& u : units_) {
+        if (u.sellTicks < 0 || !u.alive()) continue;
+        u.target = 0;
+        if (--u.sellTicks > 0) continue;
+        if (Player* p = player(u.owner)) p->credits += sellRefund(u);
+        u.sold = true;
+        u.health = 0;
+    }
     for (Unit& u : units_) {
         if (u.inside) {
             const Unit* t = unit(u.inside);
