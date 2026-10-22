@@ -914,6 +914,13 @@ OrderResult World::useAbility(uint32_t id, size_t i, uint32_t target, Vec3 point
     if (u->silenced || u->underConstruction || u->abilities[i].cooldown > 0) return OrderResult::NotAllowed;
     const AbilitySpec& s = abilitiesOf(*u->type).abilities[u->abilities[i].index];
     if (s.kind == AbilitySpec::Kind::Unsupported || s.kind == AbilitySpec::Kind::Deploy || abilityLocked(*u, s)) return OrderResult::NotAllowed;
+    if (s.kind == AbilitySpec::Kind::Place) {
+        const GameObjectType* t = db_.find(s.placeType);
+        if (!t || distXY(u->position, point) > s.maxRange || !siteClear(*t, point)) return OrderResult::NotAllowed;
+        pendingSpawns_.push_back({s.placeType, u->owner, point});
+        u->abilities[i].cooldown = float(std::max(s.rechargeTicks, kTicksPerSecond));
+        return OrderResult::Ok;
+    }
     if (s.substitute) { // fire mode switch
         u->substitute = u->substitute == int(i) ? -1 : int(i);
         return OrderResult::Ok;

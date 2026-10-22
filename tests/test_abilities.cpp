@@ -108,6 +108,12 @@ static Data testData(const fs::path& root) {
       <Generic_Attack_Ability Name="Heavy_Punch"><Activation_Style>SPECIAL_ATTACK</Activation_Style><Activation_Max_Range>20</Activation_Max_Range>
         <Damage_Amount>100</Damage_Amount></Generic_Attack_Ability>
     </Abilities></X_Units>
+  <X_Units Name="Waller"><MovementClass>Infantry</MovementClass><Custom_Hard_XExtent>5</Custom_Hard_XExtent>
+    <Tactical_Health>300</Tactical_Health>
+    <Unit_Abilities_Data SubObjectList="Yes"><Unit_Ability Name="Wall"><Type>BUILDING_PLACEMENT</Type>
+      <Recharge_Seconds>20</Recharge_Seconds></Unit_Ability></Unit_Abilities_Data>
+    <Abilities SubObjectList="Yes"><Building_Placement_Ability Name="Wall_Place"><Building_Type>Lab</Building_Type>
+      <Activation_Max_Range>135</Activation_Max_Range></Building_Placement_Ability></Abilities></X_Units>
   <X_Units Name="Squad"><MovementClass>Infantry</MovementClass><Company_Units>Dummy, Dummy,Brawler</Company_Units></X_Units>
   <X_Units Name="Moth_Fire"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
     <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>200</Tactical_Health><CategoryMask>Small</CategoryMask>
@@ -421,6 +427,22 @@ static void testSubstitute(const Data& d) {
     CHECK(1000 - w.unit(victim)->health - light >= 200); // heavy punches while the mode is on
 }
 
+static void testPlacement(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    const int a = w.addPlayer("Novus", 0);
+    const uint32_t k = w.spawn("Waller", a, {200, 200, 0});
+    w.tick();
+    CHECK(w.unit(k)->abilities.size() == 1);
+    CHECK(w.useAbility(k, 0, 0, {500, 200, 0}) == OrderResult::NotAllowed); // too far
+    CHECK(w.useAbility(k, 0, 0, {300, 200, 0}) == OrderResult::Ok);
+    w.tick();
+    int labs = 0;
+    for (const Unit& u : w.units()) labs += u.type->name == "Lab" && u.owner == a;
+    CHECK(labs == 1);
+    CHECK(w.useAbility(k, 0, 0, {200, 300, 0}) == OrderResult::NotAllowed); // recharging
+}
+
 static void testMelee(const Data& d) {
     const Map m = openMap();
     World w(m, d.db);
@@ -653,6 +675,7 @@ int main() {
     testRedirect(d);
     testDeploy(d);
     testSubstitute(d);
+    testPlacement(d);
     testRestrictionsAndFoo(d);
     testHexAndCharm(d);
     testMelee(d);

@@ -500,6 +500,14 @@ std::vector<AbilitySpec> abilitiesFor(const GameObjectType& type, const GameData
                 s.kind = AbilitySpec::Kind::Weapon; // the fighters' attack: the core's weapon (combat.cpp)
             }
         }
+        if (s.abilityType == "BUILDING_PLACEMENT")
+            if (const std::string* v = type.find("Building_Type"); v && db.find(trim(*v))) {
+                s.kind = AbilitySpec::Kind::Place;
+                s.placeType = trim(*v);
+                s.needsTarget = false;
+                s.autonomous = false;
+                if (s.maxRange <= 0) s.maxRange = 135;
+            }
         if (s.abilityType == "DEPLOY") { // passive: sets up when standing, packs up to move
             s.kind = AbilitySpec::Kind::Deploy;
             s.autonomous = true;
