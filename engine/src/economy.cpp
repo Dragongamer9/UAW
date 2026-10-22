@@ -73,10 +73,10 @@ Balance Balance::defaults() {
     b.factions["ALIEN"].resourceValue = 10;
     // Income multipliers tuned by AI-vs-AI tournaments (simtool tournament, 8 maps, all mods):
     // untouched, Novus won 86/96 games and the Masari 0/96.
-    b.factions["NOVUS"].income = 0.7f;
-    b.factions["MASARI"].income = 1.9f;
-    b.factions["MILITARY"].income = 1.0f;
-    b.factions["ALIEN"].income = 2.6f;
+    b.factions["NOVUS"].income = 0.4f;
+    b.factions["MASARI"].income = 1.3f;
+    b.factions["MILITARY"].income = 1.1f;
+    b.factions["ALIEN"].income = 4.5f;
     return b;
 }
 

@@ -1,6 +1,7 @@
 #include "alamo/sim.hpp"
 
 #include <algorithm>
+#include <unordered_map>
 #include <cctype>
 #include <cmath>
 
@@ -929,9 +930,31 @@ void World::moveUnit(Unit& u) {
 }
 
 void World::separate() {
-    // Gentle push apart so units don't stack. O(n^2) is fine at sandbox scale.
+    // Gentle push apart so units don't stack. Units are bucketed on a grid of the largest
+    // mobile unit's diameter, so only neighbouring cells are compared.
+    float cell = 16;
+    for (const Unit& u : units_)
+        if (!u.structure) cell = std::max(cell, u.radius * 2);
+    std::unordered_map<int64_t, std::vector<size_t>> grid;
+    auto cellOf = [&](const Vec3& p) { return std::pair<int64_t, int64_t>{int64_t(std::floor(p[0] / cell)), int64_t(std::floor(p[1] / cell))}; };
+    auto keyOf = [](int64_t x, int64_t y) { return (x << 32) ^ (y & 0xffffffff); };
     for (size_t i = 0; i < units_.size(); ++i) {
-        for (size_t j = i + 1; j < units_.size(); ++j) {
+        if (units_[i].structure) continue;
+        const auto [cx, cy] = cellOf(units_[i].position);
+        grid[keyOf(cx, cy)].push_back(i);
+    }
+    std::vector<size_t> near;
+    for (size_t i = 0; i < units_.size(); ++i) {
+        if (units_[i].structure) continue;
+        near.clear();
+        const auto [cx, cy] = cellOf(units_[i].position);
+        for (int64_t dx = -1; dx <= 1; ++dx)
+            for (int64_t dy = -1; dy <= 1; ++dy)
+                if (auto it = grid.find(keyOf(cx + dx, cy + dy)); it != grid.end())
+                    for (size_t j : it->second)
+                        if (j > i) near.push_back(j);
+        std::sort(near.begin(), near.end()); // same pair order every run
+        for (size_t j : near) {
             Unit& a = units_[i];
             Unit& b = units_[j];
             if (a.structure || b.structure) continue; // the nav grid keeps units off footprints

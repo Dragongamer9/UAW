@@ -137,6 +137,18 @@ void World::initAbilities(Unit& u) {
     }
 }
 
+bool World::categoriesMatch(const GameObjectType& t, const std::string& filter) const {
+    const CatKey k{&t, &filter, 0};
+    if (auto it = catCache_.find(k); it != catCache_.end()) return it->second;
+    return catCache_[k] = matchesCategories(abilitiesOf(t).categories, filter);
+}
+
+bool World::categoriesAny(const GameObjectType& t, const std::string& list) const {
+    const CatKey k{&t, &list, 1};
+    if (auto it = catCache_.find(k); it != catCache_.end()) return it->second;
+    return catCache_[k] = hasAnyCategory(abilitiesOf(t).categories, list);
+}
+
 bool World::hasEffectClass(const Unit& u, std::string_view cls) const {
     for (const auto& e : u.effects)
         if (iequals(e.def->effectClass, cls)) return true;
@@ -484,7 +496,7 @@ std::vector<Unit*> World::gather(Unit& source, const GeneratorEntry& e, const Un
         for (const auto& f : found)
             if (f.second == t) return;
         ta = &abilitiesOf(*t->type);
-        if (!e.categories.empty() && !matchesCategories(ta->categories, e.categories)) return;
+        if (!e.categories.empty() && !categoriesMatch(*t->type, e.categories)) return;
         for (const std::string& f : e.filters)
             if (!filterPasses(f, source, source.owner, *t)) return;
         found.push_back({distXY(t->position, centre), t});
@@ -617,9 +629,8 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
     if (abilityLocked(u, s)) return false;
     if (s.needsAmmoRoom && u.ammoMax > 0 && u.ammo >= u.ammoMax) return false;
     auto categoriesOk = [&](const Unit& t) {
-        const auto& cats = abilitiesOf(*t.type).categories;
-        if (!s.applicable.empty() && !hasAnyCategory(cats, s.applicable)) return false;
-        if (!s.excluded.empty() && hasAnyCategory(cats, s.excluded)) return false;
+        if (!s.applicable.empty() && !categoriesAny(*t.type, s.applicable)) return false;
+        if (!s.excluded.empty() && categoriesAny(*t.type, s.excluded)) return false;
         return true;
     };
     auto inRange = [&](const Unit& t, float maxR) {
@@ -635,7 +646,7 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
         }
         float best = 1e30f;
         for (const Unit& o : units_) {
-            if (!o.alive() || !enemies(u.owner, o.owner) || !categoriesOk(o) || !inRange(o, maxR)) continue;
+            if (!o.alive() || !enemies(u.owner, o.owner) || !inRange(o, maxR) || !categoriesOk(o)) continue;
             const float d = distXY(u.position, o.position);
             if (d < best) { best = d; target = o.id; }
         }
@@ -678,14 +689,14 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
         const float maxR = s.maxRange > 0 ? s.maxRange : (s.aiRange > 0 ? s.aiRange : 200);
         float best = 1e30f;
         for (const Unit& o : units_) {
-            if (!o.alive() || o.id == u.id || !categoriesOk(o) || !inRange(o, maxR)) continue;
+            if (!o.alive() || o.id == u.id || !inRange(o, maxR) || !categoriesOk(o)) continue;
             bool ok = false;
             for (const GeneratorEntry* e : useful) {
                 if (!(e->mask & (GatherTarget | GatherTargetArea))) continue;
                 bool pass = true;
                 for (const std::string& f : e->filters) pass = pass && filterPasses(f, u, u.owner, o);
                 if (e->mask & GatherTargetArea && e->filters.empty()) pass = s.targetsAllies ? !enemies(u.owner, o.owner) : enemies(u.owner, o.owner);
-                if (pass && !e->categories.empty()) pass = matchesCategories(abilitiesOf(*o.type).categories, e->categories);
+                if (pass && !e->categories.empty()) pass = categoriesMatch(*o.type, e->categories);
                 ok = ok || pass;
             }
             if (!ok) continue;

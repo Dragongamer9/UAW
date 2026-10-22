@@ -52,6 +52,7 @@ void flatten(const XmlNode& node, const std::string& prefix, GameObjectType& obj
 // ---------------------------------------------------------------- GameObjectType
 
 void GameObjectType::addValue(const std::string& path, std::string value) {
+    findCache_.clear();
     std::string key = upper(path);
     auto it = index_.find(key);
     if (it == index_.end()) {
@@ -63,6 +64,7 @@ void GameObjectType::addValue(const std::string& path, std::string value) {
 }
 
 void GameObjectType::overlay(const GameObjectType& other) {
+    findCache_.clear();
     for (const auto& f : other.fields_) {
         std::string key = upper(f.path);
         auto it = index_.find(key);
@@ -81,10 +83,15 @@ const std::string* GameObjectType::get(std::string_view path) const {
 }
 
 const std::string* GameObjectType::find(std::string_view leaf) const {
-    if (auto* v = get(leaf)) return v;
-    for (const auto& f : fields_)
-        if (iequals(lastSegment(f.path), leaf)) return &f.values.back();
-    return nullptr;
+    std::string key = upper(leaf);
+    if (auto it = findCache_.find(key); it != findCache_.end())
+        return it->second < 0 ? nullptr : &fields_[size_t(it->second)].values.back();
+    long found = -1;
+    if (auto it = index_.find(key); it != index_.end()) found = long(it->second);
+    for (size_t i = 0; found < 0 && i < fields_.size(); ++i)
+        if (iequals(lastSegment(fields_[i].path), leaf)) found = long(i);
+    findCache_.emplace(std::move(key), found);
+    return found < 0 ? nullptr : &fields_[size_t(found)].values.back();
 }
 
 std::optional<double> GameObjectType::number(std::string_view leaf) const {

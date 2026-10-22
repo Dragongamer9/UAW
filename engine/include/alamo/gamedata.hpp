@@ -48,6 +48,9 @@ public:
 private:
     std::vector<ObjectField> fields_;
     std::unordered_map<std::string, size_t> index_; // uppercase path -> fields_ index
+    // find() results by upper-case leaf: fields_ index, -1 for none. Indices stay valid when the
+    // object is copied (variants); any change to the fields clears it.
+    mutable std::unordered_map<std::string, long> findCache_;
 };
 
 struct Faction {

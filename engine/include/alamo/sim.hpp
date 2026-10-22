@@ -474,6 +474,19 @@ private:
     struct PendingSpawn { std::string type; int owner; Vec3 position; };
     std::vector<PendingSpawn> pendingSpawns_;
     mutable std::unordered_map<const GameObjectType*, TypeAbilities> abilityCache_;
+    // Category filter results per (type, filter string, kind); filters live in cached specs.
+    struct CatKey {
+        const void* type; const void* filter; int kind;
+        bool operator==(const CatKey& o) const { return type == o.type && filter == o.filter && kind == o.kind; }
+    };
+    struct CatKeyHash {
+        size_t operator()(const CatKey& k) const {
+            return std::hash<const void*>()(k.type) * 31 ^ std::hash<const void*>()(k.filter) * 7 ^ size_t(k.kind);
+        }
+    };
+    mutable std::unordered_map<CatKey, bool, CatKeyHash> catCache_;
+    bool categoriesMatch(const GameObjectType& t, const std::string& filter) const; // matchesCategories
+    bool categoriesAny(const GameObjectType& t, const std::string& list) const;     // hasAnyCategory
     Balance balance_ = Balance::defaults();
     mutable std::unordered_map<const GameObjectType*, EconomySpec> economyCache_;
     mutable std::unordered_map<const GameObjectType*, BuildInfo> buildCache_;

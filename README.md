@@ -202,15 +202,18 @@ The original numbers are not balanced for this engine's AI: in an untouched 8-ma
 multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but
 a pile lasts ten times longer, so it doesn't strip the map and starve):
 
-| Faction   | Income | Resource value | Wins before tuning (of 96) | now (of 48, with abilities and research) |
-|-----------|-------:|---------------:|------:|------:|
-| Novus     | 0.7    | 1              | 86    | 19    |
-| Masari    | 1.9    | 1              | 0     | 26    |
-| Military  | 1.0    | 1              | 62    | 27    |
-| Hierarchy | 2.6    | 10             | 39    | 17    |
+| Faction   | Income | Resource value |
+|-----------|-------:|---------------:|
+| Novus     | 0.4    | 1              |
+| Masari    | 1.3    | 1              |
+| Military  | 1.1    | 1              |
+| Hierarchy | 4.5    | 10             |
 
-Abilities and research changed the picture: the Masari no longer hard-counter the Hierarchy, and the
-Military had leaned on its heroes, which Human Resurgence's research tree locks. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+Checked with a 12-game round robin on Grand Canyon (every matchup from both sides): Novus, Masari and
+Hierarchy 3 wins each, Military 1, 2 draws. The mods set most units' population cost to 0, so armies
+are limited by money and factory speed, and Human Resurgence's 75-credit Marine squads make the
+Military's income the most sensitive knob. Novus Variants come back three times (Community Patch /
+Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
 
 ```xml
 <UAW_Balance>
