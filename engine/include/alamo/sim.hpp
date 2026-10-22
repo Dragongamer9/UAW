@@ -404,6 +404,7 @@ public:
 
     const std::vector<Projectile>& projectiles() const { return projectiles_; }
     const std::vector<DeathEvent>& deaths() const { return deaths_; } // everything that has died
+    const DamageTable* damageTable() const { return damage_; }            // may be null
     const std::vector<ImpactEvent>& impacts() const { return impacts_; } // recent projectile landings (the last few thousand)
     bool enemies(int ownerA, int ownerB) const {
         if (ownerA == ownerB) return false;

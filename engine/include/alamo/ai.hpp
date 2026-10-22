@@ -81,6 +81,10 @@ private:
     float typeStrength(const GameObjectType& t) const; // sqrt(health x dps), cached
     bool hitsAir(const GameObjectType& t) const;        // some weapon may target aircraft, cached
     mutable std::unordered_map<const GameObjectType*, bool> hitsAir_;
+    // How well a type's weapons do against an armor type (DamageToArmor, weighted by each weapon's
+    // damage per second; 1 = full damage), cached.
+    float armorEffect(const GameObjectType& t, const std::string& armor) const;
+    mutable std::unordered_map<std::string, float> armorEffect_;
 
     World& w_;
     const GameDatabase& db_;

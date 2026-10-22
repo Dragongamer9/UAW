@@ -474,6 +474,24 @@ bool SkirmishAI::hitsAir(const GameObjectType& t) const {
     return hitsAir_[&t] = air;
 }
 
+float SkirmishAI::armorEffect(const GameObjectType& t, const std::string& armor) const {
+    const std::string key = t.name + "|" + armor;
+    if (auto it = armorEffect_.find(key); it != armorEffect_.end()) return it->second;
+    float sum = 0, dpsAll = 0;
+    auto add = [&](const GameObjectType& u) {
+        for (const WeaponSpec& w : weaponsFor(u, db_)) {
+            const float dps = w.damagePerSecond();
+            dpsAll += dps;
+            sum += dps * (w_.damageTable() ? w_.damageTable()->modifier(w.damageType, armor) : 1.f);
+        }
+    };
+    if (const auto members = squadMembers(t, db_); !members.empty())
+        for (const GameObjectType* m : members) add(*m);
+    else
+        add(t);
+    return armorEffect_[key] = dpsAll > 0 ? sum / dpsAll : 1.f;
+}
+
 std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& options, float credits) {
     // Whole roster in rotation: each type's turn comes round in proportion to its combat value
     // per credit (never below a quarter of the best), so every unit gets built and the efficient
@@ -482,6 +500,7 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
     const float rich = wealth();
     std::unordered_map<std::string, int> alive;
     float enemyAir = 0, enemyAll = 0; // the enemy's air power as far as we know it: counter it
+    std::unordered_map<std::string, float> enemyArmor; // and its armor: what our weapons hurt most
     for (const Unit& u : w_.units()) {
         if (u.owner == player_) ++alive[u.type->name];
         else if (w_.enemies(player_, u.owner) && u.owner >= 0 && !u.structure &&
@@ -489,6 +508,7 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
             const float v = unitStrength(u);
             enemyAll += v;
             if (u.flying()) enemyAir += v;
+            if (!u.armorType.empty()) enemyArmor[u.armorType] += v;
         }
     }
     const float airShare = enemyAll > 0 ? enemyAir / enemyAll : 0;
@@ -509,8 +529,31 @@ std::string SkirmishAI::pickUnit(const Unit& s, const std::vector<std::string>& 
         cands.push_back({o, cost, perCredit, utility});
     }
     if (cands.empty()) return {};
+    // Against the armor we have seen: each combat type's damage modifier, averaged over the enemy
+    // army by strength, relative to the average candidate (x0.5 to x2).
+    std::unordered_map<std::string, float> counter;
+    if (enemyAll > 0 && !enemyArmor.empty() && w_.damageTable()) {
+        float mean = 0;
+        int n = 0;
+        for (const Cand& c : cands) {
+            if (c.utility) continue;
+            const GameObjectType* t = db_.find(c.name);
+            if (!t) continue;
+            float e = 0;
+            for (const auto& [armor, v] : enemyArmor) e += v * armorEffect(*t, armor);
+            e /= enemyAll;
+            counter[c.name] = e;
+            mean += e;
+            ++n;
+        }
+        if (n > 0 && mean > 0) {
+            mean /= float(n);
+            for (auto& [k, e] : counter) e = std::clamp(e / mean, 0.5f, 2.f);
+        }
+    }
     auto key = [&](const Cand& c) {
         float weight = c.utility ? 0.5f : std::clamp(c.perCredit / std::max(1e-6f, bestPerCredit), 0.25f, 1.f);
+        if (auto it = counter.find(c.name); it != counter.end()) weight *= it->second;
         if (!c.utility && airShare > 0.2f) { // aircraft about: favour what can shoot them down
             const GameObjectType* t = db_.find(c.name);
             weight *= t && hitsAir(*t) ? 1.f + 2.f * airShare : 1.f - 0.6f * airShare;

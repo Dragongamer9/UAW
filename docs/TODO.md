@@ -16,11 +16,11 @@ copy the final numbers into `Balance::defaults()` and the README's balance table
 AI uses every unit and building of each faction, so the games exercise the whole roster.
 
 Last run (2026-10-22 evening, fog of war on with the AI playing by it, targeting priority sets, the AI
-building quick-payback income in numbers; 72 games on M25_Grand_Canyon, M16_Sahara and M22_Appalachia,
-2 seeds): Hierarchy 19, Novus 17, Masari 15, Military 14 wins of 36; 10 draws. Matchups are lopsided
-(Novus 12-0 over the Military, Masari 8-2 over Novus); the Military's result swings most with its
-multiplier (1.1 gave 14 wins, 1.2 gave 20, 1.3 gave 26). Results swing a lot between seeds and maps, so
-use 2+ of each.
+building quick-payback income in numbers and countering the armor it has seen; 72 games on
+M25_Grand_Canyon, M16_Sahara and M22_Appalachia, 2 seeds): Masari 19, Novus 17, Hierarchy 15, Military 15
+wins of 36; 6 draws. Matchups are lopsided (Novus 12-0 over the Military, Masari 10-2 over Novus); the
+Military's result swings most with its multiplier (1.1 gave 15 wins, 1.2 about 20, 1.3 gave 26). Results
+swing a lot between seeds and maps, so use 2+ of each.
 
 ## Check the sound against the real game files
 

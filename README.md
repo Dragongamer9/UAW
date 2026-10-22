@@ -15,7 +15,7 @@ redistributed.
 | 2 | ALO models + DDS/TGA textures, glTF export | done: all 106 mesh models in retail Patch.meg load with 0 warnings (575k triangles); exports checked by rendering |
 | 2 | ALA animations, posed export | done: all 107 retail animations (13,348 frames) load with 0 warnings; rigid and skinned poses checked by rendering |
 | 2 | TED maps: terrain, texture layers, placed objects, editor groups, start positions | done: all 45 retail maps load (75,186 objects, all but 9 resolved to game object types); overviews checked against the real Giza layout |
-| 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: textured models from Models.meg/Textures.meg and the mods' loose art; every buildable unit and structure of all four factions has its model (`--lineup`) |
+| 2 | Real-time 3D viewer (SDL3 + OpenGL 3.3): terrain, placed objects, RTS camera, keyboard/mouse/gamepad | done: textured models from Models.meg/Textures.meg and the mods' loose art; every buildable unit and structure of all four factions has its model (`--lineup`); the map's sun, sky, haze and water; sun shadows, normal maps, highlights, player colours, turning turrets, death clones |
 | 3 | Navigation: walkable areas from terrain flags, A* with wall clearance and path smoothing | done: start-to-start paths found on every skirmish map checked |
 | 3 | Simulation core: fixed 30 Hz ticks, units with XML speed/turn/acceleration/size, group moves in formation, separation, deterministic | done (movement only) |
 | 3 | Viewer: test squads per start, click/box select, right-click move, gamepad reticle controls | done |
@@ -291,13 +291,13 @@ a pile lasts ten times longer, so it doesn't strip the map and starve):
 | Hierarchy | 2.2    | 10             |
 
 Checked with a 72-game round robin on Grand Canyon, Sahara and Appalachia (every matchup from both sides,
-2 seeds, fog of war on, the AI playing by it, building passive income in numbers): Hierarchy 19 wins of 36,
-Novus 17, Masari 15, Military 14, 10 draws. The matchups themselves are lopsided (Novus beats the Military
-12-0, the Masari beat Novus 8-2, the Military beat the Hierarchy and the Masari 7-3), so the totals hide a
-rock-paper-scissors. The mods set most units' population cost to 0, so armies are limited by money and
-factory speed. The Military's multiplier is the most sensitive knob: its Supply depots pay for themselves
-in under a minute, so it decides how many the AI builds (1.3 gave the Military 26 wins). Novus Variants come
-back three times (Community Patch / Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+2 seeds, fog of war on, the AI playing by it, building passive income in numbers and countering the armor it
+has seen): Masari 19 wins of 36, Novus 17, Hierarchy 15, Military 15, 6 draws. The matchups themselves are
+lopsided (Novus beats the Military 12-0, the Masari beat Novus 10-2, the Military beat the Hierarchy 9-2),
+so the totals hide a rock-paper-scissors. The mods set most units' population cost to 0, so armies are
+limited by money and factory speed. The Military's multiplier is the most sensitive knob: its Supply depots
+pay for themselves in under a minute, so it decides how many the AI builds (1.3 gave the Military 26 wins).
+Novus Variants come back three times (Community Patch / Remix), hence Novus' low multiplier. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
 
 ```xml
 <UAW_Balance>
@@ -326,6 +326,8 @@ and tech. It aims to use **the whole roster**:
   get built too; unarmed specialists (hackers, scouts, science teams) one or two each. Upgrades that unlock a
   unit are bought first; other upgrades and hardpoints once the bank is comfortable. Hierarchy walkers buy
   hardpoints into their sockets. At most 160 combat units (the mods' population costs are 0).
+- **Counters**: each combat type's turns are also weighted (x0.5 to x2) by how its weapons fare against the
+  armor of the enemy units it has seen (`DamageToArmor.xml`, averaged over the enemy army by strength).
 - **Novus power**: transmitters are placed within reach of the powered network, receivers inside a powered
   node's field, one node at a time.
 

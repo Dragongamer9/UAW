@@ -78,7 +78,7 @@ Balance Balance::defaults() {
     // (walkers, hardpoints, every structure), and again once the AI played by fog of war and units
     // used the targeting priority sets: 72 games on three maps, Novus 17 / Hierarchy 19 / Masari 17 /
     // Military 13 wins of 36; and once the AI built quick-payback income (Supply depots, Matter Engines)
-    // in numbers: Novus 17 / Hierarchy 19 / Masari 15 / Military 14.
+    // in numbers and countered the armor it saw: Novus 17 / Hierarchy 15 / Masari 19 / Military 15.
     b.factions["NOVUS"].income = 0.75f;
     b.factions["MASARI"].income = 2.4f;
     b.factions["MILITARY"].income = 1.1f;
