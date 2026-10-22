@@ -952,7 +952,7 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
     std::shared_ptr<const Pose> kept;
     for (const GpuMesh& mesh : m.meshes) {
         if (mesh.alt >= 0 && mesh.alt != alt) continue;
-        if (mesh.blend != GpuMesh::Blend::Opaque) {
+        if (mesh.blend != GpuMesh::Blend::Opaque || tint[3] < 0.99f) { // see-through: sorted and blended at the end
             if (!onScreen) continue;
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
             transparent_.push_back({&mesh, transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], tint[3]}, depth, kept});

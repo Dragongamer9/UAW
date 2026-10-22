@@ -968,8 +968,18 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             const float fy = float(t->number("Custom_Hard_YExtent").value_or(fx));
             const bool ok = w.siteClear(*t, ghost_);
             const float pulse = 0.75f + 0.25f * std::sin(time * 6);
-            r.drawBox(Mat4::translate(ghost_[0], ghost_[1], ghost_[2]) * Mat4::scale3(fx * 2, fy * 2, 6),
+            r.drawBox(Mat4::translate(ghost_[0], ghost_[1], ghost_[2]) * Mat4::scale3(fx * 2, fy * 2, 1.5f),
                       ok ? Vec4{0.2f * pulse, 0.9f * pulse, 0.3f * pulse, 1} : Vec4{0.95f * pulse, 0.2f, 0.15f, 1});
+            // The building itself, see-through, tinted by whether it fits.
+            const alamo::GameObjectType* shown = t;
+            if (const std::string* into = t->find("Tactical_Buildable_Constructed"))
+                if (const alamo::GameObjectType* done = w.db().find(alamo::trim(*into)); done && done->find("Land_Model_Name")) shown = done;
+            if (const std::string* mn = shown->find("Land_Model_Name"); mn && !alamo::trim(*mn).empty())
+                if (const GpuModel* gm = r.model(alamo::trim(*mn))) {
+                    const float sc = float(shown->number("Scale_Factor").value_or(1.0));
+                    r.drawModel(*gm, Mat4::translate(ghost_[0], ghost_[1], ghost_[2]) * Mat4::rotateZ(1.5707963f) * Mat4::scale(sc),
+                                ok ? Vec4{0.6f, 1.f, 0.7f, 0.45f} : Vec4{1.f, 0.45f, 0.4f, 0.45f});
+                }
             // A defence: its weapons' reach as a ring around the site.
             float reach = 0;
             for (const alamo::WeaponSpec& ws : alamo::weaponsFor(*t, w.db())) reach = std::max(reach, ws.maxRange);
