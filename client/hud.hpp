@@ -40,6 +40,7 @@ public:
     bool researchAt(float x, float y, std::string& path, int& index) const;
 
 private:
+    int idleBuilders_ = -1;
     std::unique_ptr<Font> font_, small_;
     float scale_;
     struct Rect { float x0, y0, x1, y1; };

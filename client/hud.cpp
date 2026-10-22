@@ -319,6 +319,15 @@ void Hud::draw(Renderer& r, alamo::World& w, UnitControl& control, const alamo::
         const int pop = w.popUsed(me->id);
         x = textBig("Population " + std::to_string(pop) + " / " + std::to_string(me->popCap), x, pad / 2,
                     pop >= me->popCap ? kWarn : kText);
+        // Builders standing about (twice a second is plenty).
+        if (w.tickCount() % 15 == 0 || idleBuilders_ < 0) {
+            idleBuilders_ = 0;
+            for (const alamo::Unit& u : w.units())
+                if (u.owner == me->id && !u.structure && !u.inside && !u.moving() && !u.constructing && !w.constructible(u.id).empty())
+                    ++idleBuilders_;
+        }
+        if (idleBuilders_ > 0) textSmall(std::to_string(idleBuilders_) + (idleBuilders_ == 1 ? " idle builder (.)" : " idle builders (.)"),
+                                         x + 24 * s, pad / 2 + 4 * s, kWarn);
     }
     const int secs = int(w.seconds());
     char clock[32];
