@@ -701,11 +701,11 @@ void World::updateTargeting(Unit& u) {
 
     // Keep shooting the current target while it stays (roughly) in range.
     const Unit* current = unit(u.target);
-    if (!current || edgeDistance(*current) > range + 20) {
+    if (!current || edgeDistance(*current) > range + 20 || (current->cloaked && enemies(u.owner, current->owner))) {
         u.target = 0;
         float best = 1e30f;
         for (const Unit& o : units_) {
-            if (!o.alive() || !enemies(u.owner, o.owner)) continue;
+            if (!o.alive() || !enemies(u.owner, o.owner) || o.cloaked) continue;
             const float d = edgeDistance(o);
             if (d <= range && d < best) {
                 if (fog_ && !visibleTo(u.owner, o.position)) {
@@ -1135,6 +1135,10 @@ void World::updateFog() {
     for (const Unit& u : units_) {
         if (u.owner < 0 || size_t(u.owner) >= players_.size() || !u.alive()) continue;
         float r = revealRange(*u.type);
+        if (!u.attributes.empty()) {
+            static const std::string kMult = "MAX_LAND_FOW_REVEAL_MULT_COEFF", kAdd = "MAX_LAND_FOW_REVEAL_ADD_COEFF";
+            r = r * std::max(0.f, 1 + u.attributeUpper(kMult)) + u.attributeUpper(kAdd);
+        }
         if (u.underConstruction) r = std::min(r, std::max(u.radius * 2, 80.f));
         const int cx = int(u.position[0] / fogCell_), cy = int(u.position[1] / fogCell_);
         const int rc = int(std::ceil(r / fogCell_));

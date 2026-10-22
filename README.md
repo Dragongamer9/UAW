@@ -416,6 +416,10 @@ reads them, `engine/src/abilities.cpp` runs them every tick before targeting.
   ability's `Activation_Max_Range`.
 * **Clones** (`SPAWN_CLONES`): `Spawn_Clones_Count` copies of `Spawn_Clones_Type` appear next to the
   unit and vanish after `Spawn_Clones_Lifetime_Seconds`.
+* **Cloaking** (`Cloak` and `Mirage` components, e.g. Vertigo's and the field inverter's cloaks): the unit
+  can't be seen, targeted or aimed at by enemies until something in its `Break_Mask` happens (attacking,
+  taking damage, moving); reveal effects remove it as data says (`RemoveEffect Cloaking`).
+  `Max_Land_FOW_Reveal_Mult/Add_Coeff` modifiers change how far a unit sees.
 * **Bursts**: `Spray_Projectiles_Ability` (the Antimatter tank's vent, `POINT_BLANK_AE`) fires
   `Projectile_Count` shots `Projectile_Fire_Interval` apart at enemies within `Projectile_Radius`;
   `Dervish_Spin_Attack_Ability` damages everything within `Attack_Radius` after `Spin_Up_Seconds`,

@@ -154,6 +154,7 @@ struct Unit {
     std::vector<std::pair<std::string, float>> armorMods; // ModifyArmor: damage type -> added modifier
     bool immobile = false, disarmed = false, silenced = false; // DisableBehavior / DisableAbility
     bool damagedThisTick = false, firedThisTick = false;
+    bool cloaked = false;              // a Cloak/Mirage effect hides it from enemies
     int originalOwner = -1;
     int lifeTicks = -1;                // effect objects: removed at 0
     int64_t superweaponReadyTick = -1; // superweapon enablers: tick it can fire (-1: not armed yet)
@@ -361,6 +362,11 @@ public:
     bool fogOfWar() const { return fog_; }
     enum : uint8_t { kUnexplored = 0, kExplored = 1, kVisible = 2 };
     uint8_t visibility(int player, float x, float y) const;
+    // A unit as an enemy player sees it: not cloaked, and in sight when there is fog of war.
+    bool canSee(int player, const Unit& u) const {
+        if (!enemies(player, u.owner)) return true;
+        return !u.cloaked && visibleTo(player, u.position);
+    }
     bool visibleTo(int player, const Vec3& p) const { return !fog_ || player < 0 || visibility(player, p[0], p[1]) == kVisible; }
     // The player's grid (fogWidth x fogHeight cells of fogCell units, row 0 at y = 0), or nullptr.
     const std::vector<uint8_t>* fogGrid(int player) const {

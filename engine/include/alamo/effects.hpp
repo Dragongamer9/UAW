@@ -35,6 +35,7 @@ enum class EffectOp : uint8_t {
     Other, AttributeModifier, Damage, DamageOverTime, Heal, HealOverTime, DisableBehavior, DisableAbility,
     RemoveEffect, BlockEffect, SwitchFaction, ModifyArmor, Destroy, MaxHealth, ApplyEffectOnRemove,
     ApplyGenerator, ActivateGenerator, CreateObject, Transfer,
+    Cloak, // Cloak / Mirage: hidden from enemies until Break_Mask events (Attack, Damage, Movement, ...)
 };
 EffectOp effectOpFromName(std::string_view type);
 
@@ -74,6 +75,9 @@ public:
     void parse(std::string_view xml);
     const EffectDef* find(std::string_view name) const;
     size_t size() const { return effects_.size(); }
+    template <class F> void forEach(F&& f) const {
+        for (const auto& [k, v] : effects_) f(*v);
+    }
 
 private:
     std::unordered_map<std::string, std::unique_ptr<EffectDef>> effects_; // upper-case name

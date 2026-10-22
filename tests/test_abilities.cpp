@@ -126,6 +126,13 @@ static Data testData(const fs::path& root) {
   <Projectile Name="Proj_Short"><Max_Speed>20</Max_Speed>
     <BehaviorType Name="ProjectileBehaviorType"><Projectile_Damage>3</Projectile_Damage>
       <Projectile_Max_Flight_Distance>80</Projectile_Max_Flight_Distance></BehaviorType></Projectile>
+  <X_Units Name="Ghost"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
+    <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>100</Tactical_Health>
+    <Effect_Generator_Data SubObjectList="Yes">
+      <Effect_Generator Name="CloakGen"><Starts_Active>true</Starts_Active>
+        <Effect_Generator_Entry Name="Entry1"><Effect_Name>CloakEffect</Effect_Name><Duration>-1</Duration>
+          <Target_Gathering_Mask>Self</Target_Gathering_Mask></Effect_Generator_Entry>
+      </Effect_Generator></Effect_Generator_Data></X_Units>
   <X_Structures Name="Lab"><MovementClass>Building</MovementClass><Tactical_Health>500</Tactical_Health>
     <Custom_Hard_XExtent>20</Custom_Hard_XExtent>
     <BehaviorType Name="GroundStructureBehaviorType"><Enables_Research>Yes</Enables_Research></BehaviorType></X_Structures>
@@ -142,6 +149,8 @@ static Data testData(const fs::path& root) {
     <Effect_Component Type="AttributeModifier"><Attribute>Category_Mask</Attribute><Modifier_Type>Bitwise_Or</Modifier_Type></Effect_Component></Effect>
   <Effect Name="CharmEffect"><Effect_Class>MindControl</Effect_Class><Duration>3</Duration>
     <Effect_Component Type="SwitchFaction"><Use_Source_Faction>true</Use_Source_Faction></Effect_Component></Effect>
+  <Effect Name="CloakEffect"><Effect_Class>Cloaking</Effect_Class><Duration>-1</Duration>
+    <Effect_Component Type="Cloak"><Break_Mask>Movement | Damage</Break_Mask></Effect_Component></Effect>
   <Effect Name="WardEffect"><Effect_Class>Ward</Effect_Class><Duration>10</Duration>
     <Effect_Component Type="BlockEffect"><Block_Effect_Class>Burden</Block_Effect_Class></Effect_Component></Effect>
 </Effects>)");
@@ -154,7 +163,7 @@ static Data testData(const fs::path& root) {
 }
 
 static void testParsing(const Data& d) {
-    CHECK(d.lib.size() == 4);
+    CHECK(d.lib.size() == 5);
     const EffectDef* hex = d.lib.find("hexeffect");
     CHECK(hex && hex->effectClass == "Burden" && hex->duration == 5 && hex->components.size() == 3);
     if (hex) {
@@ -217,6 +226,25 @@ static void testAura(const Data& d) {
     CHECK(!w.hasEffectClass(*w.unit(nearId), "Healing"));
     for (int i = 0; i < 30; ++i) w.tick();
     CHECK(w.unit(nearId)->health == h);
+}
+
+static void testCloak(const Data& d) {
+    const Map m = openMap();
+    World w(m, d.db);
+    w.setEffectLibrary(&d.lib);
+    const int a = w.addPlayer("Novus", 0), b = w.addPlayer("Alien", 0);
+    const uint32_t ghost = w.spawn("Ghost", a, {200, 200, 0});
+    w.tick();
+    w.tick();
+    w.spawn("Shorty", b, {260, 200, 0}); // arrives once the ghost is cloaked
+    for (int i = 0; i < 2 * 30; ++i) w.tick();
+    CHECK(w.unit(ghost)->cloaked);
+    CHECK(w.unit(ghost)->health == 100); // nobody shoots what they can't see
+    CHECK(!w.canSee(b, *w.unit(ghost)) && w.canSee(a, *w.unit(ghost)));
+    w.commandMove({ghost}, {230, 260, 0}); // moving breaks it
+    for (int i = 0; i < 3 * 30; ++i) w.tick();
+    CHECK(w.unit(ghost) && !w.unit(ghost)->cloaked);
+    CHECK(w.unit(ghost) && w.unit(ghost)->health < 100);
 }
 
 static void testHexAndCharm(const Data& d) {
@@ -483,6 +511,7 @@ int main() {
     const Data d = testData(root);
     testParsing(d);
     testAura(d);
+    testCloak(d);
     testHexAndCharm(d);
     testMelee(d);
     testSquads(d);

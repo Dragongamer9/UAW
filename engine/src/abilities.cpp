@@ -407,6 +407,14 @@ void World::updateEffects(Unit& u) {
             } else if (c.op == EffectOp::HealOverTime) {
                 const float a = c.number("Amount_Per_Second") + c.number("Percentage_Per_Second") * u.maxHealth;
                 if (a > 0 && u.alive()) u.health = std::min(u.maxHealth, u.health + a / kTicksPerSecond);
+            } else if (c.op == EffectOp::Cloak) {
+                // Broken by what its Break_Mask lists (attacking, being hit, moving, ...).
+                const std::string m = c.get("Break_Mask") ? upperS(*c.get("Break_Mask")) : "";
+                const bool broken = (u.firedThisTick && m.find("ATTACK") != std::string::npos) ||
+                                    (u.damagedThisTick && m.find("DAMAGE") != std::string::npos) ||
+                                    ((u.moving() || u.leaping) && (m.find("MOVEMENT") != std::string::npos || m.find("NONIDLE") != std::string::npos)) ||
+                                    (u.target && m.find("NONIDLE") != std::string::npos);
+                if (broken) dropped.push_back(i);
             }
         }
         if (e.remaining > 0) {
@@ -420,16 +428,19 @@ void World::updateEffects(Unit& u) {
     for (size_t i : expired) gone.push_back({i, true});
     for (size_t i : dropped) gone.push_back({i, false});
     std::sort(gone.begin(), gone.end());
+    gone.erase(std::unique(gone.begin(), gone.end(), [](const auto& a, const auto& b) { return a.first == b.first; }), gone.end());
     for (size_t k = gone.size(); k-- > 0;) removeEffect(u, gone[k].first, gone[k].second);
 }
 
 void World::recomputeModifiers(Unit& u) {
     u.attributes.clear();
     u.armorMods.clear();
-    u.immobile = u.disarmed = u.silenced = false;
+    u.immobile = u.disarmed = u.silenced = u.cloaked = false;
     for (const auto& e : u.effects)
         for (const EffectComponent& c : e.def->components) {
-            if (c.op == EffectOp::AttributeModifier) {
+            if (c.op == EffectOp::Cloak) {
+                u.cloaked = true;
+            } else if (c.op == EffectOp::AttributeModifier) {
                 if (!c.attribute.empty() && c.attribute != "CURRENT_DMA_LEVEL") u.attributes[c.attribute] += c.value;
             } else if (c.op == EffectOp::DisableBehavior) {
                 const std::string b = c.get("Behaviors") ? upperS(*c.get("Behaviors")) : "";
@@ -653,6 +664,7 @@ bool World::abilityTarget(const Unit& u, size_t i, uint32_t& target) const {
     if (abilityLocked(u, s)) return false;
     if (s.needsAmmoRoom && u.ammoMax > 0 && u.ammo >= u.ammoMax) return false;
     auto categoriesOk = [&](const Unit& t) {
+        if (t.cloaked && enemies(u.owner, t.owner)) return false; // can't aim at what it can't see
         if (!s.applicable.empty() && !categoriesAny(*t.type, s.applicable)) return false;
         if (!s.excluded.empty() && categoriesAny(*t.type, s.excluded)) return false;
         return true;

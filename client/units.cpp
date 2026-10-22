@@ -329,7 +329,9 @@ void UnitControl::stop(alamo::World& w) { w.commandStop(std::vector<uint32_t>(se
 // ------------------------------------------------------------------ drawing
 
 bool UnitControl::shown(const alamo::World& w, const alamo::Unit& u) const {
-    if (!fog || !w.fogOfWar() || !w.enemies(player_, u.owner) || player_ < 0) return true;
+    if (player_ < 0 || !w.enemies(player_, u.owner)) return true;
+    if (u.cloaked && fog) return false;
+    if (!fog || !w.fogOfWar()) return true;
     if (w.visibleTo(player_, u.position)) {
         if (u.structure) seenStructures_.insert(u.id);
         return true;

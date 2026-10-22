@@ -116,6 +116,7 @@ EffectOp effectOpFromName(std::string_view t) {
         {"MaxHealth", EffectOp::MaxHealth},                 {"ApplyEffectOnRemove", EffectOp::ApplyEffectOnRemove},
         {"ApplyGenerator", EffectOp::ApplyGenerator},       {"ActivateGenerator", EffectOp::ActivateGenerator},
         {"CreateObject", EffectOp::CreateObject},           {"Transfer", EffectOp::Transfer},
+        {"Cloak", EffectOp::Cloak},                         {"Mirage", EffectOp::Cloak},
     };
     for (const auto& [n, op] : kOps)
         if (iequals(t, n)) return op;
