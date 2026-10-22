@@ -432,6 +432,8 @@ int main(int argc, char** argv) {
                 if (ps && ps->kind != PlayerSlot::Kind::Open) {
                     const int id = addSkirmishPlayer(world, db, ps->faction, starts[size_t(slot)], &forces);
                     world.setTeam(id, ps->team);
+                    world.setHandicap(id, ps->kind == PlayerSlot::Kind::Computer ? SkirmishSetup::aiIncome(setup.aiLevel) : 1.f,
+                                      SkirmishSetup::creditScale(setup.credits));
                 } else {
                     world.addPlayer("Neutral", 0, 0);
                 }

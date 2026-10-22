@@ -312,7 +312,7 @@ float World::incomePerSecond(int owner) const {
 void World::deposit(int owner, float amount) {
     if (owner < 0 || owner >= int(players_.size()) || amount <= 0) return;
     Player& p = players_[size_t(owner)];
-    amount *= balance_.of(p.faction).income;
+    amount *= balance_.of(p.faction).income * p.incomeBonus;
     const float cap = bankCap(owner);
     if (cap > 0) amount = std::min(amount, std::max(0.f, cap - p.credits));
     p.credits += amount;

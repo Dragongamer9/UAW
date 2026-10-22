@@ -28,6 +28,10 @@ struct SkirmishSetup {
     std::string map;                // e.g. "M25_GRAND_CANYON"
     std::vector<PlayerSlot> slots;  // one per start position, in slot order
     bool fog = true;                // fog of war
+    int aiLevel = 1;                // computer players: 0 easy, 1 normal, 2 hard (their income x0.7 / x1 / x1.4)
+    int credits = 1;                // starting credits: 0 low, 1 normal, 2 high, 3 very high (x0.5 / x1 / x2 / x5)
+    static float aiIncome(int level) { return level <= 0 ? 0.7f : level >= 2 ? 1.4f : 1.f; }
+    static float creditScale(int level) { return level <= 0 ? 0.5f : level == 2 ? 2.f : level >= 3 ? 5.f : 1.f; }
     int human() const {             // slot you play, or -1 (spectating)
         for (size_t i = 0; i < slots.size(); ++i)
             if (slots[i].kind == PlayerSlot::Kind::Human) return int(i);

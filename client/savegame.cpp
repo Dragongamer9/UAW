@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -69,6 +70,7 @@ std::string encodeSetup(const SkirmishSetup& s) {
     std::ostringstream out;
     out << s.map << " " << (s.fog ? 1 : 0) << " " << s.slots.size();
     for (const PlayerSlot& p : s.slots) out << " " << slotKind(p.kind) << ":" << p.faction << ":" << p.team << ":" << p.netId;
+    out << " ai:" << s.aiLevel << " credits:" << s.credits; // optional (older saves end before these)
     return out.str();
 }
 
@@ -95,6 +97,10 @@ bool decodeSetup(const std::string& text, SkirmishSetup& s) {
         p.team = team.empty() ? -1 : std::atoi(team.c_str());
         p.netId = net.empty() ? -1 : std::atoi(net.c_str());
         s.slots.push_back(p);
+    }
+    for (std::string extra; ls >> extra;) {
+        if (extra.rfind("ai:", 0) == 0) s.aiLevel = std::clamp(std::atoi(extra.c_str() + 3), 0, 2);
+        else if (extra.rfind("credits:", 0) == 0) s.credits = std::clamp(std::atoi(extra.c_str() + 8), 0, 3);
     }
     return true;
 }

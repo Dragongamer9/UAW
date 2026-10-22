@@ -216,6 +216,7 @@ struct Player {
     std::set<std::string> researched;  // suite ids, e.g. "A1"
     int abilitiesUsed = 0;             // statistics
     int team = -1;                     // players on the same team (>= 0) are allies
+    float incomeBonus = 1;             // handicap: all income times this (computer difficulty)
 };
 
 // A pile of scrap (or any object with ResourceBehaviorType) placed on the map.
@@ -459,6 +460,12 @@ public:
     uint64_t stateHash() const;
     void setTeam(int owner, int team) {
         if (owner >= 0 && owner < int(players_.size())) players_[size_t(owner)].team = team;
+    }
+    // Skirmish options: a player's income multiplier, and starting credits scaled.
+    void setHandicap(int owner, float income, float creditScale = 1) {
+        if (owner < 0 || owner >= int(players_.size())) return;
+        players_[size_t(owner)].incomeBonus = income;
+        players_[size_t(owner)].credits *= creditScale;
     }
 
     void tick();
