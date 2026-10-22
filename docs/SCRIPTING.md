@@ -103,6 +103,12 @@ handles: `Find_All_Hard_Points_Of_Type` (a list), `Get_All_Hard_Points`, and on 
 `Get_Type`, `Get_Health`, `Get_Parent_Object` and `OBJECT_HEALTH_AT_ZERO` signals (`Make_Invulnerable`,
 `Set_Cannot_Be_Killed`, `Enable_Behavior` are accepted: the walker damage rules are the engine's own).
 
+**Sweep:** each of the 238 object types that name Lua behaviours, placed on Grand Canyon for 40 seconds
+(`simtool ... script TYPE`): 226 still have their scripts running at the end; the 10 marker spawners
+(`MarkerSpawner`, `Masari_SW_Magma_channel_Weapon`) spawn their squads with `Spawn_Unit` (some of them,
+the rest need `MARKER_SPAWNER_TYPE` and `Get_Hint`) and remove themselves as they should;
+`Novus_Collector` stops. `First_Service` runs on the pumping thread before `main` (it may `Sleep`).
+
 Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player.lua` in its own state
 (`Player` bound, `Base_Definitions()` and `Definitions()`, then its threads), and `Call_Function(name,
 ...)` / `Get_Variable(name)` reach into it. The player scripts load and run their definitions and threads; they ask for much more of

@@ -72,7 +72,7 @@ struct BehaviorHost::Instance {
     std::vector<HardPointWatch> hardpointDeaths; // OBJECT_HEALTH_AT_ZERO on a hardpoint
     uint64_t random = 0;
     int playerId = -1;                         // a player's script (Player, no Object)
-    bool dead = false, finished = false, firstService = true;
+    bool dead = false, finished = false;
     std::set<std::string> said; // log lines already given
     // Handle factories (cached in the maps above).
     std::function<LuaValue(int)> player;
@@ -286,6 +286,15 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         def(o, "Can_Move", [alive](const Values&) {
             Unit* u = alive();
             return Values{LuaValue::boolean(u && !u->structure && u->maxSpeed > 0)};
+        });
+        def(o, "Move_To", [alive, whereOf, &w](const Values& a) {
+            Vec3 p;
+            if (Unit* u = alive(); u && !a.empty() && whereOf(a[0], p)) w.commandMove({u->id}, p);
+            return Values{};
+        });
+        def(o, "Stop", [alive, &w](const Values&) {
+            if (Unit* u = alive()) w.commandStop({u->id});
+            return Values{};
         });
         def(o, "Despawn", [alive](const Values&) {
             if (Unit* u = alive()) u->health = 0; // removed with the dead (first version: as a death)
@@ -563,6 +572,28 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         return Values{l.t->get(LuaValue::number(1))};
     });
 
+    // Spawn_Unit(type, position, player): a unit or squad, as a list of handles.
+    vm.setFunction("Spawn_Unit", [&w, &I, whereOf, say](const Values& a) {
+        if (a.size() < 3 || !a[0].isTable()) return Values{};
+        const std::string typeName = a[0].t->get(LuaValue::string("__type")).str();
+        Vec3 at;
+        if (!whereOf(a[1], at)) return Values{};
+        int owner = -1;
+        if (a[2].isTable())
+            if (const LuaValue gid = a[2].t->get(LuaValue::string("Get_ID")); gid.type == LuaValue::Type::Native) {
+                const Values r = (*gid.native)({});
+                owner = r.empty() ? -1 : int(r[0].n);
+            }
+        if (!w.spawn(typeName, owner, at)) {
+            say("Spawn_Unit: cannot create " + typeName);
+            return Values{};
+        }
+        LuaValue list = table();
+        double n = 0;
+        for (const uint32_t id : w.spawned()) list.t->set(LuaValue::number(++n), I.object(id));
+        if (w.spawned().empty()) list.t->set(LuaValue::number(1), I.object(uint32_t(w.units().back().id)));
+        return Values{list};
+    });
     // Create_Generic_Object(type, position, player): a new object, as its handle.
     vm.setFunction("Create_Generic_Object", [&w, &I, whereOf, say](const Values& a) {
         if (a.size() < 3 || !a[0].isTable()) return Values{};
@@ -608,10 +639,12 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         }
     // When main() has nothing to service it returns; events are then pumped by this loop instead.
     vm.runSource("function __Pump_Loop() while true do PumpEvents() end end");
+    // First_Service runs on the pumping thread, before main (it may Sleep, which needs a thread).
+    vm.runSource("function __Main() if First_Service then First_Service() end if main then main() end end");
     for (const char* fn : {"Base_Definitions", playerId >= 0 ? "Definitions" : "Init_Behaviors"})
         if (const LuaValue f = vm.global(fn); !f.isNil()) vm.call(f, {});
-    if (const LuaValue m = vm.global("main"); !m.isNil()) {
-        const Values co = vm.call(vm.global("coroutine").get("create"), {m});
+    {
+        const Values co = vm.call(vm.global("coroutine").get("create"), {vm.global("__Main")});
         if (!co.empty()) I.main = co[0];
     }
     instances_.push_back(std::move(in));
@@ -671,10 +704,6 @@ void BehaviorHost::runThreads(Instance& I) {
     auto say = [&](const std::string& m) {
         if (log && I.said.insert(m).second) log(m);
     };
-    if (I.firstService) {
-        I.firstService = false;
-        if (const LuaValue f = vm.global("First_Service"); !f.isNil()) vm.call(f, {});
-    }
     if (!I.main.isNil()) {
         const Values st = vm.call(status, {I.main});
         if (!st.empty() && st[0].str() == "dead") { // main() is over: keep pumping events
