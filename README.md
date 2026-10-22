@@ -182,12 +182,33 @@ mark structures, units, resources, the playable area and numbered start position
 simtool "<game>" M25_Grand_Canyon start                  # every playable faction's starting forces and menus
 simtool "<game>" M25_Grand_Canyon opening Novus          # one faction builds everything for 8 minutes
 simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someone is defeated
+simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 ```
 
-AI vs AI on Grand Canyon (25 minutes, AI first version): Novus beats the Hierarchy and the Masari, the Masari
-beat the Hierarchy in one ordering and time out in the other; with the mods, the Military loses to Novus and
-the Hierarchy and times out against the Masari. Novus' strength follows its fast collector economy (see Resources).
-A match takes about a second to simulate.
+A match takes about a second to simulate. `UAW_AI_LOG=1` prints every AI decision.
+
+### Balance
+
+The original numbers are not balanced for this engine's AI: in an untouched 8-map round robin (all mods,
+20 minutes, both seats, 2 seeds) Novus won 86 of 96 games and the Masari none. Each faction now has an income
+multiplier, and the Hierarchy's scrap is worth **10 credits per unit** to it (it harvests at the same rate, but
+a pile lasts ten times longer, so it doesn't strip the map and starve):
+
+| Faction   | Income | Resource value | Wins/96 before | after |
+|-----------|-------:|---------------:|---------------:|------:|
+| Novus     | 0.7    | 1              | 86             | 47    |
+| Masari    | 2.4    | 1              | 0              | 59    |
+| Military  | 0.55   | 1              | 62             | 49    |
+| Hierarchy | 2.2    | 10             | 39             | 31    |
+
+The Masari still beat the Hierarchy almost every time, whatever the incomes; that matchup needs work on
+abilities rather than economy. Override any of it with `Data\XML\UAW_Balance.xml` in the game or a mod:
+
+```xml
+<UAW_Balance>
+  <Faction Name="Alien"><Income_Multiplier>2.2</Income_Multiplier><Resource_Unit_Value>10</Resource_Unit_Value></Faction>
+</UAW_Balance>
+```
 
 ### AI
 
@@ -197,8 +218,11 @@ structure or walker, that is a `Tactical_Builder` of a unit with weapons), defen
 and tech. Builders get economy first, power when a receiver is unpowered, one of each production building,
 then defences, tech and extra production when credits pile up. Production keeps queues full of affordable
 combat units (deeper when rich) plus up to two builders. The army gathers at a rally point, defends structures
-under attack, and attacks the nearest enemy structure once its value passes 2,000 + 600 per minute (not before
-minute 4, or at the population cap), regrouping when a wave drops below a third. Only units with
+under attack, and attacks the nearest enemy structure when its strength (sqrt of health x damage per second,
+summed) is 1.3x the enemy's after minute 4 with six units, 3x after minute 3, at the population cap, or after
+minute 12 with ten units; it regroups when a wave drops below a third. Spending scales with how rich it is
+relative to its starting credits (the Masari's prices are a tenth of the others'), and when rich it buys the
+pricier half of its units and more factories. Only units with
 `Is_Tactical_Base_Builder` construct.
 
 

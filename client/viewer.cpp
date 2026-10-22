@@ -241,6 +241,7 @@ int main(int argc, char** argv) {
         try { effects.loadEffects(vfs); } catch (const std::exception& e) { SDL_Log("effects: %s", e.what()); }
         World world(map, db, &damageTable, 1, &techTree);
         world.setEffects(&effects);
+        world.setBalance(loadBalance(vfs));
         std::vector<Vec3> starts;
         for (int slot = 0; slot < int(std::max<size_t>(st.starts, 2)); ++slot) starts.push_back(scene.startPosition(slot));
         if (opt.battle) {

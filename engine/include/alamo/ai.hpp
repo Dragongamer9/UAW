@@ -48,6 +48,8 @@ private:
     Vec3 rallyPoint() const;
     uint32_t rand(uint32_t n);
     float armyValue(const std::vector<uint32_t>& army) const;
+    float enemyStrength() const;
+    float wealth() const;
 
     World& w_;
     const GameDatabase& db_;
@@ -57,6 +59,8 @@ private:
     bool attacking_ = false;
     uint32_t attackTarget_ = 0;
     int waveStartSize_ = 0;
+    float waveStartValue_ = 0;
+    float scale_ = 10000;
     int siteSpin_ = 0;
     std::unordered_map<const GameObjectType*, Role> roles_;
     std::unordered_map<const GameObjectType*, bool> combat_, builder_;

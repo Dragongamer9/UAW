@@ -10,6 +10,7 @@
 #include "alamo/ted.hpp"
 
 #include <cmath>
+#include <map>
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
@@ -77,7 +78,9 @@ int main(int argc, char** argv) {
         const DamageTable dmg = loadDamageTable(vfs);
         GameDatabase effects;
         try { effects.loadEffects(vfs); } catch (const std::exception&) {}
-        Map map = loadTed(vfs.read(mapPath(argv[2])));
+        const Balance balance = loadBalance(vfs);
+        const std::string mapList = argv[2];
+        Map map = loadTed(vfs.read(mapPath(mapList.substr(0, mapList.find(',')))));
         const auto st = starts(map, db);
         if (st.size() < 2) { std::cerr << "map needs 2 start positions\n"; return 1; }
         const std::string cmd = argv[3];
@@ -88,6 +91,7 @@ int main(int argc, char** argv) {
         if (cmd == "start") {
             World w(map, db, &dmg, 1, &tech);
             w.setEffects(&effects);
+            w.setBalance(balance);
             std::vector<std::string> factions;
             for (const Faction& f : db.factions())
                 if (f.humanPlayable && forces.count(upper(f.name))) factions.push_back(f.name);
@@ -101,6 +105,7 @@ int main(int argc, char** argv) {
             const std::string faction = argv[4];
             World w(map, db, &dmg, 1, &tech);
             w.setEffects(&effects);
+            w.setBalance(balance);
             const int me = addSkirmishPlayer(w, db, faction, st[0], &forces);
             uint32_t builder = 0, hq = 0;
             for (const Unit& u : w.units()) (u.structure ? hq : builder) = u.id;
@@ -187,6 +192,7 @@ int main(int argc, char** argv) {
             const uint64_t seed = argc > 7 ? std::strtoull(argv[7], nullptr, 10) : 1;
             World w(map, db, &dmg, seed, &tech);
             w.setEffects(&effects);
+            w.setBalance(balance);
             const int a = addSkirmishPlayer(w, db, argv[4], st[0], &forces);
             const int b = addSkirmishPlayer(w, db, argv[5], st[1], &forces);
             std::vector<SkirmishAI> ais{SkirmishAI(w, a, seed), SkirmishAI(w, b, seed + 7)};
@@ -219,6 +225,80 @@ int main(int argc, char** argv) {
                 }
             }
             std::printf("time up, no winner\n");
+            return 0;
+        }
+        if (cmd == "tournament" && argc > 4) {
+            // Every pairing of the listed factions, both seat orders, on every listed map
+            // (comma-separated <MAP>), for each seed. Prints the win table.
+            std::vector<std::string> factions, maps;
+            auto split = [](const std::string& s2, std::vector<std::string>& out) {
+                size_t a = 0;
+                while (a <= s2.size()) {
+                    size_t b = s2.find(',', a);
+                    if (b == std::string::npos) b = s2.size();
+                    if (b > a) out.push_back(s2.substr(a, b - a));
+                    a = b + 1;
+                }
+            };
+            split(argv[4], factions);
+            split(mapList, maps);
+            const float minutes = argc > 5 ? float(std::atof(argv[5])) : 25.f;
+            const int seeds = argc > 6 ? std::atoi(argv[6]) : 2;
+            std::map<std::string, std::map<std::string, int>> wins; // wins[a][b]
+            std::map<std::string, int> total, draws;
+            std::map<std::string, double> winTime;
+            for (const auto& mapName : maps) {
+                Map m = loadTed(vfs.read(mapPath(mapName)));
+                const auto ms = starts(m, db);
+                if (ms.size() < 2) continue;
+                for (size_t i = 0; i < factions.size(); ++i)
+                    for (size_t j = 0; j < factions.size(); ++j) {
+                        if (i == j) continue;
+                        for (int seed = 1; seed <= seeds; ++seed) {
+                            World w(m, db, &dmg, uint64_t(seed), &tech);
+                            w.setEffects(&effects);
+                            w.setBalance(balance);
+                            const int a = addSkirmishPlayer(w, db, factions[i], ms[0], &forces);
+                            const int b = addSkirmishPlayer(w, db, factions[j], ms[1], &forces);
+                            SkirmishAI A(w, a, uint64_t(seed)), B(w, b, uint64_t(seed) + 7);
+                            const int end = int(minutes * 60 * kTicksPerSecond);
+                            int winner = -1;
+                            for (int t = 0; t <= end && winner < 0; ++t) {
+                                A.update();
+                                B.update();
+                                w.tick();
+                                if (t % 30 == 0) {
+                                    const bool da = defeated(w, a), dbb = defeated(w, b);
+                                    if (da != dbb) winner = da ? 1 : 0;
+                                    else if (da) winner = 2;
+                                }
+                            }
+                            const std::string& fa = factions[i];
+                            const std::string& fb = factions[j];
+                            ++total[fa];
+                            ++total[fb];
+                            if (winner == 0) { ++wins[fa][fb]; winTime[fa] += w.seconds(); }
+                            else if (winner == 1) { ++wins[fb][fa]; winTime[fb] += w.seconds(); }
+                            else { ++draws[fa]; ++draws[fb]; }
+                            std::printf("%-18s %-9s vs %-9s seed %d: %s (%.0fs)\n", mapName.c_str(), fa.c_str(), fb.c_str(), seed,
+                                        winner == 0 ? fa.c_str() : winner == 1 ? fb.c_str() : "draw", w.seconds());
+                            std::fflush(stdout);
+                        }
+                    }
+            }
+            std::printf("\nwins (row beat column):\n%-10s", "");
+            for (const auto& f : factions) std::printf("%9s", f.substr(0, 8).c_str());
+            std::printf("    total   draws\n");
+            for (const auto& f : factions) {
+                std::printf("%-10s", f.substr(0, 9).c_str());
+                int sum = 0;
+                for (const auto& g : factions) {
+                    if (f == g) std::printf("%9s", "-");
+                    else std::printf("%9d", wins[f][g]);
+                    sum += wins[f][g];
+                }
+                std::printf("   %2d/%-3d  %3d\n", sum, total[f], draws[f]);
+            }
             return 0;
         }
         std::cerr << "unknown command\n";

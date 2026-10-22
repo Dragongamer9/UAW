@@ -170,6 +170,24 @@ struct EconomySpec {
     float powerRadius = 0, transmitRadius = 0;
 };
 
+// Engine-side balance knobs on top of the game data, per faction (upper-case name).
+// Defaults are built in; Data/XML/UAW_Balance.xml (any layer, later wins) overrides:
+//   <UAW_Balance><Faction Name="Novus"><Income_Multiplier>0.5</Income_Multiplier>
+//     <Resource_Unit_Value>1</Resource_Unit_Value></Faction></UAW_Balance>
+// Income_Multiplier scales every credit a faction earns. Resource_Unit_Value is how many
+// credits one unit of a scrap pile is worth to that faction: harvesting earns at the
+// usual rate but piles last that many times longer.
+struct Balance {
+    struct FactionBalance {
+        float income = 1;
+        float resourceValue = 1;
+    };
+    std::map<std::string, FactionBalance> factions;
+    const FactionBalance& of(const std::string& faction) const;
+    static Balance defaults();
+};
+Balance loadBalance(MegVfs& vfs);
+
 // Reads `Key = value` pairs from a Lua_Script_Data block (keys upper-cased, quotes stripped).
 std::unordered_map<std::string, std::string> parseScriptData(std::string_view text);
 
@@ -258,6 +276,8 @@ public:
     const EconomySpec& economy(const GameObjectType& t) const;
     // Effect library for data-driven rates (Reaper harvest); optional.
     void setEffects(const GameDatabase* effects) { effects_ = effects; }
+    void setBalance(const Balance& b) { balance_ = b; }
+    const Balance& balance() const { return balance_; }
     float bankCap(int owner) const;    // 0 = unlimited
     float incomePerSecond(int owner) const; // passive income only (drones/reapers vary)
 
@@ -299,6 +319,7 @@ private:
     std::vector<DeathEvent> deaths_;
     std::vector<ResourceNode> resources_;
     const GameDatabase* effects_ = nullptr;
+    Balance balance_ = Balance::defaults();
     mutable std::unordered_map<const GameObjectType*, EconomySpec> economyCache_;
     mutable int anyBaseBuilder_ = -1;
     uint32_t nextId_ = 1;

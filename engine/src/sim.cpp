@@ -219,10 +219,15 @@ bool World::siteClear(const GameObjectType& type, Vec3 site) const {
     for (float y = site[1] - fy; y <= site[1] + fy; y += nav_.spacing() * 0.5f)
         for (float x = site[0] - fx; x <= site[0] + fx; x += nav_.spacing() * 0.5f)
             if (!nav_.passableAt(x, y)) return false;
-    for (const Unit& u : units_)
+    for (const Unit& u : units_) {
         if (u.structure && std::fabs(u.position[0] - site[0]) < fx + u.footprintX &&
             std::fabs(u.position[1] - site[1]) < fy + u.footprintY)
             return false;
+        // Don't bury units being built (walkers, Reapers) or big ones standing there.
+        if (!u.structure && !u.flying() && (u.underConstruction || u.radius >= 15) &&
+            std::fabs(u.position[0] - site[0]) < fx + u.radius && std::fabs(u.position[1] - site[1]) < fy + u.radius)
+            return false;
+    }
     return true;
 }
 
@@ -356,6 +361,13 @@ float Unit::maxRange() const {
 uint32_t World::spawn(const std::string& typeName, int owner, Vec3 position, float facing) {
     const GameObjectType* t = db_.find(typeName);
     if (!t) return 0;
+    // Masari units that only fight in an elemental mode (Peacebringer, Sentry: weapons on
+    // their _Fire/_Ice variants) start in the first mode listed (Type_Switch_Types).
+    if (!isStructureType(*t) && weaponsFor(*t, db_).empty())
+        if (const std::string* modes = t->find("Type_Switch_Types")) {
+            std::string first = trim(modes->substr(0, modes->find(',')));
+            if (const GameObjectType* v = db_.find(first); v && !weaponsFor(*v, db_).empty()) t = v;
+        }
     Unit u;
     u.id = nextId_++;
     u.type = t;
@@ -814,7 +826,8 @@ void World::moveUnit(Unit& u) {
     const float step = std::min(u.speed, d);
     const float mx = std::cos(heading) * step, my = std::sin(heading) * step;
     Vec3 next{u.position[0] + mx, u.position[1] + my, 0};
-    if (!u.flying() && !nav_.passableAt(next[0], next[1])) {
+    // Units caught on blocked ground (a footprint raised around them) may always step off it.
+    if (!u.flying() && !nav_.passableAt(next[0], next[1]) && nav_.passableAt(u.position[0], u.position[1])) {
         // Slide along the wall on whichever axis is free.
         if (nav_.passableAt(u.position[0] + mx, u.position[1])) next = {u.position[0] + mx, u.position[1], 0};
         else if (nav_.passableAt(u.position[0], u.position[1] + my)) next = {u.position[0], u.position[1] + my, 0};

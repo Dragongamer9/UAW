@@ -40,6 +40,12 @@ static Map openMap() {
     return m;
 }
 
+static Balance unitIncome() {
+    Balance b = Balance::defaults();
+    for (auto& [name, f] : b.factions) f.income = 1;
+    return b;
+}
+
 static void write(const fs::path& p, const std::string& s) {
     fs::create_directories(p.parent_path());
     std::ofstream(p, std::ios::binary) << s;
@@ -387,6 +393,7 @@ static void testResources(const GameDatabase& db) {
     // that bring the pile home 200 at a time.
     {
         World w(m, db);
+        w.setBalance(unitIncome()); // test the mechanics, not the tuned multipliers
         const int nv = w.addPlayer("Novus", 0);
         const uint32_t depot = w.spawn("Depot", nv, {200, 200, 0});
         const uint32_t pile = w.addResource("Scrap", {600, 200, 0});
@@ -409,16 +416,28 @@ static void testResources(const GameDatabase& db) {
     // Faction filter: Masari can't take Novus/Alien scrap; Reapers drain piles in reach.
     {
         World w(m, db);
+        w.setBalance(unitIncome()); // test the mechanics, not the tuned multipliers
         const int al = w.addPlayer("Alien", 0);
         const uint32_t pile = w.addResource("Scrap", {400, 200, 0});
         w.spawn("Reaper", al, {200, 200, 0});
         for (int i = 0; i < 10 * 30; ++i) w.tick();
         CHECK(w.player(al)->credits > 0 && w.resource(pile)->remaining < 1000);
-        CHECK(std::fabs(w.player(al)->credits + w.resource(pile)->remaining - 1000) < 0.5f);
+        // Each scrap unit is worth 10 credits to the Hierarchy (Balance default): same income rate, pile lasts 10x.
+        CHECK(std::fabs(w.player(al)->credits / 10 + w.resource(pile)->remaining - 1000) < 0.5f);
+        Balance flat;
+        World w2(m, db);
+        w2.setBalance(flat);
+        const int al2 = w2.addPlayer("Alien", 0);
+        const uint32_t pile2 = w2.addResource("Scrap", {400, 200, 0});
+        w2.spawn("Reaper", al2, {200, 200, 0});
+        for (int i = 0; i < 10 * 30; ++i) w2.tick();
+        CHECK(std::fabs(w2.player(al2)->credits - w.player(al)->credits) < 1);           // same earning speed
+        CHECK(std::fabs(w2.player(al2)->credits + w2.resource(pile2)->remaining - 1000) < 0.5f); // 1:1 without it
     }
     // Matter Engines: 3/s each, Masari bank capped at baseline + storage; refinery pays anyone.
     {
         World w(m, db);
+        w.setBalance(unitIncome()); // test the mechanics, not the tuned multipliers
         const int ma = w.addPlayer("Masari", 0), nv = w.addPlayer("Novus", 0);
         w.spawn("Engine", ma, {200, 200, 0});
         w.spawn("Refinery", nv, {600, 600, 0});

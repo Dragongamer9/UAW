@@ -11,10 +11,12 @@
 //     optional MustBeOfFaction, bank capped at Baseline_Bank_Capacity + each engine's
 //     ResourcesStorage, as in MasariMatterEngine.lua) and NeutralRefinery (ResourcesPerSecond).
 #include "alamo/sim.hpp"
+#include "alamo/xml.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 
 namespace alamo {
 
@@ -57,6 +59,43 @@ float scriptNum(const std::unordered_map<std::string, std::string>& d, const cha
 }
 
 } // namespace
+
+const Balance::FactionBalance& Balance::of(const std::string& faction) const {
+    static const FactionBalance none;
+    auto it = factions.find(upperStr(faction));
+    return it == factions.end() ? none : it->second;
+}
+
+Balance Balance::defaults() {
+    Balance b;
+    // The Hierarchy only harvests scrap; at the retail rate it strips the map and then
+    // starves, so a pile is worth ten times as much to it (same income rate, piles last 10x).
+    b.factions["ALIEN"].resourceValue = 10;
+    // Income multipliers tuned by AI-vs-AI tournaments (simtool tournament, 8 maps, all mods):
+    // untouched, Novus won 86/96 games and the Masari 0/96.
+    b.factions["NOVUS"].income = 0.7f;
+    b.factions["MASARI"].income = 2.4f;
+    b.factions["MILITARY"].income = 0.55f;
+    b.factions["ALIEN"].income = 2.2f;
+    return b;
+}
+
+Balance loadBalance(MegVfs& vfs) {
+    Balance b = Balance::defaults();
+    for (const auto& v : vfs.readAllLayers("Data\\XML\\UAW_Balance.xml")) {
+        XmlDocument doc = parseXml(std::string(v.data.begin(), v.data.end()));
+        const XmlNode* root = doc.root.child("UAW_Balance");
+        if (!root) continue;
+        for (const XmlNode* f : root->childrenNamed("Faction")) {
+            const std::string* name = f->attr("Name");
+            if (!name) continue;
+            Balance::FactionBalance& fb = b.factions[upperStr(trim(*name))];
+            if (const XmlNode* c = f->child("Income_Multiplier")) fb.income = float(std::atof(c->text.c_str()));
+            if (const XmlNode* c = f->child("Resource_Unit_Value")) fb.resourceValue = std::max(0.01f, float(std::atof(c->text.c_str())));
+        }
+    }
+    return b;
+}
 
 bool ResourceNode::usableBy(const std::string& faction) const {
     if (factions.empty()) return true;
@@ -257,6 +296,7 @@ float World::incomePerSecond(int owner) const {
 void World::deposit(int owner, float amount) {
     if (owner < 0 || owner >= int(players_.size()) || amount <= 0) return;
     Player& p = players_[size_t(owner)];
+    amount *= balance_.of(p.faction).income;
     const float cap = bankCap(owner);
     if (cap > 0) amount = std::min(amount, std::max(0.f, cap - p.credits));
     p.credits += amount;
@@ -418,7 +458,7 @@ void World::updateCollector(Unit& u, const EconomySpec& e) {
         if (!depot) { u.path.clear(); break; } // wait for a new depot
         const float dropRange = std::max(depot->footprintX, depot->footprintY) + u.radius + 30;
         if (dist2(u.position, depot->position) <= dropRange) {
-            deposit(u.owner, u.carried);
+            deposit(u.owner, u.carried * balance_.of(players_[size_t(u.owner)].faction).resourceValue);
             u.carried = 0;
             u.path.clear();
             u.harvest = Unit::Harvest::None;
@@ -459,9 +499,11 @@ void World::updateReaper(Unit& u, const EconomySpec& e) {
     // Face the pile while draining it.
     const float want = std::atan2(n->position[1] - u.position[1], n->position[0] - u.position[0]);
     u.facing += std::clamp(angleDiff(u.facing, want), -u.stoppedTurnRate, u.stoppedTurnRate);
-    const float take = std::min(n->remaining, e.reaperRate / kTicksPerSecond);
+    // Earn at the data rate; the pile shrinks by credits / Resource_Unit_Value.
+    const float value = balance_.of(faction).resourceValue;
+    const float take = std::min(n->remaining, e.reaperRate / kTicksPerSecond / value);
     n->remaining -= take;
-    deposit(u.owner, take);
+    deposit(u.owner, take * value);
 }
 
 } // namespace alamo
