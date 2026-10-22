@@ -63,6 +63,23 @@ uniform float uClipZ;      // fragments above this height are cut away (structur
 uniform sampler2D uFow;
 uniform vec4 uFowParams; // xy = 1 / map size, z = 1 when fog of war is on
 out vec4 fragColor;
+uniform sampler2DShadow uShadow;
+uniform mat4 uShadowVP;
+uniform vec4 uShadowParams; // x = 1 when on, y = one texel in shadow-map uv
+// How much sunlight reaches this point (1 = all): 3x3 filtered lookups in the sun's depth map, fading
+// out towards the map's edge so the shadowed area has no visible border.
+float sunlight(vec3 world, vec3 n) {
+    if (uShadowParams.x < 0.5) return 1.0;
+    vec4 p = uShadowVP * vec4(world + n * 0.8, 1.0);
+    vec3 q = p.xyz * 0.5 + 0.5;
+    if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0 || q.z >= 1.0) return 1.0;
+    float s = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) s += texture(uShadow, vec3(q.xy + vec2(x, y) * uShadowParams.y, q.z - 0.0004));
+    s /= 9.0;
+    vec2 e = abs(q.xy * 2.0 - 1.0);
+    return mix(s, 1.0, smoothstep(0.8, 1.0, max(e.x, e.y)));
+}
 void main() {
     vec4 base = vColor * uTint;
     if (uHasTex != 0) base *= texture(uTex, vUv);
@@ -73,6 +90,7 @@ void main() {
     float diffuse = max(dot(n, -uLightDir), 0.0);
     // Two-sided-ish fill so back faces of thin geometry aren't black.
     float fill = max(dot(n, vec3(0.3, -0.4, 0.5)), 0.0) * 0.15;
+    if (diffuse > 0.0) diffuse *= sunlight(vWorld, n);
     vec3 lit = base.rgb * (uAmbient + uSun * diffuse + fill);
     if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
@@ -120,6 +138,23 @@ uniform vec4 uFogRange;
 uniform sampler2D uFow;
 uniform vec4 uFowParams;
 out vec4 fragColor;
+uniform sampler2DShadow uShadow;
+uniform mat4 uShadowVP;
+uniform vec4 uShadowParams; // x = 1 when on, y = one texel in shadow-map uv
+// How much sunlight reaches this point (1 = all): 3x3 filtered lookups in the sun's depth map, fading
+// out towards the map's edge so the shadowed area has no visible border.
+float sunlight(vec3 world, vec3 n) {
+    if (uShadowParams.x < 0.5) return 1.0;
+    vec4 p = uShadowVP * vec4(world + n * 0.8, 1.0);
+    vec3 q = p.xyz * 0.5 + 0.5;
+    if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0 || q.z >= 1.0) return 1.0;
+    float s = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) s += texture(uShadow, vec3(q.xy + vec2(x, y) * uShadowParams.y, q.z - 0.0004));
+    s /= 9.0;
+    vec2 e = abs(q.xy * 2.0 - 1.0);
+    return mix(s, 1.0, smoothstep(0.8, 1.0, max(e.x, e.y)));
+}
 vec3 layerColor(float index) {
     int i = int(index + 0.5);
     vec4 L = uLayer[i];
@@ -133,6 +168,7 @@ void main() {
     vec3 base = w.x * layerColor(vLayers.x) + w.y * layerColor(vLayers.y) + w.z * layerColor(vLayers.z);
     vec3 n = normalize(vNormal);
     float diffuse = max(dot(n, -uLightDir), 0.0);
+    if (diffuse > 0.0) diffuse *= sunlight(vWorld, n);
     vec3 lit = base * (uAmbient + 0.04 + uSun * 0.97 * diffuse);
     if (uFowParams.z > 0.5) lit *= texture(uFow, vWorld.xy * uFowParams.xy).r;
     float dist = length(vWorld - uCamPos);
@@ -277,6 +313,7 @@ Renderer::Renderer(alamo::MegVfs& vfs) : vfs_(vfs) {
     uSkinned_ = glGetUniformLocation(program_, "uSkinned");
 
     terrainProgram_ = link(kTerrainVertexShader, kTerrainFragmentShader);
+    shadowsOn_ = std::getenv("UAW_NO_SHADOWS") == nullptr;
 
     // Unit box (-0.5..0.5 in X/Y, 0..1 in Z) for objects whose model isn't available.
     std::vector<GpuVertex> v;
@@ -309,6 +346,8 @@ Renderer::~Renderer() {
     if (program_) glDeleteProgram(program_);
     if (terrainProgram_) glDeleteProgram(terrainProgram_);
     if (terrainLayers_) glDeleteTextures(1, &terrainLayers_);
+    if (shadowFbo_) glDeleteFramebuffers(1, &shadowFbo_);
+    if (shadowTex_) glDeleteTextures(1, &shadowTex_);
 }
 
 GLuint Renderer::texture(const std::string& name) {
@@ -529,6 +568,7 @@ void Renderer::setTerrain(const alamo::Map& map) {
 void Renderer::beginFrame(int width, int height, const Camera& cam, float farPlane) {
     farPlane_ = farPlane;
     camPos_ = cam.eye;
+    camTarget_ = cam.target;
     width_ = std::max(width, 1);
     height_ = std::max(height, 1);
     viewProj_ = Mat4::perspective(cam.fovY, float(width) / float(std::max(height, 1)), 5.f, farPlane) *
@@ -558,12 +598,118 @@ void Renderer::beginFrame(int width, int height, const Camera& cam, float farPla
     glUniform1i(uUnlit_, 0);
     glUniform1i(uAlphaTest_, 0);
     glUniform1f(glGetUniformLocation(program_, "uClipZ"), 1e9f);
+    clipZ_ = 1e9f;
     glUniform1i(glGetUniformLocation(program_, "uFow"), 2);
     glUniform4fv(glGetUniformLocation(program_, "uFowParams"), 1, fowParams_);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, fowTex_);
+    bindShadow(program_);
     glActiveTexture(GL_TEXTURE0);
     transparent_.clear();
+    casters_.clear();
+    drawTerrainShadow_ = false;
+}
+
+void Renderer::bindShadow(GLuint program) {
+    const GLfloat params[4] = {shadowReady_ ? 1.f : 0.f, 1.f / float(kShadowSize), 0, 0};
+    glUniform4fv(glGetUniformLocation(program, "uShadowParams"), 1, params);
+    glUniformMatrix4fv(glGetUniformLocation(program, "uShadowVP"), 1, GL_FALSE_, shadowViewProj_.data());
+    glUniform1i(glGetUniformLocation(program, "uShadow"), 3);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, shadowReady_ ? shadowTex_ : 0);
+}
+
+// The sun's depth map for the next frame, from what this frame drew opaque (one frame behind, which
+// nobody sees): an orthographic view along the sun's direction over the ground around the camera
+// target, snapped to whole texels so shadows don't shimmer as the camera moves.
+void Renderer::renderShadows() {
+    shadowReady_ = false;
+    if (!shadowsOn_ || (casters_.empty() && !drawTerrainShadow_)) return;
+    if (!shadowFbo_) {
+        glGenTextures(1, &shadowTex_);
+        glBindTexture(GL_TEXTURE_2D, shadowTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GLint(GL_DEPTH_COMPONENT24), kShadowSize, kShadowSize, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GLint(GL_LINEAR));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GLint(GL_LINEAR));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GLint(GL_CLAMP_TO_EDGE));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GLint(GL_CLAMP_TO_EDGE));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GLint(GL_COMPARE_REF_TO_TEXTURE));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GLint(GL_LEQUAL));
+        glGenFramebuffers(1, &shadowFbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowTex_, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::fprintf(stderr, "shadows: depth framebuffer incomplete, switched off\n");
+            shadowsOn_ = false;
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    // Light space: a rotation only (the sun is infinitely far away), then a box around the target.
+    alamo::Vec3 L = Mat4::normalize(sunDirection_);
+    if (L[2] > -0.15f) L = Mat4::normalize({L[0], L[1], -0.15f}); // keep the sun above the horizon
+    const alamo::Vec3 up = std::fabs(L[2]) > 0.98f ? alamo::Vec3{0, 1, 0} : alamo::Vec3{0, 0, 1};
+    const Mat4 view = Mat4::lookAt({-L[0], -L[1], -L[2]}, {0, 0, 0}, up);
+    const float camDist = lengthOf(Mat4::sub(camPos_, camTarget_));
+    const float R = std::clamp(camDist * 1.5f, 500.f, 3000.f), D = 2500.f;
+    const float texel = 2 * R / float(kShadowSize);
+    float c[3];
+    for (int i = 0; i < 3; ++i)
+        c[i] = view.at(i, 0) * camTarget_[0] + view.at(i, 1) * camTarget_[1] + view.at(i, 2) * camTarget_[2] + view.at(i, 3);
+    c[0] = std::round(c[0] / texel) * texel;
+    c[1] = std::round(c[1] / texel) * texel;
+    const float l = c[0] - R, r = c[0] + R, b = c[1] - R, t = c[1] + R, n = -c[2] - D, f = -c[2] + D;
+    Mat4 ortho;
+    ortho.at(0, 0) = 2 / (r - l);
+    ortho.at(0, 3) = -(r + l) / (r - l);
+    ortho.at(1, 1) = 2 / (t - b);
+    ortho.at(1, 3) = -(t + b) / (t - b);
+    ortho.at(2, 2) = -2 / (f - n);
+    ortho.at(2, 3) = -(f + n) / (f - n);
+    shadowViewProj_ = ortho * view;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+    glViewport(0, 0, kShadowSize, kShadowSize);
+    glColorMask(GL_FALSE_, GL_FALSE_, GL_FALSE_, GL_FALSE_);
+    glDepthMask(GL_TRUE_);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.5f, 3.f);
+    glUseProgram(program_);
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, shadowViewProj_.data());
+    glUniform1i(uUnlit_, 1);
+    const GLfloat off[4] = {0, 0, 0, 0};
+    glUniform4fv(glGetUniformLocation(program_, "uShadowParams"), 1, off);
+    const GLint clip = glGetUniformLocation(program_, "uClipZ");
+    if (drawTerrainShadow_ && terrain_.vao) { // hills shade the ground behind them
+        glUniform1f(clip, 1e9f);
+        glUniform1i(uSkinned_, 0);
+        setUniforms(Mat4{}, {1, 1, 1, 1}, 0);
+        terrain_.draw();
+    }
+    for (const Caster& k : casters_) {
+        glUniform1f(clip, k.clipZ);
+        setUniforms(k.transform, {1, 1, 1, 1}, k.mesh->alphaTest ? k.mesh->texture : 0);
+        setSkin(*k.mesh, k.pose.get());
+        glUniform1i(uAlphaTest_, k.mesh->alphaTest ? 1 : 0);
+        k.mesh->draw();
+    }
+    glUniform1i(uAlphaTest_, 0);
+    glUniform1i(uSkinned_, 0);
+    glUniform1f(clip, 1e9f);
+    glUniform1i(uUnlit_, 0);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE_, GL_TRUE_, GL_TRUE_, GL_TRUE_);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, width_, height_);
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE_, viewProj_.data());
+    casters_.clear();
+    shadowReady_ = true;
 }
 
 void Renderer::setFogOfWar(const std::vector<uint8_t>* grid, int w, int h, float cell, uint64_t version) {
@@ -614,6 +760,8 @@ void Renderer::drawTerrain() {
     glUniform4fv(loc("uFowParams"), 1, fowParams_);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, fowTex_);
+    bindShadow(terrainProgram_);
+    drawTerrainShadow_ = true;
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D_ARRAY, terrainLayers_);
     terrain_.draw();
@@ -646,6 +794,10 @@ void Renderer::drawModel(const GpuModel& m, const Mat4& transform, const alamo::
             if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
             transparent_.push_back({&mesh, transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], tint[3]}, depth, kept});
             continue;
+        }
+        if (shadowsOn_ && tint[3] > 0.99f) {
+            if (pose && !kept) kept = std::make_shared<const Pose>(*pose);
+            casters_.push_back({&mesh, transform, kept, clipZ_});
         }
         setUniforms(transform, {mesh.tint[0] * tint[0], mesh.tint[1] * tint[1], mesh.tint[2] * tint[2], 1}, mesh.texture);
         setSkin(mesh, pose);
@@ -710,6 +862,7 @@ void Renderer::endFrame() {
     glUniform1i(uSkinned_, 0);
     glDepthMask(GL_TRUE_);
     glDisable(GL_BLEND);
+    renderShadows();
 }
 
 void Renderer::drawOverlayTriangles(const std::vector<GpuVertex>& v, GLuint texture) {
@@ -843,6 +996,7 @@ void Renderer::drawSky(const GpuModel& m) {
 }
 
 void Renderer::setClipHeight(float z) {
+    clipZ_ = z;
     glUseProgram(program_);
     glUniform1f(glGetUniformLocation(program_, "uClipZ"), z);
 }

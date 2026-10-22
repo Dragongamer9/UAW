@@ -42,6 +42,10 @@ constexpr GLenum GL_VERTEX_SHADER = 0x8B31, GL_FRAGMENT_SHADER = 0x8B30;
 constexpr GLenum GL_COMPILE_STATUS = 0x8B81, GL_LINK_STATUS = 0x8B82, GL_INFO_LOG_LENGTH = 0x8B84;
 constexpr GLenum GL_PACK_ALIGNMENT = 0x0D05, GL_UNPACK_ALIGNMENT = 0x0CF5;
 constexpr GLenum GL_VENDOR = 0x1F00, GL_RENDERER = 0x1F01, GL_VERSION = 0x1F02;
+constexpr GLenum GL_FRAMEBUFFER = 0x8D40, GL_DEPTH_ATTACHMENT = 0x8D00, GL_FRAMEBUFFER_COMPLETE = 0x8CD5, GL_NONE = 0;
+constexpr GLenum GL_DEPTH_COMPONENT = 0x1902, GL_DEPTH_COMPONENT24 = 0x81A6, GL_TEXTURE3 = 0x84C3, GL_NEAREST = 0x2600;
+constexpr GLenum GL_TEXTURE_COMPARE_MODE = 0x884C, GL_TEXTURE_COMPARE_FUNC = 0x884D, GL_COMPARE_REF_TO_TEXTURE = 0x884E;
+constexpr GLenum GL_CLAMP_TO_EDGE = 0x812F;
 
 #define UAW_GL_FUNCS(X)                                                                                  \
     X(void, glViewport, GLint, GLint, GLsizei, GLsizei)                                                  \
@@ -96,7 +100,15 @@ constexpr GLenum GL_VENDOR = 0x1F00, GL_RENDERER = 0x1F01, GL_VERSION = 0x1F02;
     X(void, glGenerateMipmap, GLenum)                                                                    \
     X(void, glActiveTexture, GLenum)                                                                     \
     X(void, glPixelStorei, GLenum, GLint)                                                                \
-    X(void, glReadPixels, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*)
+    X(void, glReadPixels, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*)                        \
+    X(void, glGenFramebuffers, GLsizei, GLuint*)                                                         \
+    X(void, glBindFramebuffer, GLenum, GLuint)                                                           \
+    X(void, glDeleteFramebuffers, GLsizei, const GLuint*)                                                \
+    X(void, glFramebufferTexture2D, GLenum, GLenum, GLenum, GLuint, GLint)                               \
+    X(GLenum, glCheckFramebufferStatus, GLenum)                                                          \
+    X(void, glColorMask, GLboolean, GLboolean, GLboolean, GLboolean)                                     \
+    X(void, glDrawBuffer, GLenum)                                                                        \
+    X(void, glReadBuffer, GLenum)
 
 #define UAW_GL_DECLARE(ret, name, ...) using PFN_##name = ret(UAW_GLAPI*)(__VA_ARGS__); extern PFN_##name name;
 UAW_GL_FUNCS(UAW_GL_DECLARE)

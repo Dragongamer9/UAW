@@ -182,6 +182,10 @@ untextured grey, and translucent layers without their texture are skipped.
 weapons (including hardpoints), damage per second and armor modifiers against the
 named victims.
 
+Lighting follows the map's own sun, ambient light, haze and sky. Units, structures, props, trees and
+hills cast sun shadows (a 2048² depth map around the camera, filtered at the edges); `UAW_NO_SHADOWS=1`
+switches them off on a slow graphics card.
+
 Objects whose model isn't available are drawn as boxes: grey props, structures
 and units in their owner's colour, cyan scrap piles, and a tall pole at each start position.
 

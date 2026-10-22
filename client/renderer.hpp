@@ -124,6 +124,8 @@ private:
     GLuint texture(const std::string& name);
     void setUniforms(const Mat4& model, const alamo::Vec4& tint, GLuint tex);
     void setSkin(const GpuMesh& mesh, const Pose* pose);
+    void bindShadow(GLuint program);
+    void renderShadows();
 
     alamo::MegVfs& vfs_;
     GLuint program_ = 0;
@@ -163,6 +165,21 @@ private:
         std::shared_ptr<const Pose> pose; // animated: kept until the transparent pass
     };
     std::vector<Deferred> transparent_;
+
+    // Sun shadows: opaque meshes drawn this frame cast into a depth map used by the next frame.
+    static constexpr int kShadowSize = 2048;
+    struct Caster {
+        const GpuMesh* mesh;
+        Mat4 transform;
+        std::shared_ptr<const Pose> pose;
+        float clipZ;
+    };
+    std::vector<Caster> casters_;
+    bool shadowsOn_ = true, shadowReady_ = false, drawTerrainShadow_ = false;
+    GLuint shadowFbo_ = 0, shadowTex_ = 0;
+    Mat4 shadowViewProj_;
+    alamo::Vec3 camTarget_{};
+    float clipZ_ = 1e9f;
 };
 
 } // namespace uaw
