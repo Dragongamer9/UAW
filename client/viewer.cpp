@@ -1210,7 +1210,7 @@ int main(int argc, char** argv) {
                 }
                 const int human = setup.human();
                 opt.player = human >= 0 ? human + 1 : 1;
-                opt.spectate = human < 0;
+                opt.spectate = opt.spectate || human < 0; // --spectate: an AI plays your slot too
             }
         }
         std::unique_ptr<SkirmishMenu> menu;
