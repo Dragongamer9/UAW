@@ -4,6 +4,8 @@
 #include "alamo/effects.hpp"
 #include "alamo/gamedata.hpp"
 #include "alamo/luavm.hpp"
+#include "alamo/scripthost.hpp"
+#include "alamo/scripts.hpp"
 #include "alamo/research.hpp"
 #include "alamo/sim.hpp"
 
@@ -49,6 +51,8 @@ static Data testData(const fs::path& root) {
     write(root / "Data/MegaFiles.xml", "<Mega_Files></Mega_Files>");
     write(root / "Data/XML/GameObjectFiles.xml", "<Game_Object_Files><File>Units.xml</File></Game_Object_Files>");
     write(root / "Data/XML/Units.xml", R"(<Units>
+  <X_Units Name="Pickup"><Tactical_Health>10</Tactical_Health><Lua_Land_Behaviors>TestPickup</Lua_Land_Behaviors>
+    <Lua_Script_Data>PICKUP_AMOUNT = 250</Lua_Script_Data></X_Units>
   <X_Units Name="Dummy"><MovementClass>Infantry</MovementClass><Max_Speed>2.0</Max_Speed>
     <Custom_Hard_XExtent>5</Custom_Hard_XExtent><Tactical_Health>1000</Tactical_Health>
     <CategoryMask>Small, Organic</CategoryMask></X_Units>
@@ -918,6 +922,82 @@ static void testLua() {
     CHECK(src.global("y").isNil());
 }
 
+// The scripting host with a small stand-in for PGBehaviors: an in-range event pays the player who
+// walks in and despawns the pickup; a Create_Thread thread pays the owner once a second.
+static void testBehaviorHost(const Data& d, const fs::path& root) {
+    write(root / "Data/Scripts/Library/PGBehaviors.lua", R"LUA(
+BehaviorNameTable = {}
+function Register_Behavior(b) BehaviorNameTable[b.Name] = b end
+function Base_Definitions() GetEvent.Reset() end
+function Init_Behaviors()
+  for _, n in ipairs(BehaviorList) do local b = BehaviorNameTable[n]; if b and b.Init then b.Init() end end
+end
+function PumpEvents()
+  coroutine.yield(true)
+  if not Thread.Is_Pumping_Thread() then return end
+  local ev = GetEvent()
+  while ev do
+    local p = GetEvent.Params()
+    if p then ev(unpack(p)) else ev() end
+    ev = GetEvent()
+  end
+end
+function main() while true do PumpEvents() end end
+)LUA");
+    write(root / "Data/Scripts/GameObject/TestPickup.lua", R"LUA(
+require("PGBehaviors")
+local b = { Name = _REQUIREDNAME }
+function b.Init()
+  Object.Event_Object_In_Range(b.In_Range, 30)
+  Create_Thread("Ticker")
+end
+function b.In_Range(me, other)
+  local p = other.Get_Owner()
+  if p.Is_Human() then
+    p.Give_Money(PICKUP_AMOUNT)
+    Object.Cancel_Event_Object_In_Range(b.In_Range)
+    Object.Despawn()
+  end
+end
+function Ticker()
+  while true do
+    local t = GetCurrentTime()
+    repeat PumpEvents() until GetCurrentTime() - t >= 1
+    Object.Get_Owner().Give_Money(1)
+  end
+end
+Register_Behavior(b)
+)LUA");
+    MegVfs vfs;
+    mountGame(vfs, root);
+    ScriptLibrary lib(vfs);
+    const Map m = openMap();
+    World w(m, d.db);
+    const int me = w.addPlayer("Novus", 0);
+    const int them = w.addPlayer("Alien", 0);
+    const uint32_t pickup = w.spawn("Pickup", them, {200, 200, 0});
+    const uint32_t walker = w.spawn("Dummy", me, {400, 200, 0});
+    const GameObjectType* t = d.db.find("Pickup");
+    CHECK(t && BehaviorHost::behaviorsOf(*t) == std::vector<std::string>{"TestPickup"});
+    BehaviorHost host(w, lib);
+    std::vector<std::string> said;
+    host.log = [&](const std::string& s) { said.push_back(s); };
+    std::string err;
+    CHECK(host.attach(pickup, BehaviorHost::behaviorsOf(*t), &err));
+    if (!err.empty()) std::fprintf(stderr, "attach: %s\n", err.c_str());
+    w.commandMove({walker}, {200, 200, 0});
+    for (int i = 0; i < 30 * 12; ++i) {
+        w.tick();
+        host.update();
+    }
+    for (const std::string& s : said) std::fprintf(stderr, "host: %s\n", s.c_str());
+    CHECK(w.players()[size_t(me)].credits == 250);          // the event, once
+    const Unit* u = w.unit(pickup);
+    CHECK(!u || !u->alive());                               // despawned
+    CHECK(w.players()[size_t(them)].credits >= 2);          // the thread ran while the pickup lived
+    CHECK(host.running() == 0);
+}
+
 int main() {
     const fs::path root = fs::temp_directory_path() / "uaw_native_test_abilities";
     const Data d = testData(root);
@@ -942,6 +1022,7 @@ int main() {
     testResearch(d);
     testLua();
     testLuaSource();
+    testBehaviorHost(d, root);
     fs::remove_all(root);
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

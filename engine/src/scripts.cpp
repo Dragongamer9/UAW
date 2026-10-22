@@ -12,7 +12,7 @@ std::string upper(std::string s) {
 } // namespace
 
 ScriptLibrary::ScriptLibrary(MegVfs& vfs) : vfs_(vfs) {
-    for (const std::string& path : vfs.list()) {
+    for (const std::string& path : vfs.listDirectory("Data\\Scripts")) { // archives and loose files
         const std::string up = upper(path);
         if (up.rfind("DATA\\SCRIPTS\\", 0) != 0 || up.size() < 4 || up.compare(up.size() - 4, 4, ".LUA") != 0) continue;
         const size_t slash = up.find_last_of('\\');

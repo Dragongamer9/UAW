@@ -56,7 +56,7 @@ static int scriptApi(MegVfs& vfs, bool all, std::set<std::string>* engineOut = n
     std::map<std::string, std::set<std::string>> globals, methods; // name -> scripts using it
     std::set<std::string> defined;
     size_t compiled = 0, source = 0, failed = 0;
-    for (const std::string& path : vfs.list()) {
+    for (const std::string& path : vfs.listDirectory("Data\\Scripts")) {
         std::string up = path;
         for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
         if (up.rfind("DATA\\SCRIPTS\\", 0) != 0 || up.size() < 4 || up.compare(up.size() - 4, 4, ".LUA") != 0) continue;

@@ -260,12 +260,12 @@ objdump "<game>" scripts trace CreditPowerUp  # a behaviour against stand-ins: t
 objdump "<game>" warnings
 ```
 
-`scripts` loads every script under `Data/Scripts` (428 with the three mods: 421 compiled, 7 source,
+`scripts` loads every script under `Data/Scripts` (431 with the three mods: 421 compiled, 10 source,
 all load) and lists what a scripting host would have to provide: 623 engine globals (`Find_Player`,
 `Create_Thread`, `GetCurrentTime`, ...) and 1,743 method names (`Set_Hidden`, `Get_Owner`,
 `Register_Event_Handler`, ...), each with the number of scripts using it. Of Lua's own library
 only `require` is missing from the VM itself; `ScriptLibrary` (engine/include/alamo/scripts.hpp)
-provides it from the game's script folders, and all 426 scripts run their top level that way. What the
+provides it from the game's script folders, and all 430 script names run their top level that way. What the
 host has to provide, and in which order the engine calls a behaviour, is in [docs/SCRIPTING.md](docs/SCRIPTING.md).
 
 Object fields are flattened to paths, e.g.

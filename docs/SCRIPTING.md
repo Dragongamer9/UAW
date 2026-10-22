@@ -7,7 +7,7 @@ method called on what it returns, is recorded and answers with another stand-in.
 
 ## Inventory
 
-`objdump <game> scripts` loads all 428 scripts under `Data/Scripts` (421 compiled, 7 mod sources) and
+`objdump <game> scripts` loads all 431 scripts under `Data/Scripts` (421 compiled, 10 mod sources) and
 lists the globals they read that no script defines: **623 engine globals and 1,743 method names**. The
 most used are `Find_Player`, `Get_Game_Text`, `Play_SFX_Event`, `Find_Object_Type`, `Create_Thread` and
 `GetCurrentTime`, and the methods `Set_Hidden`, `Register_Event_Handler` and `Get_Owner`. The GUI
