@@ -970,6 +970,19 @@ void UnitControl::draw(Renderer& r, alamo::World& w, float time) const {
             const float pulse = 0.75f + 0.25f * std::sin(time * 6);
             r.drawBox(Mat4::translate(ghost_[0], ghost_[1], ghost_[2]) * Mat4::scale3(fx * 2, fy * 2, 6),
                       ok ? Vec4{0.2f * pulse, 0.9f * pulse, 0.3f * pulse, 1} : Vec4{0.95f * pulse, 0.2f, 0.15f, 1});
+            // A defence: its weapons' reach as a ring around the site.
+            float reach = 0;
+            for (const alamo::WeaponSpec& ws : alamo::weaponsFor(*t, w.db())) reach = std::max(reach, ws.maxRange);
+            if (reach > 0) {
+                const int n = 48;
+                const float seg = 2 * 3.14159265f * reach / float(n) * 0.55f;
+                for (int k = 0; k < n; ++k) {
+                    const float a = 2 * 3.14159265f * (float(k) + 0.5f) / float(n);
+                    const float x = ghost_[0] + std::cos(a) * reach, y = ghost_[1] + std::sin(a) * reach;
+                    r.drawBox(Mat4::translate(x, y, w.map().heightAt(x, y) + 0.8f) * Mat4::rotateZ(a + 1.5707963f) * Mat4::scale3(seg, 2.f, 0.8f),
+                              {1.f, 0.85f, 0.3f, 1});
+                }
+            }
         }
     }
 
