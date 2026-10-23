@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -14,7 +15,9 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x64
-          - os: ubuntu-24.04
+          # Ubuntu 22.04 (glibc 2.35) so the Linux build also runs on Debian 12 based systems
+          # (Peppermint, Hearth OS Peppermint edition) and anything newer.
+          - os: ubuntu-22.04
             name: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,10 +31,17 @@ jobs:
             zlib1g-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
             libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev libudev-dev libdbus-1-dev \
-            libasound2-dev libpulse-dev libpipewire-0.3-dev
+            libasound2-dev libpulse-dev libpipewire-0.3-dev g++-12
+          echo "CC=gcc-12" >> "$GITHUB_ENV"
+          echo "CXX=g++-12" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          extra=""
+          # Linux: the C++ runtime linked in, so the binary doesn't depend on the system's libstdc++.
+          if [ "$RUNNER_OS" = Linux ]; then extra="-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"; fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${extra:+"$extra"}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -55,3 +65,30 @@ jobs:
         with:
           name: uaw-native-${{ matrix.name }}
           path: dist/
+
+  release:
+    # Tags (v0.1.0, ...) publish a GitHub release with both builds.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package
+        run: |
+          cd artifacts
+          chmod +x uaw-native-linux-x64/* || true
+          mv uaw-native-linux-x64 "uaw-native-${GITHUB_REF_NAME}-linux-x64"
+          tar czf "../uaw-native-${GITHUB_REF_NAME}-linux-x64.tar.gz" "uaw-native-${GITHUB_REF_NAME}-linux-x64"
+          mv uaw-native-windows-x64 "uaw-native-${GITHUB_REF_NAME}-windows-x64"
+          zip -qr "../uaw-native-${GITHUB_REF_NAME}-windows-x64.zip" "uaw-native-${GITHUB_REF_NAME}-windows-x64"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "uaw-native $GITHUB_REF_NAME" \
+            --notes "Skirmish build of the Universe at War engine reimplementation. Needs your own copy of the game. Linux: extract, then run ./uaw-viewer \"/path/to/Universe At War Earth Assault\" (or put it in the game folder and run it with no arguments). Windows: extract into the game folder and double-click uaw-viewer.exe. See README.md." \
+            uaw-native-*-linux-x64.tar.gz uaw-native-*-windows-x64.zip
