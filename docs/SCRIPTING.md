@@ -79,8 +79,8 @@ against.
 ## The host so far (`engine/src/scripthost.cpp`)
 
 Per object: its own `LuaVM`, `Object` bound to it, `BehaviorList`, its `Lua_Script_Data` run first, then
-`Base_Definitions()`, `Init_Behaviors()`, `First_Service()` once, and `main()` as a coroutine resumed
-ten times a second (when `main` returns because nothing needs service, a `PumpEvents` loop takes its
+`Base_Definitions()`, `Init_Behaviors()`, then a coroutine resumed ten times a second that runs
+`First_Service()` once and `main()` (when `main` returns because nothing needs service, a `PumpEvents` loop takes its
 place so events still arrive). Threads from `Create_Thread` are coroutines resumed on the same beat.
 
 Engine side provided: `GetEvent` (with `Params`, `Reset`), `ThreadValue` (per coroutine, with
@@ -98,7 +98,7 @@ answer nil and are logged once.
 Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds). Objects
 created by scripts (`Create_Generic_Object`, `Spawn_Unit`) start their own behaviours, and the station's
 `Set_Depot` / `Set_Drone_Search_Radius` hand the depot and radius to each drone's script, so all four
-scripts keep running (the drones' collecting is the next gap). `AlienReaperTurret` and
+scripts keep running (the collecting itself is the engine's harvest behaviour, not script). `AlienReaperTurret` and
 `SuperWeaponEnablerBehavior` run their loops without errors, and so does a Habitat Walker's set
 (`WalkerPuzzle`, `Generic_Vehicle_Unit_Behavior`, `Defensive_AI_Unit_Behavior`) now that hardpoints are
 handles: `Find_All_Hard_Points_Of_Type` (a list), `Get_All_Hard_Points`, and on a hardpoint `Is_Valid`,
@@ -109,7 +109,8 @@ handles: `Find_All_Hard_Points_Of_Type` (a list), `Get_All_Hard_Points`, and on 
 (`simtool ... script TYPE`): 226 still have their scripts running at the end; the 10 marker spawners
 (`MarkerSpawner`, `Masari_SW_Magma_channel_Weapon`) spawn their squads with `Spawn_Unit` (some of them,
 the rest need `MARKER_SPAWNER_TYPE` and `Get_Hint`) and remove themselves as they should;
-`Novus_Collector` stops. `First_Service` runs on the pumping thread before `main` (it may `Sleep`).
+`Novus_Collector` placed on its own stops, as it should without a depot. `First_Service` runs on the
+pumping thread before `main` (it may `Sleep`).
 
 Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player.lua` in its own state
 (`Player` bound, `Base_Definitions()` and `Definitions()`, then its threads), and `Call_Function(name,
@@ -117,8 +118,8 @@ Player scripts: `Get_Owner().Get_Script()` starts the player's `<Faction>_Player
 the engine (scoring: `GameScoringManager`, `Register_Game_Scoring_Commands`; game events:
 `Raise_Game_Event`; the GUI: `Set_Object_Context_ID`, comms portraits created as `*_PIP_Only` objects).
 
-Next: the drone and player-script API those need, then a switch to run scripts in real games in place
-of the native copies.
+Next: the player-script API those need, then a switch to run scripts in real games in place of the
+native copies.
 
 The VM needed one fix for this: `coroutine.running()` now returns the running coroutine (it gave
 nil), which the framework uses to tell the pumping thread from the others.
@@ -131,7 +132,7 @@ the host still lacks (number of object types reaching each; `Process_Reinforceme
 
 | Missing | Types | What it is |
 |---|---|---|
-| `Get_Game_Mode_GUI_Scene` | 62 | the in-game GUI scene (HeroIcon and others) |
+| `Get_Game_Mode_GUI_Scene` (stubbed) | 93 | the in-game GUI scene (HeroIcon and others) |
 | `RESEARCH`, `GameScoringManager.Get_Game_Script_Data_Table` | 38 | player scripts: research, scoring (now stubbed) |
 | `TacticalResourceCap` | 10 | resource cap value |
 | `Find_Hint`, `MARKER_SPAWNER_TYPE` | 5 | map markers and their hints |
