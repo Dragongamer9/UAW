@@ -47,6 +47,8 @@ private:
     ScriptLibrary& library_;
     std::vector<std::unique_ptr<Instance>> instances_;
     std::map<int, Instance*> playerScripts_;
+    std::map<uint32_t, Instance*> byUnit_; // object scripts by unit id
+    Instance* byUnit(uint32_t id);         // its running script state, if any
     bool start(uint32_t id, int playerId, const std::vector<std::string>& scripts, std::string* error);
     Instance* playerScript(int playerId);
     void service(Instance& in);

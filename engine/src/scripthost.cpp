@@ -250,7 +250,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         });
         return h;
     };
-    I.object = [&I, &w, whereOf, position, say](uint32_t oid) -> LuaValue {
+    I.object = [this, &I, &w, whereOf, position, say](uint32_t oid) -> LuaValue {
         if (auto it = I.objects.find(oid); it != I.objects.end()) return it->second;
         LuaValue o = table();
         I.objects[oid] = o;
@@ -292,6 +292,13 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
             if (Unit* u = alive(); u && !a.empty() && whereOf(a[0], p)) w.commandMove({u->id}, p);
             return Values{};
         });
+        // Setters that hand a value to the object's own script (drones learn their depot this way).
+        for (const auto& [method, global] : std::vector<std::pair<const char*, const char*>>{
+                 {"Set_Depot", "resource_drone_depot"}, {"Set_Drone_Search_Radius", "resource_drone_search_radius"}})
+            def(o, method, [this, oid, g = std::string(global)](const Values& a) {
+                if (Instance* other = byUnit(oid)) other->vm->setGlobal(g, a.empty() ? LuaValue() : a[0]);
+                return Values{};
+            });
         def(o, "Stop", [alive, &w](const Values&) {
             if (Unit* u = alive()) w.commandStop({u->id});
             return Values{};
@@ -592,8 +599,12 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         return Values{l.t->get(LuaValue::number(1))};
     });
 
+    auto startScripts = [this, &w](uint32_t id) {
+        if (const Unit* u = w.unit(id))
+            if (const auto b = behaviorsOf(*u->type); !b.empty()) attach(id, b);
+    };
     // Spawn_Unit(type, position, player): a unit or squad, as a list of handles.
-    vm.setFunction("Spawn_Unit", [&w, &I, whereOf, say](const Values& a) {
+    vm.setFunction("Spawn_Unit", [&w, &I, whereOf, say, startScripts](const Values& a) {
         if (a.size() < 3 || !a[0].isTable()) return Values{};
         const std::string typeName = a[0].t->get(LuaValue::string("__type")).str();
         Vec3 at;
@@ -608,14 +619,18 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
             say("Spawn_Unit: cannot create " + typeName);
             return Values{};
         }
+        std::vector<uint32_t> ids = w.spawned();
+        if (ids.empty()) ids.push_back(w.units().back().id);
         LuaValue list = table();
         double n = 0;
-        for (const uint32_t id : w.spawned()) list.t->set(LuaValue::number(++n), I.object(id));
-        if (w.spawned().empty()) list.t->set(LuaValue::number(1), I.object(uint32_t(w.units().back().id)));
+        for (const uint32_t id : ids) {
+            list.t->set(LuaValue::number(++n), I.object(id));
+            startScripts(id);
+        }
         return Values{list};
     });
     // Create_Generic_Object(type, position, player): a new object, as its handle.
-    vm.setFunction("Create_Generic_Object", [&w, &I, whereOf, say](const Values& a) {
+    vm.setFunction("Create_Generic_Object", [&w, &I, whereOf, say, startScripts](const Values& a) {
         if (a.size() < 3 || !a[0].isTable()) return Values{};
         const std::string typeName = a[0].t->get(LuaValue::string("__type")).str();
         Vec3 at;
@@ -632,6 +647,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
             return Values{};
         }
         say("created " + typeName);
+        startScripts(id); // as the engine does: a new object runs its own behaviours
         return Values{I.object(id)};
     });
     vm.onMissingGlobal = [say, this](const std::string& g) {
@@ -667,6 +683,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         const Values co = vm.call(vm.global("coroutine").get("create"), {vm.global("__Main")});
         if (!co.empty()) I.main = co[0];
     }
+    byUnit_[id] = in.get();
     instances_.push_back(std::move(in));
     return true;
 }
@@ -747,6 +764,11 @@ void BehaviorHost::runThreads(Instance& I) {
             --k;
         }
     }
+}
+
+BehaviorHost::Instance* BehaviorHost::byUnit(uint32_t id) {
+    auto it = byUnit_.find(id);
+    return it == byUnit_.end() || it->second->finished ? nullptr : it->second;
 }
 
 void BehaviorHost::update() {

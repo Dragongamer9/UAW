@@ -95,8 +95,10 @@ script message hooks. Objects: `Get_ID`, `Is_Valid`, `Get_Owner`,
 `Get_Credits`, `Get_Faction_Name`, `Is_Enemy`. Types: `Get_Name`, `Get_Type_Value`. Unknown methods
 answer nil and are logged once.
 
-Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds), then
-calls `Set_Depot` / `Set_Drone_Search_Radius` on them (not there yet). `AlienReaperTurret` and
+Tried: `NovusInputStation` runs and launches its `Novus_Collector` drones (three in 40 seconds). Objects
+created by scripts (`Create_Generic_Object`, `Spawn_Unit`) start their own behaviours, and the station's
+`Set_Depot` / `Set_Drone_Search_Radius` hand the depot and radius to each drone's script, so all four
+scripts keep running (the drones' collecting is the next gap). `AlienReaperTurret` and
 `SuperWeaponEnablerBehavior` run their loops without errors, and so does a Habitat Walker's set
 (`WalkerPuzzle`, `Generic_Vehicle_Unit_Behavior`, `Defensive_AI_Unit_Behavior`) now that hardpoints are
 handles: `Find_All_Hard_Points_Of_Type` (a list), `Get_All_Hard_Points`, and on a hardpoint `Is_Valid`,
