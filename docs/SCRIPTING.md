@@ -126,15 +126,14 @@ nil), which the framework uses to tell the pumping thread from the others.
 ## What the behaviours ask for next
 
 The same sweep (`simtool <game> M25_Grand_Canyon scripts`, about 20 seconds), counting the engine calls
-the host still lacks (number of object types reaching each):
+the host still lacks (number of object types reaching each; `Process_Reinforcements`,
+`PG_Story_Mode_Init`, `Raise_Game_Event`, `Set/Get_Object_Context_ID` and `Get_Hint` are now answered):
 
 | Missing | Types | What it is |
 |---|---|---|
 | `Get_Game_Mode_GUI_Scene` | 62 | the in-game GUI scene (HeroIcon and others) |
-| `Process_Reinforcements` | 49 | player-script reinforcement handling |
-| `Set_Object_Context_ID`, `GameScoringManager`, `Register_Game_Scoring_Commands`, `RESEARCH`, `PG_Story_Mode_Init` | 43 | player scripts: GUI context, scoring, research, story mode |
+| `RESEARCH`, `GameScoringManager.Get_Game_Script_Data_Table` | 38 | player scripts: research, scoring (now stubbed) |
 | `TacticalResourceCap` | 10 | resource cap value |
-| `Get_Object_Context_ID`, `Get_Hint`, `Find_Hint`, `MARKER_SPAWNER_TYPE` | 5-9 | map markers and their hints |
+| `Find_Hint`, `MARKER_SPAWNER_TYPE` | 5 | map markers and their hints |
 | `Create_And_Attach_Hard_Point` | 8 | walkers growing hardpoints |
-| `Raise_Game_Event` | 8 | game events |
 | `Initiate_Ambient_Flow` | 5 | Novus ambient flow |

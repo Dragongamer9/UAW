@@ -322,6 +322,14 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
         def(o, "Has_Behavior", [](const Values&) { return Values{LuaValue::boolean(false)}; });
         def(o, "Get_Script", [](const Values&) { return Values{}; });
         def(o, "Service_Wrapper", [](const Values&) { return Values{}; });
+        // A context id the GUI scripts tag objects with: kept per object.
+        auto context = std::make_shared<LuaValue>();
+        def(o, "Set_Object_Context_ID", [context](const Values& a) {
+            *context = a.empty() ? LuaValue() : a[0];
+            return Values{};
+        });
+        def(o, "Get_Object_Context_ID", [context](const Values&) { return Values{*context}; });
+        def(o, "Get_Hint", [](const Values&) { return Values{}; }); // map editor hints: none yet
         // Hardpoints (walker legs, cores, weapons) as handles of their own.
         auto hardpoint = [&I, &w](uint32_t owner, size_t slot) -> LuaValue {
             const uint64_t key = uint64_t(owner) << 8 | slot;
@@ -546,7 +554,7 @@ bool BehaviorHost::start(uint32_t id, int playerId, const std::vector<std::strin
     };
     vm.setFunction("Get_Game_Mode_GUI_Scene", [stub](const Values&) { return Values{stub("GUI scene")}; });
     vm.setGlobal("GameScoringManager", stub("GameScoringManager"));
-    for (const char* quiet : {"Register_Game_Scoring_Commands", "Raise_Game_Event"})
+    for (const char* quiet : {"Register_Game_Scoring_Commands", "Raise_Game_Event", "Process_Reinforcements", "PG_Story_Mode_Init"})
         vm.setFunction(quiet, [](const Values&) { return Values{}; });
 
     // ---- common engine globals
