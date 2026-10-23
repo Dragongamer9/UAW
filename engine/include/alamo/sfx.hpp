@@ -40,6 +40,7 @@ public:
     void parse(std::string_view xml);
     const SfxEvent* find(std::string_view name) const;
     size_t size() const { return events_.size(); }
+    const std::map<std::string, SfxEvent>& events() const { return events_; }
 
 private:
     std::map<std::string, SfxEvent> events_; // by upper-case name (presets included)

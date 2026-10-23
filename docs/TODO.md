@@ -27,12 +27,14 @@ lies near the starts) move the balance about as much as the multipliers.
 
 ## Check the sound against the real game files
 
-Sound effects and music (client/audio.cpp) are written against the game's XML (1,405 SFX events, 110
-music events) but the staged copy has no samples: only synthetic sounds and the two speech mp3s in
-Patch.meg were played. With the full install: run `UAW_AUDIO_LOG=1 uaw-viewer` and look for "no sample"
-/ "no music" lines (samples are looked up by file name in every archive and loose folder; localized
-speech also as NAME_ENG.mp3), and listen for levels: SFX `Min/Max_Volume`, music `Volume_Percent`,
-and the distance fade in `Audio::place`.
+The sound archives are in `Data\Audio\SFX\*.meg`, which `MegaFiles.xml` doesn't list; they are now
+mounted with the base game. Checked 2026-10-22 against the real archives (`Patch_SFX`,
+`SFX2D_Non_Localized`, `SFX3D_Non_Localized`, `Music.meg`, `EnglishSpeech.meg`): 807 of the 1,375 SFX
+events with samples find theirs (all PCM .wav or .mp3, which the decoders handle), and 57 of the 58 music
+files are there. Most of the rest are probably in `SFX2D_English.MEG` (unit replies), which could not be
+copied over yet. Still to do with a real sound card: `UAW_AUDIO_LOG=1 uaw-viewer` for "no sample" /
+"no music" lines, and listening to the levels (SFX `Min/Max_Volume`, music `Volume_Percent`, the distance
+fade in `Audio::place`).
 
 ## Check the build menu icons against the real game files
 

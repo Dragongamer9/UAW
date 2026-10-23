@@ -163,6 +163,35 @@ std::vector<std::string> mountGame(MegVfs& vfs, const std::filesystem::path& gam
             missing.push_back(rel);
         }
     }
+    // The sound archives (Data\Audio\SFX\*.meg) aren't in MegaFiles.xml: the game's audio system
+    // opens them itself. Mount them in the base layer, the patch archive last so it wins.
+    {
+        std::error_code ec;
+        std::vector<std::filesystem::path> sfx;
+        std::filesystem::path dir = gameRoot; // case-insensitive, folder by folder
+        for (const char* part : {"Data", "Audio", "SFX"}) {
+            std::filesystem::path next;
+            for (const auto& d : std::filesystem::directory_iterator(dir, ec))
+                if (iequals(d.path().filename().string(), part)) next = d.path();
+            dir = next;
+            if (dir.empty()) break;
+        }
+        if (!dir.empty() && std::filesystem::is_directory(dir, ec))
+            for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+                std::string ext = e.path().extension().string();
+                for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+                if (e.is_regular_file(ec) && ext == ".meg") sfx.push_back(e.path());
+            }
+        std::sort(sfx.begin(), sfx.end(), [](const auto& a, const auto& b) {
+            auto patch = [](const std::filesystem::path& p) {
+                std::string n = p.filename().string();
+                for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+                return n.find("patch") != std::string::npos;
+            };
+            return patch(a) != patch(b) ? !patch(a) : a.filename() < b.filename();
+        });
+        for (const auto& p : sfx) vfs.mount(p);
+    }
     // One layer per mod, bottom to top. Each mod's MegaFiles.xml repeats the base list
     // plus its own archives; the ones inside the mod folder go into its layer, any base
     // archive the game list didn't have goes into the base layer's set.

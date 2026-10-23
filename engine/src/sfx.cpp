@@ -34,7 +34,22 @@ std::vector<std::string> words(const std::string& s) {
         }
     }
     if (!w.empty()) out.push_back(w);
-    return out;
+    // A few entries in the game's XML run two names together ("A_6.wavB_1.wav"): split after each
+    // sound extension.
+    std::vector<std::string> split;
+    for (const std::string& word : out) {
+        size_t from = 0;
+        for (size_t i = 0; i + 4 <= word.size(); ++i) {
+            std::string ext = word.substr(i, 4);
+            for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+            if ((ext == ".wav" || ext == ".mp3") && i + 4 < word.size() && word[i + 4] != '.') {
+                split.push_back(word.substr(from, i + 4 - from));
+                from = i + 4;
+            }
+        }
+        split.push_back(word.substr(from));
+    }
+    return split;
 }
 
 bool yes(const std::string& s) {
