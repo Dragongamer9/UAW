@@ -636,7 +636,7 @@ void World::commandMove(const std::vector<uint32_t>& ids, Vec3 target, bool queu
     if (rec_.captured) return; // sent over the network; it runs when its turn comes
     std::vector<Unit*> group;
     for (uint32_t id : ids)
-        if (Unit* u = unit(id); u && !u->inside) {
+        if (Unit* u = unit(id); u && !u->inside && !u->underConstruction) { // not while being built
             u->boarding = 0;
             group.push_back(u);
         }
@@ -1206,6 +1206,11 @@ void World::removeDead() {
 
 void World::moveUnit(Unit& u) {
     if (u.structure || u.leaping || u.inside) return; // leaps move in updateLeap, riders with their transport
+    if (u.underConstruction) { // a walker or Reaper being built stays on its site until it is finished
+        u.path.clear();
+        u.speed = 0;
+        return;
+    }
     if (u.path.empty()) {
         u.speed = std::max(0.f, u.speed - u.acceleration * 2);
         return;
@@ -1288,8 +1293,10 @@ void World::separate() {
         if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
         else { nx = (a.id < b.id) ? 1.f : -1.f; d = 0; } // deterministic split for exact overlaps
         const float push = (minD - d) * 0.25f;
-        // Units standing still yield more than moving ones.
-        const float wa = a.moving() ? 0.35f : 0.65f, wb = b.moving() ? 0.35f : 0.65f;
+        // Units standing still yield more than moving ones; units being built don't yield at all.
+        if (a.underConstruction && b.underConstruction) return;
+        const float wa = a.underConstruction ? 0.f : a.moving() ? 0.35f : 0.65f;
+        const float wb = b.underConstruction ? 0.f : b.moving() ? 0.35f : 0.65f;
         const float sa = wa / (wa + wb), sb = wb / (wa + wb);
         Vec3 pa{a.position[0] - nx * push * sa, a.position[1] - ny * push * sa, 0};
         Vec3 pb{b.position[0] + nx * push * sb, b.position[1] + ny * push * sb, 0};

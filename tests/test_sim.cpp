@@ -145,6 +145,25 @@ static GameDatabase testDb(const fs::path& root) {
     return db;
 }
 
+
+// A unit being built (a Hierarchy walker on its site) stays put: no orders move it and others
+// standing in it are pushed away instead, so its builder can keep working.
+static void testBuiltInPlace(const GameDatabase& db) {
+    const Map m = openMap();
+    World w(m, db);
+    const uint32_t site = w.spawn("Trooper", 0, {300, 300, 0});
+    const uint32_t other = w.spawn("Trooper", 0, {301, 300, 0});
+    w.unit(site)->underConstruction = true;
+    w.unit(site)->buildProgress = 0.1f;
+    const Vec3 start = w.unit(site)->position;
+    w.commandMove({site}, {800, 800, 0});
+    for (int i = 0; i < 60; ++i) w.tick();
+    const Unit* u = w.unit(site);
+    CHECK(u && u->position[0] == start[0] && u->position[1] == start[1]);
+    const Unit* o = w.unit(other);
+    CHECK(o && std::hypot(o->position[0] - start[0], o->position[1] - start[1]) > 2); // pushed off
+}
+
 static void testNav() {
     Map m = wallMap();
     NavGrid nav(m);
@@ -890,6 +909,7 @@ int main() {
     GameDatabase db = testDb(fs::temp_directory_path() / "uaw_native_test_sim");
     testNav();
     testMovement(db);
+    testBuiltInPlace(db);
     testGroups(db);
     testCombat(db);
     testEconomy(db);
