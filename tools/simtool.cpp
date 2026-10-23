@@ -11,6 +11,7 @@
 #include "alamo/techtree.hpp"
 #include "alamo/ted.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <set>
@@ -91,6 +92,40 @@ int main(int argc, char** argv) {
 
         const StartingForces forces = loadStartingForces(vfs);
         std::printf("resource piles on the map: %zu\n", World(map, db).resources().size());
+        if (cmd == "scripts") {
+            // Every object type that names Lua behaviours, placed for 40 seconds: do its scripts keep
+            // running, and what do they ask of the engine that the host lacks?
+            ScriptLibrary lib(vfs);
+            std::map<std::string, int> missing;
+            int running = 0, ended = 0, failed = 0;
+            for (const GameObjectType& t : db.objects()) {
+                if (!t.find("Lua_Land_Behaviors")) continue;
+                World w(map, db, &dmg, 1, &tech);
+                rules.configure(w);
+                addSkirmishPlayer(w, db, "Novus", st[0], &forces);
+                addSkirmishPlayer(w, db, "Alien", st[1], &forces);
+                const uint32_t obj = w.spawn(t.name, 1, {st[0][0] + 120, st[0][1], st[0][2]});
+                if (!obj) { ++failed; continue; }
+                BehaviorHost host(w, lib);
+                std::set<std::string> said;
+                host.log = [&](const std::string& m) {
+                    if (m.rfind("unknown", 0) == 0 || m.rfind("stub", 0) == 0) said.insert(m);
+                };
+                if (!host.attach(obj, BehaviorHost::behaviorsOf(t))) { ++failed; continue; }
+                for (int tick = 0; tick < 30 * 40; ++tick) {
+                    w.tick();
+                    host.update();
+                }
+                (host.running() ? running : ended) += 1;
+                for (const std::string& m : said) ++missing[m];
+            }
+            std::printf("object types with Lua behaviours: %d still running after 40 s, %d ended, %d could not start\n", running, ended, failed);
+            std::vector<std::pair<int, std::string>> v;
+            for (const auto& [m, n] : missing) v.emplace_back(n, m);
+            std::sort(v.rbegin(), v.rend());
+            for (const auto& [n, m] : v) std::printf("  %4d  %s\n", n, m.c_str());
+            return 0;
+        }
         if (cmd == "script" && argc > 4) {
             // An object running its own Lua behaviours: placed beside player 1's start, then one of
             // player 1's units walks onto it. Prints the credits and what the scripts did.

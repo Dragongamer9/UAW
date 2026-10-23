@@ -123,7 +123,8 @@ nil), which the framework uses to tell the pumping thread from the others.
 
 ## What the behaviours ask for next
 
-The same sweep, counting the engine calls the host still lacks (number of object types reaching each):
+The same sweep (`simtool <game> M25_Grand_Canyon scripts`, about 20 seconds), counting the engine calls
+the host still lacks (number of object types reaching each):
 
 | Missing | Types | What it is |
 |---|---|---|

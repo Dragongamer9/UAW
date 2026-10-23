@@ -314,6 +314,7 @@ simtool "<game>" M25_Grand_Canyon match Novus Alien 25   # AI vs AI until someon
 simtool "<game>" M25_Grand_Canyon game Novus:1,Masari:1,Alien:2,Military:2 30   # 2 v 2 (or FFA without teams)
 simtool "<game>" M25_Grand_Canyon,M16_Sahara tournament Novus,Alien,Masari,Military 20 2   # round robin
 simtool "<game>" M25_Grand_Canyon script Novus_Input_Station   # an object running its own Lua behaviours
+simtool "<game>" M25_Grand_Canyon scripts                       # all of them: how many run, what they lack
 ```
 
 A 25-minute match takes 30-50 seconds to simulate. `UAW_AI_LOG=1` prints every AI decision; `UAW_FOG=1` plays
