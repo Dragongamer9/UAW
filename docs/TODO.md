@@ -36,13 +36,6 @@ copied over yet. Still to do with a real sound card: `UAW_AUDIO_LOG=1 uaw-viewer
 "no music" lines, and listening to the levels (SFX `Min/Max_Volume`, music `Volume_Percent`, the distance
 fade in `Audio::place`).
 
-## Check the build menu icons against the real game files
-
-The build menu, production queue and selection panel show each type's `Icon_Name` texture
-(`i_icon_*.tga`), but the staged copy has none of them (only a few `I_ICON_*_SA_*` in Patch.meg), so the
-layout was only checked with a stand-in texture. With the full install the icons should appear beside every
-item; if they don't, look for the archive that holds them (a GUI .meg not listed in MegaFiles.xml?).
-
 ## 🚩 Missing art (not shipped by the game or any mod)
 
 Checked 2026-10-22 against the base archives, Community Patch 4, Human Resurgence 1.02 and

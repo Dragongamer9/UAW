@@ -2,8 +2,88 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <map>
+#include <mutex>
 
 namespace alamo {
+
+namespace {
+
+// Megatextures: the GUI's small pictures (build icons, buttons) are packed into atlases,
+// Data\Art\Textures\MT_*.TGA with an .MTD directory beside each: uint32 count, then per entry a
+// 64-byte name, x, y, width, height (uint32) and one alpha byte.
+struct AtlasEntry {
+    std::string atlas; // the .tga beside the .mtd
+    uint32_t x, y, w, h;
+};
+struct Atlases {
+    std::map<std::string, AtlasEntry> entries; // upper-case stem -> where
+    std::map<std::string, std::optional<Image>> images;
+};
+std::mutex atlasMutex;
+std::map<const MegVfs*, Atlases> atlasCache;
+
+std::string upperStem(std::string n) {
+    if (size_t slash = n.find_last_of("\\/"); slash != std::string::npos) n = n.substr(slash + 1);
+    if (size_t dot = n.rfind('.'); dot != std::string::npos && n.size() - dot <= 4) n.resize(dot);
+    for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return n;
+}
+
+Atlases& atlasesFor(MegVfs& vfs) {
+    auto [it, fresh] = atlasCache.try_emplace(&vfs);
+    if (!fresh) return it->second;
+    for (const std::string& path : vfs.listDirectory("Data\\Art\\Textures")) {
+        if (path.size() < 4 || path.compare(path.size() - 4, 4, ".MTD") != 0) continue;
+        std::vector<uint8_t> d;
+        try { d = vfs.read(path); } catch (const std::exception&) { continue; }
+        if (d.size() < 4) continue;
+        uint32_t n = 0;
+        std::memcpy(&n, d.data(), 4);
+        if (4 + size_t(n) * 81 > d.size()) continue;
+        const std::string atlas = path.substr(0, path.size() - 4) + ".TGA";
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint8_t* e = d.data() + 4 + size_t(i) * 81;
+            std::string name(reinterpret_cast<const char*>(e), strnlen(reinterpret_cast<const char*>(e), 64));
+            AtlasEntry a{atlas, 0, 0, 0, 0};
+            std::memcpy(&a.x, e + 64, 4);
+            std::memcpy(&a.y, e + 68, 4);
+            std::memcpy(&a.w, e + 72, 4);
+            std::memcpy(&a.h, e + 76, 4);
+            it->second.entries.emplace(upperStem(name), a); // first atlas listing a name wins
+        }
+    }
+    return it->second;
+}
+
+std::optional<Image> fromAtlas(MegVfs& vfs, const std::string& name) {
+    std::lock_guard<std::mutex> lock(atlasMutex);
+    Atlases& at = atlasesFor(vfs);
+    const auto e = at.entries.find(upperStem(name));
+    if (e == at.entries.end()) return std::nullopt;
+    auto [img, fresh] = at.images.try_emplace(e->second.atlas);
+    if (fresh) {
+        try {
+            img->second = decodeTga(vfs.read(e->second.atlas));
+        } catch (const std::exception&) {
+        }
+    }
+    if (!img->second) return std::nullopt;
+    const Image& big = *img->second;
+    const AtlasEntry& r = e->second;
+    if (r.w == 0 || r.h == 0 || r.x + r.w > big.width || r.y + r.h > big.height) return std::nullopt;
+    Image out;
+    out.width = r.w;
+    out.height = r.h;
+    out.sourceFormat = "atlas";
+    out.rgba.resize(size_t(r.w) * r.h * 4);
+    for (uint32_t row = 0; row < r.h; ++row)
+        std::memcpy(out.rgba.data() + size_t(row) * r.w * 4, big.rgba.data() + (size_t(r.y + row) * big.width + r.x) * 4, size_t(r.w) * 4);
+    return out;
+}
+
+} // namespace
 
 std::optional<Image> loadGameTexture(MegVfs& vfs, const std::string& name) {
     std::string stem = name;
@@ -18,7 +98,7 @@ std::optional<Image> loadGameTexture(MegVfs& vfs, const std::string& name) {
             // fall through to the next extension
         }
     }
-    return std::nullopt;
+    return fromAtlas(vfs, name); // a GUI picture packed in a megatexture
 }
 
 std::string modelPath(const std::string& name) {
