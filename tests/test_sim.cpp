@@ -155,11 +155,13 @@ static void testBuiltInPlace(const GameDatabase& db) {
     const uint32_t other = w.spawn("Trooper", 0, {301, 300, 0});
     w.unit(site)->underConstruction = true;
     w.unit(site)->buildProgress = 0.1f;
+    w.unit(site)->buildTicks = 3000;   // a long build, with no builder near: it stays unfinished
+    w.unit(site)->builderTicks = 3000;
     const Vec3 start = w.unit(site)->position;
     w.commandMove({site}, {800, 800, 0});
     for (int i = 0; i < 60; ++i) w.tick();
     const Unit* u = w.unit(site);
-    CHECK(u && u->position[0] == start[0] && u->position[1] == start[1]);
+    CHECK(u && u->underConstruction && u->position[0] == start[0] && u->position[1] == start[1]);
     const Unit* o = w.unit(other);
     CHECK(o && std::hypot(o->position[0] - start[0], o->position[1] - start[1]) > 2); // pushed off
 }
