@@ -78,28 +78,36 @@ jobs:
           path: dist/
 
   release:
-    # Tags (v0.1.0, ...) publish a GitHub release with both builds.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Publishes a GitHub release with both builds: for a v* tag, or for a push to main whose commit
+    # message contains [release] (the version is then taken from the VERSION file and tagged here).
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="$GITHUB_REF_NAME"; else v="v$(tr -d ' \n' < src/VERSION)"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
       - name: Package
         run: |
           cd artifacts
           chmod +x uaw-native-linux-x64/* || true
-          mv uaw-native-linux-x64 "uaw-native-${GITHUB_REF_NAME}-linux-x64"
-          tar czf "../uaw-native-${GITHUB_REF_NAME}-linux-x64.tar.gz" "uaw-native-${GITHUB_REF_NAME}-linux-x64"
-          mv uaw-native-windows-x64 "uaw-native-${GITHUB_REF_NAME}-windows-x64"
-          zip -qr "../uaw-native-${GITHUB_REF_NAME}-windows-x64.zip" "uaw-native-${GITHUB_REF_NAME}-windows-x64"
+          mv uaw-native-linux-x64 "uaw-native-${VERSION}-linux-x64"
+          tar czf "../uaw-native-${VERSION}-linux-x64.tar.gz" "uaw-native-${VERSION}-linux-x64"
+          mv uaw-native-windows-x64 "uaw-native-${VERSION}-windows-x64"
+          zip -qr "../uaw-native-${VERSION}-windows-x64.zip" "uaw-native-${VERSION}-windows-x64"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "uaw-native $GITHUB_REF_NAME" \
+          gh release create "$VERSION" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "uaw-native $VERSION" \
             --notes "Skirmish build of the Universe at War engine reimplementation. Needs your own copy of the game. Linux: extract, then run ./uaw-viewer \"/path/to/Universe At War Earth Assault\" (or put it in the game folder and run it with no arguments). Windows: extract into the game folder and double-click uaw-viewer.exe. See README.md." \
             uaw-native-*-linux-x64.tar.gz uaw-native-*-windows-x64.zip

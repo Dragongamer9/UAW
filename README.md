@@ -5,8 +5,14 @@ A clean-room, native 64-bit reimplementation of the Alamo engine as used by
 game data from your own install. No Petroglyph assets are included or
 redistributed.
 
-**Download:** every push builds Windows and Linux versions; open the newest green run under the repository's
-**Actions** tab and download `uaw-native-windows-x64` (or `-linux-x64`) from its **Artifacts** (signed in to GitHub).
+**Download:** the [Releases](https://github.com/Dragongamer9/UAW/releases) page has the Linux (`.tar.gz`) and
+Windows (`.zip`) builds. The Linux build runs on glibc 2.35 or newer (Debian 12, Ubuntu 22.04, Fedora,
+Arch, ...). Every push also builds both under the **Actions** tab (**Artifacts**, signed in to GitHub). A
+commit to `main` with `[release]` in its message publishes the version in `VERSION` as a release.
+
+**Linux:** extract, then `./uaw-viewer "/path/to/Universe At War Earth Assault"` (or put it in the game
+folder, or next to it, and run it with no arguments). Saves and settings go to
+`~/.local/share/Dragongamer9/uaw-native/`.
 
 **Playing:** put `uaw-viewer.exe` in the game folder (the one with `Data\MegaFiles.xml`) or next to it and
 double-click it. The skirmish setup screen opens: pick a map, players, factions and teams, and start. In a
