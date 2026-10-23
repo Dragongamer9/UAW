@@ -76,8 +76,10 @@ before the Remix Material Center's units (Hailfire, Armored Assault Tank, Provid
 
 ## Bigger pieces still to do
 
-- A Lua scripting host: the engine API the game's own scripts call (unit behaviours, the skirmish AI
-  scripts, story missions, the GUI scripts). `objdump <game> scripts` lists it: 623 globals and 1,743
-  method names. The VM side is done (metatables, coroutines, a source compiler, the standard library,
-  `require`); the behaviour call order is worked out in [SCRIPTING.md](SCRIPTING.md).
+- The Lua scripting host (started: `BehaviorHost`, see [SCRIPTING.md](SCRIPTING.md)). The behaviour
+  framework runs and 226 of 238 object types keep their scripts running; next, in order of need
+  (`simtool <game> M25_Grand_Canyon scripts`): the GUI scene, reinforcements, scoring and research for
+  the player scripts, map hints, `Create_And_Attach_Hard_Point`. Then a switch to run the scripts in
+  real games in place of the native copies (economy first), the skirmish AI scripts, story missions and
+  the GUI scripts. The whole API is 623 globals and 1,743 method names (`objdump <game> scripts`).
 - The campaign (story maps, Global Conquest).
