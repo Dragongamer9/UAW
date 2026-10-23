@@ -26,14 +26,17 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
+          # GCC 13 (the compiler the code is developed with) from the toolchain PPA; its C++ runtime
+          # is linked in statically below, so only glibc 2.35 is needed at run time.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             zlib1g-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
             libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev libudev-dev libdbus-1-dev \
-            libasound2-dev libpulse-dev libpipewire-0.3-dev g++-12
-          echo "CC=gcc-12" >> "$GITHUB_ENV"
-          echo "CXX=g++-12" >> "$GITHUB_ENV"
+            libasound2-dev libpulse-dev libpipewire-0.3-dev g++-13
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
 
       - name: Configure
         shell: bash
