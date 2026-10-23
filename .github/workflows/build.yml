@@ -64,6 +64,14 @@ jobs:
           cp README.md dist/
           ls -la dist
 
+      - name: Check the Linux build runs on Debian 12 (glibc 2.36 or older needed)
+        if: runner.os == 'Linux'
+        run: |
+          need=$(objdump -T dist/uaw-viewer | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "uaw-viewer needs glibc $need"
+          [ "$(printf '%s\n2.36\n' "$need" | sort -V | tail -1)" = "2.36" ]
+          objdump -p dist/uaw-viewer | grep NEEDED
+
       - uses: actions/upload-artifact@v4
         with:
           name: uaw-native-${{ matrix.name }}
